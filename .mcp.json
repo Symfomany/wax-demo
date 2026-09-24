@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "github-scout": {
+      "command": "/home/boyer/llm-harness/.venv/bin/python",
+      "args": ["/home/boyer/llm-harness/app/mcp_servers/github_server.py"],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN:-}"
+      }
+    },
+    "notion-veille": {
+      "command": "/home/boyer/llm-harness/.venv/bin/python",
+      "args": ["/home/boyer/llm-harness/app/mcp_servers/notion_server.py"],
+      "env": {
+        "NOTION_TOKEN": "${NOTION_TOKEN:-}"
+      }
+    },
+    "notion": {
+      "command": "npx",
+      "args": ["-y", "@notionhq/notion-mcp-server"],
+      "env": {
+        "NOTION_TOKEN": "${NOTION_TOKEN:-}"
+      }
+    }
+  }
+}

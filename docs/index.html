@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LLM Watch Harness</title>
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc" aria-label="Sommaire">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/><path d="M8 11h6M11 8v6"/></svg>
+    LLM Watch Harness
+  </div>
+  <a class="gs-link" href="getting-started.html">🚀 Getting started</a>
+  <ol>
+    <li><a href="#apercu">Aperçu</a></li>
+    <li><a href="#demarrage">Démarrage rapide</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#supervisor">Supervisor &amp; Task Graph</a></li>
+    <li><a href="#sous-agents">Sous-agents</a></li>
+    <li><a href="#guards">Guards</a></li>
+    <li><a href="#memoire">Mémoire</a></li>
+    <li><a href="#mcp">MCP GitHub</a></li>
+    <li><a href="#web">Interface web</a></li>
+    <li><a href="#publication">Rapports &amp; Notion</a></li>
+    <li><a href="#instructions">Instructions templatées</a></li>
+    <li><a href="#claude">Harness Claude Code</a></li>
+    <li><a href="#cli">Référence CLI</a></li>
+    <li><a href="#config">Configuration</a></li>
+    <li><a href="#tests">Tests</a></li>
+    <li><a href="#observabilite">Observabilité</a></li>
+    <li><a href="#depannage">Dépannage</a></li>
+    <li><a href="#limites">Limites connues</a></li>
+  </ol>
+  <div class="theme" role="group" aria-label="Thème">
+    <button data-set-theme="light">Clair</button>
+    <button data-set-theme="system">Auto</button>
+    <button data-set-theme="dark">Sombre</button>
+  </div>
+</nav>
+
+<main>
+
+<!-- ============================================================ -->
+<section id="apercu" class="hero">
+  <div class="eyebrow">Démo de Harness Engineering · Python · 100 % local</div>
+  <h1>LLM Watch Harness</h1>
+  <p class="lead">Une veille LLM / GenAI factuelle et sourcée, produite par des agents LangGraph
+  sur un petit modèle local (Ollama, gemma-3-4b-it), et encadrée par un <em>harness</em> :
+  règles, skills, sous-agents, hooks, guards et mémoire, côté application comme côté Claude Code.</p>
+
+  <div class="stats">
+    <div class="stat"><b>4</b><span>collecteurs parallèles, dont 1 via MCP</span></div>
+    <div class="stat"><b>2</b><span>serveurs MCP : GitHub et Notion</span></div>
+    <div class="stat"><b>3</b><span>sous-agents (sous-graphes LangGraph)</span></div>
+    <div class="stat"><b>3</b><span>niveaux de mémoire</span></div>
+    <div class="stat"><b>5</b><span>couches de guards</span></div>
+    <div class="stat"><b>150</b><span>tests verts (unitaires, graphe, chat, E2E) + 1 live</span></div>
+    <div class="stat"><b>≈ 70 s</b><span>par run complet sur RTX 3070 Ti</span></div>
+  </div>
+
+  <h3>Le principe en une phrase</h3>
+  <p>Le LLM choisit et rédige ; <strong>le code garantit</strong>. Le modèle ne renvoie jamais
+  une URL, un titre ou une date : il désigne des documents par leur numéro, et le code recopie
+  les métadonnées depuis la collecte. Tout ce qui peut être vérifié sans LLM l'est de façon
+  déterministe (dates, URLs, secrets, schémas, budgets), et chaque leçon humaine récurrente est
+  vouée à devenir une règle.</p>
+
+  <div class="cards">
+    <div class="card"><h4><span class="tag llm">LLM</span> Ce que fait le modèle</h4>
+      <p>Sélectionner les signaux (Scout), juger leur fidélité à la source (Critic), rédiger le digest en français (Editor).</p></div>
+    <div class="card"><h4><span class="tag det">Code</span> Ce que garantit le harness</h4>
+      <p>Métadonnées, schémas Pydantic, dédoublonnage, fraîcheur, guards de publication, budgets, reprise après crash.</p></div>
+    <div class="card"><h4><span class="tag human">Humain</span> Ce que décide l'humain</h4>
+      <p>Publier ou rejeter chaque digest ; sa note devient une leçon mémorisée et réinjectée.</p></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="demarrage">
+  <div class="eyebrow">Usage</div>
+  <h2>Démarrage rapide</h2>
+  <p>Prérequis : WSL 2 ou Linux, Python 3.12, <a href="https://ollama.com">Ollama</a> avec un modèle
+  local (testé avec <code>gemma-3-4b-it</code> sur RTX 3070 Ti, 8 Go).</p>
+
+  <ol class="steps">
+    <li><b>Installer les dépendances</b>
+<pre><code>cd ~/llm-harness
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"</code></pre></li>
+    <li><b>Configurer</b> : copier <code>.env.example</code> en <code>.env</code> et vérifier le modèle.
+<pre><code>cp .env.example .env
+<span class="c"># dans .env : le nom exact affiché par `ollama list`</span>
+LLM_MODEL=gemma-3-4b-it</code></pre></li>
+    <li><b>Diagnostiquer</b> : Ollama, modèle, GPU, sources, serveur MCP, migrations, Store.
+<pre><code>.venv/bin/python -m app.main doctor</code></pre></li>
+    <li><b>Lancer une veille</b> : le run s'arrête avant publication et affiche le digest.
+<pre><code>.venv/bin/python -m app.main run</code></pre></li>
+    <li><b>Valider ou rejeter</b> : la note est mémorisée pour les runs suivants.
+<pre><code>.venv/bin/python -m app.main resume &lt;run_id&gt; --approved --note "Garder le focus inférence"
+.venv/bin/python -m app.main resume &lt;run_id&gt; --rejected --note "Écarter les tutoriels"</code></pre></li>
+  </ol>
+
+  <p>Résultat : <code>output/digest-AAAAMMJJ-HHMMSS.md</code> et <code>.json</code> (conforme au modèle
+  <code>Digest</code>), trace en base SQLite et mémoire mise à jour.</p>
+
+  <h3>Exemple de sortie réelle</h3>
+  <div class="trace"><span class="sup">supervisor</span> fan-out : collect:rss, collect:arxiv, collect:github_releases, collect:github_mcp
+<span class="sup">supervisor</span> délègue prefilter → prefilter
+<span class="sup">supervisor</span> délègue research → research
+<span class="sup">supervisor</span> délègue review → review
+<span class="sup">supervisor</span> délègue editorial → editorial
+<span class="sup">supervisor</span> plan terminé → validation
+LLM : 5 appel(s), 0 depuis le cache SQLite
+Digest prêt pour validation humaine.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="architecture">
+  <div class="eyebrow">Fonctionnel</div>
+  <h2>Architecture</h2>
+  <p>Deux harness imbriqués : celui de <strong>Claude Code</strong>, qui encadre le développement
+  et l'exploitation du projet, et celui de l'<strong>application</strong>, qui encadre les agents LLM
+  locaux. Ils partagent le même Skill, la même mémoire et le même serveur MCP.</p>
+
+  <div class="layers">
+    <div class="layer claude">
+      <header><b>Harness Claude Code</b><span>.claude/ · CLAUDE.md · .mcp.json</span></header>
+      <div class="chips">
+        <span class="chip"><b>CLAUDE.md</b> règles non négociables</span>
+        <span class="chip"><b>4 Skills</b> veille-tech · github-scout · ajout-source · audit-digest</span>
+        <span class="chip"><b>4 sous-agents</b> source · schema · security · github-scout</span>
+        <span class="chip"><b>4 hooks</b> SessionStart · PreToolUse · PostToolUse · Stop</span>
+        <span class="chip"><b>MCP</b> github-scout</span>
+        <span class="chip"><b>Mémoire</b> @.claude/memory/veille.md</span>
+      </div>
+    </div>
+    <div class="arrow-down">▼ pilote, audite et relance ▲ reçoit l'état et la mémoire</div>
+    <div class="layer app">
+      <header><b>Application LangGraph</b><span>app/workflow · app/harness</span></header>
+      <div class="chips">
+        <span class="chip"><b>Supervisor</b> exécute un Task Graph (DAG)</span>
+        <span class="chip"><b>Collecteurs</b> RSS · arXiv · Releases · MCP GitHub</span>
+        <span class="chip"><b>research</b> map-reduce de Scouts</span>
+        <span class="chip"><b>review</b> pré-contrôle → Critic</span>
+        <span class="chip"><b>editorial</b> Editor → guards → réparation</span>
+        <span class="chip"><b>approval</b> interrupt() humain</span>
+        <span class="chip"><b>reflect</b> agent mémoire</span>
+      </div>
+    </div>
+    <div class="arrow-down">▼ lit / écrit</div>
+    <div class="layer mem">
+      <header><b>Mémoire</b><span>data/ · .claude/memory/</span></header>
+      <div class="chips">
+        <span class="chip"><b>watch.db</b> documents, digests, items publiés, cache LLM, runs</span>
+        <span class="chip"><b>checkpoints.db</b> état LangGraph (reprise)</span>
+        <span class="chip"><b>memory.db</b> Store LangGraph : leçons, thèmes, santé des sources</span>
+        <span class="chip"><b>veille.md</b> export pour Claude Code</span>
+      </div>
+    </div>
+    <div class="arrow-down">▲ collecte en lecture seule</div>
+    <div class="layer ext">
+      <header><b>Extérieur</b><span>sources déclarées dans sources.toml</span></header>
+      <div class="chips">
+        <span class="chip">6 blogs officiels (RSS)</span>
+        <span class="chip">arXiv cs.CL · cs.AI (RSS)</span>
+        <span class="chip">API GitHub : releases de 4 dépôts</span>
+        <span class="chip">API GitHub via MCP : nouveaux dépôts</span>
+        <span class="chip">Ollama local</span>
+        <span class="chip">Langfuse (optionnel)</span>
+      </div>
+    </div>
+  </div>
+
+  <h3>Carte des fichiers</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Chemin</th><th>Rôle</th></tr></thead>
+    <tbody>
+      <tr><td><code>app/workflow/graph.py</code></td><td>Graphe principal : supervisor, workers, validation humaine, publication, mémoire</td></tr>
+      <tr><td><code>app/workflow/tasks.py</code></td><td>Task Graph : DAG validé par Pydantic, ordre topologique, rendu Mermaid</td></tr>
+      <tr><td><code>app/workflow/subagents.py</code></td><td>Sous-graphes research, review, editorial</td></tr>
+      <tr><td><code>app/workflow/state.py</code></td><td>État partagé, réducteurs, contexte d'exécution, contrats d'état</td></tr>
+      <tr><td><code>app/harness/guards.py</code></td><td>Guards MCP, neutralisation des injections, contrats de nœuds</td></tr>
+      <tr><td><code>app/harness/hooks.py</code></td><td>Contrôles déterministes : risques documentaires, garde-fous de publication</td></tr>
+      <tr><td><code>app/harness/skills.py</code></td><td>Chargement du SKILL.md partagé avec Claude Code</td></tr>
+      <tr><td><code>app/llm.py</code></td><td>Appels structurés : schéma JSON imposé, validation, relance, cache, budget</td></tr>
+      <tr><td><code>app/memory.py</code></td><td>Mémoire long terme sur le Store LangGraph, export Claude Code</td></tr>
+      <tr><td><code>app/mcp_servers/github_server.py</code></td><td>Serveur MCP github-scout (FastMCP, stdio)</td></tr>
+      <tr><td><code>app/collectors/</code></td><td>Collecteurs RSS, arXiv, releases GitHub et client MCP</td></tr>
+      <tr><td><code>app/prompts/*.md</code></td><td>Prompts versionnés de Scout, Critic et Editor</td></tr>
+      <tr><td><code>app/storage.py</code></td><td>SQLite : migrations versionnées, mémoire factuelle, cache</td></tr>
+      <tr><td><code>sources.toml</code></td><td>Sources autorisées (vérifiées avant ajout)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="supervisor">
+  <div class="eyebrow">Fonctionnel</div>
+  <h2>Supervisor &amp; Task Graph</h2>
+  <p>Le <strong>Task Graph</strong> est une donnée, pas du code : une liste de tâches avec leurs
+  dépendances, validée par Pydantic (ids uniques, dépendances existantes, absence de cycle). Le
+  <strong>supervisor</strong> lit l'état d'avancement, choisit les tâches prêtes et délègue avec
+  <code>Command(goto=…)</code>. Chaque worker lui rend la main.</p>
+
+  <figure class="figure">
+    <svg viewBox="0 0 880 470" role="img" aria-labelledby="sup-title">
+      <title id="sup-title">Le supervisor au centre, relié aux workers et aux terminaux</title>
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0 0L10 5L0 10z"/></marker>
+      </defs>
+      <!-- arêtes workers (aller-retour) -->
+      <path class="edge" d="M352 190 L240 92" marker-start="url(#arr)" marker-end="url(#arr)"/>
+      <path class="edge" d="M440 180 L440 88" marker-start="url(#arr)" marker-end="url(#arr)"/>
+      <path class="edge" d="M528 190 L640 92" marker-start="url(#arr)" marker-end="url(#arr)"/>
+      <path class="edge" d="M530 210 L658 210" marker-start="url(#arr)" marker-end="url(#arr)"/>
+      <path class="edge" d="M528 232 L640 322" marker-start="url(#arr)" marker-end="url(#arr)"/>
+      <!-- arêtes terminales (conditionnelles) -->
+      <path class="edge cond" d="M350 210 L182 210" marker-end="url(#arr)"/>
+      <path class="edge cond" d="M352 232 L222 322" marker-end="url(#arr)"/>
+      <path class="edge cond" d="M440 240 L440 318" marker-end="url(#arr)"/>
+      <path class="edge cond" d="M405 376 L275 408" marker-end="url(#arr)"/>
+      <path class="edge cond" d="M475 376 L605 408" marker-end="url(#arr)"/>
+      <path class="edge" d="M310 433 L368 433" marker-end="url(#arr)"/>
+      <path class="edge" d="M570 433 L512 433" marker-end="url(#arr)"/>
+
+      <rect class="box hub" x="336" y="180" width="208" height="60" rx="12"/>
+      <text class="t" x="440" y="206">supervisor</text><text class="s" x="440" y="225">Task Graph · Command(goto)</text>
+
+      <rect class="box det" x="40" y="36" width="200" height="56" rx="10"/>
+      <text class="t" x="140" y="60">collector ×N</text><text class="s" x="140" y="78">Send · parallèle</text>
+      <rect class="box det" x="340" y="32" width="200" height="56" rx="10"/>
+      <text class="t" x="440" y="56">prefilter</text><text class="s" x="440" y="74">mémoire · dédoublonnage</text>
+      <rect class="box agent" x="640" y="36" width="200" height="56" rx="10"/>
+      <text class="t" x="740" y="60">research</text><text class="s" x="740" y="78">sous-graphe map-reduce</text>
+      <rect class="box agent" x="660" y="182" width="200" height="56" rx="10"/>
+      <text class="t" x="760" y="206">review</text><text class="s" x="760" y="224">sous-graphe conditionnel</text>
+      <rect class="box agent" x="640" y="322" width="200" height="56" rx="10"/>
+      <text class="t" x="740" y="346">editorial</text><text class="s" x="740" y="364">sous-graphe + réparation</text>
+
+      <rect class="box bad" x="22" y="182" width="160" height="56" rx="10"/>
+      <text class="t" x="102" y="206">failed</text><text class="s" x="102" y="224">tâche obligatoire KO</text>
+      <rect class="box bad" x="42" y="322" width="180" height="56" rx="10"/>
+      <text class="t" x="132" y="346">blocked</text><text class="s" x="132" y="364">violations des guards</text>
+      <rect class="box human" x="350" y="320" width="180" height="56" rx="10"/>
+      <text class="t" x="440" y="344">approval</text><text class="s" x="440" y="362">interrupt() humain</text>
+
+      <rect class="box det" x="170" y="410" width="140" height="46" rx="10"/>
+      <text class="t" x="240" y="438">publish</text>
+      <rect class="box" x="570" y="410" width="140" height="46" rx="10"/>
+      <text class="t" x="640" y="438">reject</text>
+      <rect class="box det" x="370" y="410" width="140" height="46" rx="10"/>
+      <text class="t" x="440" y="431">reflect</text><text class="s" x="440" y="447">agent mémoire</text>
+    </svg>
+    <figcaption>Traits pleins : délégation puis retour au supervisor. Pointillés : routage conditionnel.
+    Vert : déterministe · bleu : agents LLM · orange : humain · rouge : arrêt.</figcaption>
+  </figure>
+
+  <h3>Patterns conditionnels du supervisor</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Condition</th><th>Décision</th><th>Borne</th></tr></thead>
+    <tbody>
+      <tr><td>Plusieurs tâches <code>collector</code> prêtes</td><td>Fan-out parallèle : un <code>Send("collector", …)</code> par source</td><td>une fois par plan</td></tr>
+      <tr><td>Une tâche prête (ordre du DAG)</td><td>Délégation séquentielle à l'agent de la tâche</td><td>—</td></tr>
+      <tr><td>Moins de <code>MIN_ACCEPTED</code> signaux acceptés et des candidats non évalués</td><td>Relance de <code>research</code> avec un seuil de pertinence abaissé de 2 (minimum 3), puis nouvelle revue</td><td><code>MAX_REVIEW_ROUNDS</code> = 1</td></tr>
+      <tr><td>Tâche obligatoire en échec (agent)</td><td><code>failed</code> : run arrêté, erreurs tracées</td><td>—</td></tr>
+      <tr><td>Tâche optionnelle en échec (source)</td><td>On continue avec les autres sources</td><td>—</td></tr>
+      <tr><td>Plan terminé avec violations des guards</td><td><code>blocked</code> : rien n'est publié</td><td>—</td></tr>
+      <tr><td>Plan terminé sans violation</td><td><code>approval</code> → <code>publish</code> ou <code>reject</code> → <code>reflect</code></td><td>—</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Le Task Graph par défaut</h3>
+  <div class="flow">
+    <div><b>collect:rss</b>collect:arxiv<br>collect:github_releases<br>collect:github_mcp<br><span class="tag det">optionnelles · parallèles</span></div><i>→</i>
+    <div><b>prefilter</b>déterministe</div><i>→</i>
+    <div><b>research</b><span class="tag llm">Scout</span></div><i>→</i>
+    <div><b>review</b><span class="tag llm">Critic</span></div><i>→</i>
+    <div><b>editorial</b><span class="tag llm">Editor</span></div>
+  </div>
+  <p><code>python -m app.main plan --langgraph</code> affiche ce DAG et le graphe LangGraph compilé au format Mermaid.
+  Avec <code>--no-collect</code>, les tâches de collecte disparaissent du plan et <code>prefilter</code> repart de la mémoire SQLite.</p>
+
+  <details>
+    <summary>Graphe LangGraph compilé (Mermaid, généré)</summary>
+<pre><code>graph TD;
+  __start__ --> supervisor;
+  supervisor -.-> collector;   collector --> supervisor;
+  supervisor -.-> prefilter;   prefilter --> supervisor;
+  supervisor -.-> research;    research --> supervisor;
+  supervisor -.-> review;      review --> supervisor;
+  supervisor -.-> editorial;   editorial --> supervisor;
+  supervisor -.-> approval;
+  supervisor -.-> blocked;     blocked --> __end__;
+  supervisor -.-> failed;      failed --> __end__;
+  approval -.-> publish;       publish --> reflect;
+  approval -.-> reject;        reject --> reflect;
+  reflect --> __end__;
+  %% + __error_handler__research / review / editorial</code></pre>
+  </details>
+</section>
+
+<!-- ============================================================ -->
+<section id="sous-agents">
+  <div class="eyebrow">Fonctionnel</div>
+  <h2>Sous-agents</h2>
+  <p>Chaque sous-agent est un sous-graphe LangGraph avec <strong>son propre schéma d'état</strong>.
+  Le nœud parent lui passe uniquement ce dont il a besoin et n'en extrait que le résultat : aucune
+  clé à réducteur ne fuit vers le graphe parent (voir <a href="#depannage">Dépannage</a>).</p>
+
+  <h3><span class="tag llm">research</span> Map-reduce de Scouts</h3>
+  <div class="flow">
+    <div><b>fan_out</b>un <code>Send</code> par lot de <code>SCOUT_BATCH_SIZE</code> documents</div><i>→</i>
+    <div><b>scout_batch ×N</b>Scout LLM en parallèle ; un lot illisible est ignoré</div><i>→</i>
+    <div><b>rank</b>seuil de pertinence, dédoublonnage par URL, top <code>MAX_SIGNALS</code></div>
+  </div>
+  <p>Le Scout reçoit les critères du Skill <code>veille-tech</code> et la mémoire (leçons + thèmes
+  privilégiés). Il ne renvoie que <code>doc_id</code>, des scores et une phrase ; un <code>doc_id</code>
+  hors du lot est rejeté.</p>
+
+  <h3><span class="tag llm">review</span> Pré-contrôle puis Critic</h3>
+  <div class="flow">
+    <div><b>precheck</b>risques déterministes ; date future ⇒ <code>drop</code> sans appel au LLM</div><i>→</i>
+    <div><b>critic</b>seulement s'il reste des signaux à juger</div><i>→</i>
+    <div><b>decide</b><code>keep</code> / <code>drop</code> / <code>needs_review</code> ; pas de verdict ⇒ <code>needs_review</code></div>
+  </div>
+
+  <h3><span class="tag llm">editorial</span> Rédaction, guards et réparation bornée</h3>
+  <div class="flow">
+    <div><b>editor</b>rédige à partir des seuls signaux acceptés</div><i>→</i>
+    <div><b>guards</b>garde-fous de publication</div><i>→</i>
+    <div><b>repair</b>si violations et budget : réécriture avec la liste des corrections exigées</div><i>↺</i>
+    <div><b>guards</b>revérification ; au-delà de <code>MAX_REPAIR_ROUNDS</code> ⇒ <code>blocked</code></div>
+  </div>
+  <div class="callout info"><b>Repli extractif</b>Si l'Editor omet un signal accepté, son résumé est
+  remplacé par un extrait de la source plutôt que d'être inventé.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="guards">
+  <div class="eyebrow">Fonctionnel</div>
+  <h2>Guards : cinq couches</h2>
+  <p>Du plus proche de l'extérieur au plus proche de la publication. Aucune ne dépend du bon
+  vouloir du modèle.</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Couche</th><th>Mécanisme</th><th>Ce qui est bloqué</th><th>Où</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag block">Claude Code</span></td><td>Hook <code>PreToolUse</code> (code de sortie 2)</td><td><code>rm -rf</code>, SQL destructif, <code>git push --force</code>, lecture ou écriture de <code>.env</code>, secrets dans un fichier, <code>curl | sh</code>, outils MCP d'écriture</td><td><code>.claude/hooks/guard.py</code></td></tr>
+      <tr><td><span class="tag det">MCP</span></td><td>Intercepteur <code>tool_interceptors</code> de langchain-mcp-adapters</td><td>Outils hors liste blanche ; <code>perPage</code> borné à 10 ; requêtes trop longues ; journal d'audit de chaque appel</td><td><code>make_mcp_guard</code></td></tr>
+      <tr><td><span class="tag llm">LLM</span></td><td>Entrées neutralisées ; sortie contrainte par un schéma JSON et validée par Pydantic ; budget</td><td>Injections de prompt dans les sources ; JSON invalide (une relance avec l'erreur) ; plus de <code>MAX_LLM_CALLS</code> appels</td><td><code>sanitize_untrusted</code>, <code>StructuredLLM</code></td></tr>
+      <tr><td><span class="tag det">LangGraph</span></td><td><code>RetryPolicy</code>, <code>error_handler</code>, contrats d'état, <code>recursion_limit</code></td><td>Erreurs transitoires (relancées) ; crash d'un agent (transformé en état puis en <code>failed</code>) ; clé d'état non prévue ; boucle infinie</td><td><code>graph.py</code>, <code>node_contract</code></td></tr>
+      <tr><td><span class="tag block">Publication</span></td><td>Garde-fous déterministes avant <code>approval</code></td><td>URL absente de la collecte, URL inventée dans le texte, date future, motif de secret, digest vide</td><td><code>app/harness/hooks.py</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Exemple : contrat d'état d'un nœud</h3>
+<pre><code><span class="k">class</span> PrefilterUpdate(_Contract):      <span class="c"># extra="forbid"</span>
+    status: dict[str, str]
+    candidates: list[dict]
+
+@node_contract(PrefilterUpdate)
+<span class="k">def</span> prefilter(state): ...                <span class="c"># écrire "approval" ici ⇒ GuardViolation</span></code></pre>
+
+  <h3>Exemple : échec d'un agent</h3>
+<pre><code><span class="k">def</span> agent_failed(state, error: NodeError) -> Command:
+    <span class="c"># le handler ne suit pas les arêtes du nœud : il rend la main au supervisor</span>
+    <span class="k">return</span> Command(goto="supervisor",
+                   update={"status": {error.node: "failed"}, "errors": [...]})</code></pre>
+</section>
+
+<!-- ============================================================ -->
+<section id="memoire">
+  <div class="eyebrow">Fonctionnel</div>
+  <h2>Mémoire : trois niveaux</h2>
+
+  <div class="cards">
+    <div class="card"><h4><span class="tag det">1</span> Mémoire factuelle · SQLite</h4>
+      <p><code>data/watch.db</code> : documents collectés, digests, items publiés (jamais reproposés),
+      retours humains, cache des réponses LLM, historique des runs. Schéma versionné par
+      <code>PRAGMA user_version</code> (v2) avec migrations testées.</p></div>
+    <div class="card"><h4><span class="tag llm">2</span> Mémoire des agents · Store LangGraph</h4>
+      <p><code>data/memory.db</code> (<code>SqliteStore</code>), injectée dans les nœuds
+      (<code>store: BaseStore</code>). Espaces : <code>lessons</code>, <code>tags</code> (thèmes renforcés
+      ou pénalisés), <code>sources</code> (succès et échecs par collecteur).</p></div>
+    <div class="card"><h4><span class="tag human">3</span> Mémoire Claude Code</h4>
+      <p>Export Markdown du Store dans <code>.claude/memory/veille.md</code>, importé par
+      <code>CLAUDE.md</code> via <code>@.claude/memory/veille.md</code>. Le hook
+      <code>SessionStart</code> ajoute l'état des derniers runs.</p></div>
+  </div>
+
+  <h3>Cycle de vie d'une leçon</h3>
+  <ol class="steps">
+    <li>Un run produit un digest. L'humain le rejette : <code>--rejected --note "Écarter les cours et tutoriels"</code>.</li>
+    <li>L'agent <code>reflect</code> enregistre la leçon dans le Store, pénalise les thèmes du digest et exporte <code>veille.md</code>.</li>
+    <li>Au run suivant, la leçon figure dans les prompts du Scout et de l'Editor (section « Mémoire de veille »).</li>
+    <li>Toute nouvelle session Claude Code la voit aussi, via l'import dans <code>CLAUDE.md</code>.</li>
+    <li>Si le modèle ne suit la leçon qu'en partie, elle devient une <strong>règle déterministe</strong> (ex. <code>exclude_keywords</code> du collecteur MCP) avec son test.</li>
+  </ol>
+  <div class="callout ok"><b>Cas réel observé</b>Après la leçon « écarter les cours », gemma-3-4b a
+  retiré <code>ai-engineering-course</code> mais gardé <code>llm-master</code>, une feuille de route
+  d'apprentissage. L'étape 5 a été appliquée : les deux dépôts sont désormais exclus dès la collecte.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="mcp">
+  <div class="eyebrow">Fonctionnel</div>
+  <h2>MCP GitHub : découverte de dépôts open source</h2>
+  <p>Un serveur MCP <strong>github-scout</strong> (FastMCP, transport stdio) expose trois outils en lecture
+  seule. Ils portent les mêmes noms que ceux du serveur officiel
+  <a href="https://github.com/github/github-mcp-server">github/github-mcp-server</a>, ce qui permet de
+  basculer de l'un à l'autre. Le même serveur sert l'application (via langchain-mcp-adapters) et
+  Claude Code (via <code>.mcp.json</code>).</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Outil</th><th>Arguments</th><th>Renvoie</th></tr></thead>
+    <tbody>
+      <tr><td><code>search_repositories</code></td><td><code>query</code>, <code>perPage</code> (≤ 10 après guard), <code>sort</code></td><td>nom, URL, description, étoiles, langage, topics, licence, dates</td></tr>
+      <tr><td><code>list_releases</code></td><td><code>owner</code>, <code>repo</code>, <code>perPage</code></td><td>releases publiées (brouillons exclus)</td></tr>
+      <tr><td><code>get_readme</code></td><td><code>owner</code>, <code>repo</code>, <code>maxChars</code></td><td>extrait texte du README (404 toléré)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Dans le pipeline</h3>
+  <p>La tâche <code>collect:github_mcp</code> ouvre <strong>une seule session stdio</strong>, lance une
+  recherche par requête de <code>[github_mcp]</code> (bornée par une date de création calculée,
+  jamais inventée), exclut les dépôts qui correspondent à <code>exclude_keywords</code>, lit le README
+  des mieux étoilés, le nettoie (badges, liens, injections) puis crée des <code>Document</code>
+  à partir des seules valeurs renvoyées par l'API.</p>
+<pre><code>[github_mcp]
+enabled = true
+lookback_days = 21          <span class="c"># created:&gt;aujourd'hui-21j</span>
+min_stars = 100
+per_query = 5
+max_repos = 8
+queries = ["llm inference", "agent mcp", "rag retrieval", "llm evaluation benchmark"]
+exclude_keywords = ["tutorial", "course", "roadmap", "awesome", "interview", ...]</code></pre>
+
+  <h3>Usage direct</h3>
+<pre><code>.venv/bin/python -m app.main github "agent mcp" --limit 5   <span class="c"># via l'app</span>
+claude  <span class="c"># puis : « utilise le sous-agent github-scout pour les nouveaux repos RAG »</span></code></pre>
+
+  <div class="callout warn"><b>Quota GitHub</b>Sans jeton : 60 requêtes/h (API REST) et
+  10 recherches/min. Définir <code>GITHUB_TOKEN</code> dans <code>.env</code> (lecture publique
+  suffisante). Le jeton n'est transmis qu'au processus du serveur MCP.</div>
+
+  <details><summary>Passer au serveur GitHub MCP officiel</summary>
+  <p>Le serveur officiel s'exécute via Docker ou en service distant et nécessite un jeton d'accès
+  personnel. Il suffit de remplacer la connexion renvoyée par <code>stdio_connection()</code> dans
+  <code>app/collectors/github_mcp.py</code> et l'entrée de <code>.mcp.json</code> : les noms d'outils
+  <code>search_repositories</code> et <code>list_releases</code> sont communs. Le guard MCP
+  continue de n'autoriser que la lecture.</p></details>
+</section>
+
+<!-- ============================================================ -->
+<section id="web">
+  <div class="eyebrow">Usage</div>
+  <h2>Interface web de chat</h2>
+  <p><code>python -m app.main web</code> ouvre <code>http://127.0.0.1:8000</code> (FastAPI + une page
+  sans build). Quatre onglets : <b>Chat</b>, <b>Veille</b>, <b>Rapports</b>, <b>Mémoire</b>. Voir le
+  <a href="getting-started.html#tester">scénario de test</a>.</p>
+
+  <h3>L'assistant : un graphe LangGraph en quatre nœuds</h3>
+  <div class="flow">
+    <div><b>route</b>règles déterministes (lancer, Notion, GitHub, mémoire, rapports, « quoi de neuf »), sinon LLM en sortie structurée <code>ChatDecision</code></div><i>→</i>
+    <div><b>act</b>outil LangChain ; événements <code>tool_start</code> / <code>tool_end</code></div><i>→</i>
+    <div><b>respond</b>streaming, fondé sur le seul CONTEXTE ; réponse déterministe pour les actions</div><i>→</i>
+    <div><b>guard</b>retire URLs non sourcées et citations hors plage ; l'historique garde la version contrôlée</div>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Outil</th><th>Rôle</th></tr></thead>
+    <tbody>
+      <tr><td><code>search_watch</code></td><td>Recherche plein texte (SQLite FTS5, BM25, titre pondéré ×3) dans tous les documents collectés</td></tr>
+      <tr><td><code>latest_digests</code></td><td>Synthèse et signaux des dernières veilles publiées</td></tr>
+      <tr><td><code>run_watch</code></td><td>Lance une veille en arrière-plan (une seule à la fois) ; suivi dans l'onglet Veille</td></tr>
+      <tr><td><code>github_search</code></td><td>Nouveaux dépôts via le serveur MCP github-scout</td></tr>
+      <tr><td><code>memory_status</code></td><td>Leçons, thèmes privilégiés, santé des sources</td></tr>
+      <tr><td><code>notion_sync</code></td><td>Publie la page Notion des 10 dernières veilles</td></tr>
+      <tr><td><code>list_reports</code></td><td>Derniers rapports datés</td></tr>
+    </tbody>
+  </table></div>
+  <p>Chaque conversation est un thread LangGraph (checkpoints dans <code>data/chat.db</code>) : le
+  routeur et la réponse voient les derniers échanges. Le prompt système est rendu depuis le
+  template <code>chat-system.md.j2</code>, avec la mémoire de veille.</p>
+
+  <h3>API</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Route</th><th>Effet</th></tr></thead>
+    <tbody>
+      <tr><td><code>POST /api/chat</code></td><td>Flux SSE : <code>conversation</code>, <code>tool_start</code>, <code>tool_end</code>, <code>token</code>, <code>final</code> (texte, sources, avertissements du guard)</td></tr>
+      <tr><td><code>GET /api/conversations[/{id}]</code></td><td>Liste et historique (avec sources)</td></tr>
+      <tr><td><code>POST /api/runs</code> · <code>GET /api/runs/{id}?after=n</code></td><td>Lancer une veille (409 si une autre tourne) · événements de progression</td></tr>
+      <tr><td><code>POST /api/runs/{id}/decision</code></td><td>Publier ou rejeter avec une note</td></tr>
+      <tr><td><code>GET /api/reports[/{année}/{nom}]</code></td><td>Rapports datés (Markdown + HTML)</td></tr>
+      <tr><td><code>GET /api/memory</code> · <code>POST /api/notion/sync</code> · <code>GET /api/health</code></td><td>Mémoire · Notion · état d'Ollama, du traçage et de Notion</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="publication">
+  <div class="eyebrow">Fonctionnel</div>
+  <h2>Rapports datés &amp; Notion</h2>
+  <p>La publication d'un digest déclenche une suite d'<b>outils de publication</b>
+  (<code>app/publishers.py</code>). Seuls les fichiers sont critiques : un échec du rapport ou de
+  Notion est consigné dans les erreurs du run sans annuler la publication.</p>
+  <div class="flow">
+    <div><b>fichiers</b>JSON + Markdown + mémoire SQLite <span class="tag block">critique</span></div><i>→</i>
+    <div><b>rapport</b><code>reports/AAAA/veille-AAAA-MM-JJ-HHMM.md</code></div><i>→</i>
+    <div><b>notion</b>page des 10 dernières veilles (si configuré)</div>
+  </div>
+  <h3>Le rapport daté</h3>
+  <p>Rendu par Jinja2 depuis <code>templates/report.md.j2</code> : front matter YAML (titre, date,
+  run, modèle, mots-clés), « En bref », tableau de synthèse, « À retenir », une fiche par signal
+  (source, date, lien, résumé, pourquoi c'est important, tags), table des ressources, écartés par
+  le Critic, méthodologie et trace du supervisor. Mots-clés déterministes : tags thématiques, puis
+  mots récurrents des titres. <code>python -m app.main report</code> le régénère.</p>
+  <h3>La page Notion</h3>
+  <p>Serveur MCP <code>notion-veille</code> (<code>app/mcp_servers/notion_server.py</code>) appelé via
+  langchain-mcp-adapters. Pour chaque veille : <b>titre</b> (titre 2), <b>résumé</b> (encadré),
+  <b>description</b>, <b>ressources</b> (liens), <b>mots-clés</b>. Découpage par 100 blocs, ancienne
+  page archivée. Le guard <code>notion_policy</code> limite l'écriture à la page parente configurée et
+  aux pages créées par la veille.</p>
+  <div class="callout info"><b>Pourquoi pas le serveur officiel pour publier ?</b>Dans sa version 2.5.2,
+  le schéma de blocs de <code>@notionhq/notion-mcp-server</code> pour <code>children</code> se limite
+  aux paragraphes et puces. Il reste déclaré dans <code>.mcp.json</code> pour explorer Notion depuis
+  Claude Code.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="instructions">
+  <div class="eyebrow">Usage</div>
+  <h2>Instructions Claude templatées</h2>
+  <p>Un profil unique, <code>templates/claude/profil.toml</code> (domaine, public, langue, ton, thèmes
+  prioritaires et exclus, sources, format, outils à déclencher), alimente trois templates Jinja2 :</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Cible</th><th>Template</th><th>Usage</th></tr></thead>
+    <tbody>
+      <tr><td><code>claude-md</code></td><td><code>CLAUDE.md.j2</code></td><td>Instructions de projet pour Claude Code (règles, priorités, outils, import de la mémoire)</td></tr>
+      <tr><td><code>demande</code></td><td><code>demande-veille.md.j2</code></td><td>Demande de veille structurée (balises XML) à coller dans Claude, avec <code>--period</code></td></tr>
+      <tr><td><code>chat</code></td><td><code>chat-system.md.j2</code></td><td>Prompt système de l'assistant web (mémoire et contexte injectés à chaque tour)</td></tr>
+    </tbody>
+  </table></div>
+<pre><code>python -m app.main instructions demande --period "semaine 39"
+python -m app.main instructions claude-md --output CLAUDE.generated.md</code></pre>
+  <p>Côté Claude Code, le skill <code>/rapport-veille [options] [note]</code> déclenche les outils
+  dans l'ordre : doctor → run → audit → resume → report → notion-sync → memory.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="claude">
+  <div class="eyebrow">Usage</div>
+  <h2>Harness Claude Code</h2>
+  <p>Ouvrir le projet dans Claude Code (<code>claude</code> dans le dossier, ou l'extension VS Code) suffit
+  à charger les règles, les skills, les sous-agents, les hooks et le serveur MCP.</p>
+
+  <h3>Skills</h3>
+  <div class="cards">
+    <div class="card"><h4>veille-tech</h4><p>Procédure complète de veille et critères de priorité. Ce même fichier alimente le prompt du Scout local.</p></div>
+    <div class="card"><h4>github-scout</h4><p>Découvrir de nouveaux dépôts via les outils MCP, avec des critères d'exclusion.</p></div>
+    <div class="card"><h4>ajout-source</h4><p>Vérifier une source (HTTP, entrées datées, caractère primaire) avant de modifier <code>sources.toml</code>.</p></div>
+    <div class="card"><h4>audit-digest</h4><p>Auditer un run en attente, puis publier ou rejeter avec une leçon réutilisable.</p></div>
+  </div>
+
+  <h3>Sous-agents</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Agent</th><th>Outils</th><th>Mission</th></tr></thead>
+    <tbody>
+      <tr><td><code>source-auditor</code></td><td>Read, Grep, Glob, Bash, WebFetch</td><td>URLs, sources primaires, dates, chiffres, doublons d'un digest</td></tr>
+      <tr><td><code>schema-auditor</code></td><td>Read, Grep, Glob, Bash</td><td>Pydantic, migrations, contrats d'état, sous-graphes, DAG, tests</td></tr>
+      <tr><td><code>security-auditor</code></td><td>Read, Grep, Glob, Bash</td><td>Secrets, <code>.gitignore</code>, commandes, dépendances, réseau</td></tr>
+      <tr><td><code>github-scout</code></td><td>Read, Bash, 3 outils MCP</td><td>Exploration GitHub ponctuelle et tableau sourcé</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Hooks</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Événement</th><th>Script</th><th>Effet</th></tr></thead>
+    <tbody>
+      <tr><td><code>SessionStart</code></td><td><code>session_context.py</code></td><td>Injecte l'état de la veille : volumes, derniers runs, commande de reprise des runs en attente</td></tr>
+      <tr><td><code>PreToolUse</code></td><td><code>guard.py</code></td><td>Bloque les commandes destructives, <code>.env</code>, les secrets et les outils MCP d'écriture</td></tr>
+      <tr><td><code>PostToolUse</code></td><td><code>post_edit.py</code></td><td>Vérifie la syntaxe Python ; rappelle la règle migration + test sur <code>storage.py</code></td></tr>
+      <tr><td><code>Stop</code></td><td><code>stop_tests.sh</code></td><td>Empêche Claude de conclure tant que les tests sont rouges</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout info"><b>Permissions</b><code>.claude/settings.json</code> interdit
+  <code>Read/Edit/Write(./.env)</code>, autorise sans confirmation les tests, <code>doctor</code>,
+  <code>memory</code>, <code>plan</code> et les trois outils MCP en lecture, et active le serveur
+  <code>github-scout</code> déclaré dans <code>.mcp.json</code>.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="cli">
+  <div class="eyebrow">Usage</div>
+  <h2>Référence CLI</h2>
+  <p>Toutes les commandes : <code>.venv/bin/python -m app.main &lt;commande&gt;</code>.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Commande</th><th>Options</th><th>Effet</th></tr></thead>
+    <tbody>
+      <tr><td><code>doctor</code></td><td>—</td><td>Ollama, modèle, GPU, sources, serveur MCP, Skill, migrations, Store, <code>.gitignore</code>, Langfuse. Code 1 si un contrôle échoue.</td></tr>
+      <tr><td><code>run</code></td><td><code>--approve</code> publie sans validation · <code>--no-collect</code> repart de la mémoire · <code>--no-mcp</code> saute la découverte GitHub</td><td>Exécute le Task Graph et affiche les décisions du supervisor, les erreurs et le budget LLM consommé</td></tr>
+      <tr><td><code>resume RUN_ID</code></td><td><code>--approved</code> | <code>--rejected</code> · <code>--note "…"</code></td><td>Reprend un run interrompu depuis son checkpoint ; publie ou rejette ; mémorise la leçon</td></tr>
+      <tr><td><code>plan</code></td><td><code>--langgraph</code></td><td>Ordre topologique et Mermaid du Task Graph ; en option le graphe LangGraph compilé</td></tr>
+      <tr><td><code>github QUERY</code></td><td><code>--limit N</code></td><td>Recherche de dépôts via le serveur MCP, avec le journal d'audit du guard</td></tr>
+      <tr><td><code>web</code></td><td><code>--host</code> · <code>--port</code></td><td>Interface de chat sur <code>http://127.0.0.1:8000</code></td></tr>
+      <tr><td><code>report</code></td><td><code>--run-id</code></td><td>(Re)génère le rapport Markdown daté d'une veille publiée</td></tr>
+      <tr><td><code>notion-sync</code></td><td>—</td><td>Publie la page Notion des 10 dernières veilles (journal d'audit MCP affiché)</td></tr>
+      <tr><td><code>instructions CIBLE</code></td><td><code>--period</code> · <code>--output</code> · <code>--profile</code></td><td>Instructions Claude templatées : <code>claude-md</code>, <code>demande</code>, <code>chat</code></td></tr>
+      <tr><td><code>memory</code></td><td><code>--export</code></td><td>Tables SQLite, contexte mémoire injecté dans les prompts, santé des sources ; export vers <code>.claude/memory/veille.md</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Automatiser (systemd utilisateur)</h3>
+<pre><code>mkdir -p ~/.config/systemd/user &amp;&amp; cp systemd/llm-watch.* ~/.config/systemd/user/
+systemctl --user daemon-reload &amp;&amp; systemctl --user enable --now llm-watch.timer
+<span class="c"># jours ouvrés à 08:00 ; avec HUMAN_APPROVAL=true, le run attend un `resume`</span></code></pre>
+  <p class="muted">Sous WSL 2, activer systemd dans <code>/etc/wsl.conf</code> (<code>[boot] systemd=true</code>).</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="config">
+  <div class="eyebrow">Usage</div>
+  <h2>Configuration</h2>
+  <p>Variables lues dans <code>.env</code> (modèle : <code>.env.example</code>). Une variable
+  d'environnement du shell a priorité, par exemple <code>LLM_MODEL=qwen:latest python -m app.main run</code>.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Variable</th><th>Défaut</th><th>Rôle</th></tr></thead>
+    <tbody>
+      <tr><td><code>LLM_BASE_URL</code></td><td>http://127.0.0.1:11434</td><td>API native Ollama (un suffixe <code>/v1</code> est retiré)</td></tr>
+      <tr><td><code>LLM_MODEL</code></td><td>gemma-3-4b-it</td><td>Nom exact dans <code>ollama list</code></td></tr>
+      <tr><td><code>LLM_TEMPERATURE</code> · <code>LLM_NUM_CTX</code> · <code>LLM_TIMEOUT</code></td><td>0.1 · 8192 · 180</td><td>Génération, fenêtre de contexte, délai d'attente (s)</td></tr>
+      <tr><td><code>MAX_LLM_CALLS</code></td><td>20</td><td>Budget d'appels LLM par run (le cache ne compte pas)</td></tr>
+      <tr><td><code>MAX_DOCUMENTS_PER_RUN</code> · <code>SCOUT_BATCH_SIZE</code></td><td>24 · 8</td><td>Candidats après prefilter · taille des lots du Scout</td></tr>
+      <tr><td><code>MAX_SIGNALS</code> · <code>MAX_AGE_DAYS</code></td><td>8 · 14</td><td>Signaux transmis au Critic · fraîcheur maximale</td></tr>
+      <tr><td><code>MIN_RELEVANCE</code> · <code>MIN_ACCEPTED</code></td><td>6 · 3</td><td>Seuil du Scout · minimum déclenchant la relance de research</td></tr>
+      <tr><td><code>MAX_REVIEW_ROUNDS</code> · <code>MAX_REPAIR_ROUNDS</code></td><td>1 · 1</td><td>Bornes des boucles conditionnelles</td></tr>
+      <tr><td><code>GITHUB_TOKEN</code></td><td>vide</td><td>Relève les quotas GitHub (releases et MCP)</td></tr>
+      <tr><td><code>ARXIV_MAX_RESULTS</code> · <code>RSS_MAX_ITEMS</code></td><td>20 · 8</td><td>Articles arXiv retenus · entrées lues par flux RSS</td></tr>
+      <tr><td><code>DATABASE_PATH</code> · <code>CHECKPOINT_DB_PATH</code> · <code>MEMORY_DB_PATH</code></td><td>data/…</td><td>Mémoire factuelle · checkpoints LangGraph · Store</td></tr>
+      <tr><td><code>OUTPUT_DIR</code></td><td>output</td><td>Digests Markdown et JSON</td></tr>
+      <tr><td><code>HUMAN_APPROVAL</code></td><td>true</td><td>Arrêt avant publication</td></tr>
+      <tr><td><code>REPORTS_DIR</code></td><td>reports</td><td>Rapports Markdown datés</td></tr>
+      <tr><td><code>NOTION_TOKEN</code> · <code>NOTION_PARENT_PAGE_ID</code> · <code>NOTION_DIGESTS</code></td><td>vide · vide · 10</td><td>Publication Notion (active si les deux premiers sont renseignés)</td></tr>
+      <tr><td><code>WEB_HOST</code> · <code>WEB_PORT</code></td><td>127.0.0.1 · 8000</td><td>Interface web</td></tr>
+      <tr><td><code>LANGFUSE_*</code> · <code>LANGSMITH_*</code></td><td>désactivés</td><td>Traçage optionnel (voir <a href="#observabilite">Observabilité</a>)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Sources : <code>sources.toml</code></h3>
+  <p>Sections <code>[[rss]]</code> (6 blogs officiels), <code>[arxiv]</code> (flux cs.CL et cs.AI +
+  mots-clés), <code>[github]</code> (releases de vLLM, Transformers, LangGraph, Ollama) et
+  <code>[github_mcp]</code>. Toute URL est vérifiée avant ajout (skill <code>ajout-source</code>).</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="tests">
+  <div class="eyebrow">Qualité</div>
+  <h2>Tests</h2>
+<pre><code>.venv/bin/python -m pytest -q                                   <span class="c"># 150 tests, ~25 s, hors ligne</span>
+RUN_LIVE=1 .venv/bin/python -m pytest -q tests/e2e/test_live.py -s  <span class="c"># Ollama + réseau réels</span></code></pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Fichier</th><th>Couvre</th></tr></thead>
+    <tbody>
+      <tr><td><code>tests/test_graph.py</code></td><td>Fan-out puis ordre du DAG ; publication, mémoire et export ; validation humaine et reprise ; leçon réinjectée ; relance de research ; borne de relance ; boucle de réparation réussie et épuisée ; source en panne isolée ; <code>error_handler</code> ; lot Scout en échec ; injection de prompt ; plan sans collecte</td></tr>
+      <tr><td><code>tests/test_components.py</code></td><td>DAG (cycles, dépendances inconnues, doublons, tâches prêtes, Mermaid) ; Store (leçons, thèmes, santé, export) ; guards (injections, MCP, intercepteur, contrats d'état)</td></tr>
+      <tr><td><code>tests/e2e/test_mcp_github.py</code></td><td>Vrai serveur MCP en stdio ↔ langchain-mcp-adapters ↔ fausse API GitHub HTTP : outils, découverte, nettoyage du README, bornage <code>perPage</code>, README 404, exclusions</td></tr>
+      <tr><td><code>tests/e2e/test_cli_e2e.py</code></td><td>Cycle complet via la CLI : run → interruption → reprise → publication → mémoire (3 niveaux) → second run sans republication ; rejet ; <code>plan</code> ; <code>github</code> ; JSON conforme sur disque</td></tr>
+      <tr><td><code>tests/test_chat.py</code></td><td>Routage (règles et LLM), streaming, citations, guard (URL inventée, citation hors plage, historique contrôlé), actions déterministes, mémoire injectée, historique par conversation, replis</td></tr>
+      <tr><td><code>tests/test_publication.py</code></td><td>Rapport daté (front matter, sections, structure Markdown), mots-clés, blocs Notion, limites de texte, guard Notion, outils de publication et isolation des échecs</td></tr>
+      <tr><td><code>tests/e2e/test_web_e2e.py</code></td><td>FastAPI : chat SSE et historique, veille lancée par l'API jusqu'au rapport et à Notion, décision, rapports HTML, mémoire, traversée de chemin refusée, une veille à la fois</td></tr>
+      <tr><td><code>tests/e2e/test_notion_e2e.py</code></td><td>Vrai serveur MCP notion-veille ↔ fausse API Notion : 10 dernières veilles, découpage par 100 blocs, archivage, erreurs 401, commande <code>notion-sync</code></td></tr>
+      <tr><td><code>tests/test_instructions_observability.py</code></td><td>Trois cibles d'instructions ; métadonnées de session Langfuse/LangSmith ; activation LangSmith sans fuite d'environnement</td></tr>
+      <tr><td><code>tests/e2e/test_live.py</code></td><td>Run réel publié, JSON conforme, chaque URL publiée répond (&lt; 400)</td></tr>
+      <tr><td><code>tests/test_llm.py</code> · <code>test_storage.py</code> · <code>test_hooks.py</code> · <code>test_harness.py</code></td><td>Relance sur JSON invalide, cache, budget ; migrations v1 → v3, recherche FTS5, conversations, pages Notion ; garde-fous de publication ; collecteurs RSS et arXiv, Skill, prompts</td></tr>
+      <tr><td><code>tests/test_claude_hooks.py</code></td><td>Hooks Claude Code : commandes bloquées ou autorisées, <code>.env</code>, secrets, MCP GitHub en lecture seule, confirmation avant écriture Notion, redirections vers <code>.env</code>, <code>SessionStart</code>, <code>PostToolUse</code></td></tr>
+    </tbody>
+  </table></div>
+  <p class="muted">Seul le LLM est simulé dans les E2E : il répond selon le schéma demandé et les
+  identifiants présents dans le prompt, et chaque test paramètre ses réponses (pertinence, verdicts,
+  URL inventée à la première rédaction…).</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="observabilite">
+  <div class="eyebrow">Exploitation</div>
+  <h2>Observabilité</h2>
+  <ul>
+    <li><strong>Terminal</strong> : décisions du supervisor, erreurs par source, appels LLM et cache.</li>
+    <li><strong>SQLite</strong> : table <code>runs</code> (statut et statistiques JSON, y compris la trace), <code>sqlite3 data/watch.db "SELECT status, stats_json FROM runs"</code>.</li>
+    <li><strong>Langfuse</strong> (optionnel) : <code>LANGFUSE_ENABLED=true</code> et clés dans <code>.env</code>. Callbacks sur chaque run de veille et chaque tour de chat ; regroupement par <code>langfuse_session_id</code> (run ou conversation), tags <code>veille</code> / <code>chat</code>.</li>
+    <li><strong>LangSmith</strong> (optionnel) : <code>LANGSMITH_TRACING=true</code> et clé dans <code>.env</code>, recopiées dans l'environnement du processus ; vue <b>Threads</b> via la métadonnée <code>session_id</code>.</li>
+    <li>Guide pas à pas pour analyser les conversations : <a href="getting-started.html#analyser">Getting started, étape 8</a>.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="depannage">
+  <div class="eyebrow">Exploitation</div>
+  <h2>Dépannage</h2>
+  <details><summary><code>doctor</code> : « Modèle … absent »</summary>
+  <p>Le nom de <code>LLM_MODEL</code> doit correspondre exactement à <code>ollama list</code>
+  (ex. <code>gemma-3-4b-it</code>). Corriger <code>.env</code> ou surcharger ponctuellement :
+  <code>LLM_MODEL=gemma-3-4b-it python -m app.main run</code>.</p></details>
+  <details><summary>arXiv renvoie HTTP 406</summary>
+  <p>L'API <code>export.arxiv.org</code> limite fortement les requêtes rapprochées. Le projet utilise
+  les flux officiels <code>rss.arxiv.org</code>, plus stables pour une veille quotidienne.</p></details>
+  <details><summary>GitHub : 403 ou 429</summary>
+  <p>Quota anonyme atteint. Définir <code>GITHUB_TOKEN</code>. La source est marquée en échec dans la
+  mémoire (santé des sources) et le run continue avec les autres.</p></details>
+  <details><summary>Run « bloqué par les guards »</summary>
+  <p>L'Editor a écrit une URL ou une date non traçable, et la réparation n'a pas suffi. Les
+  violations sont affichées et stockées dans <code>runs.stats_json</code>. Relancer avec
+  <code>--no-collect</code> (les appels du Scout sont servis par le cache).</p></details>
+  <details><summary>Pièges LangGraph rencontrés pendant le développement</summary>
+  <ul>
+    <li><strong>Sous-graphe comme nœud direct</strong> : s'il partage une clé à réducteur
+    <code>operator.add</code> avec le parent, il renvoie la liste entière, qui double à chaque passage :
+    explosion mémoire (processus tué). D'où des états séparés et des nœuds d'adaptation.</li>
+    <li><strong><code>error_handler</code> et <code>Send</code> parallèles</strong> : dans la version
+    utilisée (LangGraph 1.2.12), le handler n'intercepte pas l'échec d'une tâche quand ses voisines
+    parallèles réussissent. Les collecteurs isolent donc eux-mêmes leurs erreurs.</li>
+    <li><strong>Après un <code>error_handler</code></strong>, les arêtes du nœud en échec ne sont pas
+    suivies : le handler doit renvoyer <code>Command(goto="supervisor")</code>.</li>
+  </ul></details>
+  <details><summary>Le modèle ne suit pas une leçon</summary>
+  <p>Un modèle de 4 milliards de paramètres applique les consignes de façon partielle. Transformer
+  la leçon en règle déterministe (filtre, guard) et ajouter un test ; voir le
+  <a href="#memoire">cycle de vie d'une leçon</a>.</p></details>
+</section>
+
+<!-- ============================================================ -->
+<section id="limites">
+  <div class="eyebrow">Transparence</div>
+  <h2>Limites connues</h2>
+  <ul>
+    <li>Avec gemma-3-4b, le Critic est parfois indulgent et l'Editor peut paraphraser au-delà de
+    l'extrait ; les guards bloquent les URLs, dates et secrets, pas les nuances de formulation. La
+    validation humaine reste la dernière barrière.</li>
+    <li>Le supervisor est déterministe (règles sur l'état) : un routage par LLM serait possible,
+    mais moins fiable avec un petit modèle.</li>
+    <li>Le dédoublonnage repose sur l'URL et le titre normalisé ; il n'y a pas encore de
+    similarité sémantique (embeddings).</li>
+    <li><code>.mcp.json</code> contient des chemins absolus propres à cette machine.</li>
+    <li>L'état des veilles lancées depuis l'interface est gardé en mémoire du serveur : après un
+    redémarrage, un run en attente se reprend avec <code>python -m app.main resume</code>.</li>
+    <li>La relance de research réévalue tous les signaux (appels du Scout servis par le cache,
+    mais nouvel appel du Critic).</li>
+  </ul>
+  <footer>LLM Watch Harness · documentation du dépôt <code>docs/index.html</code> ·
+  Python 3.12 · LangGraph 1.2.12 · langchain-ollama 1.1.0 · langchain-mcp-adapters 0.3.2 · mcp 1.30.0 ·
+  Ollama 0.34.4</footer>
+</section>
+
+</main>
+</div>
+
+<script src="doc.js"></script>
+</body>
+</html>

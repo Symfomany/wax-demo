@@ -1,0 +1,15 @@
+# Installation (systemd utilisateur ; WSL 2 : activer systemd=true dans /etc/wsl.conf) :
+#   mkdir -p ~/.config/systemd/user && cp systemd/llm-watch.* ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now llm-watch.timer
+# Avec HUMAN_APPROVAL=true, le run s'arrête avant publication : reprendre via
+# `python -m app.main resume <run_id> --approved` (voir `journalctl --user -u llm-watch`).
+
+[Unit]
+Description=Veille LLM/GenAI (collecte + scout/critic/editor)
+After=network-online.target ollama.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/llm-harness
+ExecStart=%h/llm-harness/.venv/bin/python -m app.main run
+TimeoutStartSec=900

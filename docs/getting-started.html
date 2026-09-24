@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Getting started — LLM Watch Harness</title>
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc" aria-label="Sommaire">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 15c-1.5 1.5-2 5-2 5s3.5-.5 5-2l9-9a2.8 2.8 0 0 0-4-4z"/><path d="M12 7 7 6l-3 3 4 1M17 12l1 5-3 3-1-4"/></svg>
+    Getting started
+  </div>
+  <a class="gs-link" href="index.html">📘 Documentation complète</a>
+  <ol>
+    <li><a href="#resume">En 5 minutes</a></li>
+    <li><a href="#ollama">1 · Démarrer Ollama</a></li>
+    <li><a href="#projet">2 · Installer le projet</a></li>
+    <li><a href="#lancer">3 · Quoi lancer</a></li>
+    <li><a href="#tester">4 · Comment tester</a></li>
+    <li><a href="#notion">5 · Notion</a></li>
+    <li><a href="#langfuse">6 · Langfuse</a></li>
+    <li><a href="#langsmith">7 · LangSmith</a></li>
+    <li><a href="#analyser">8 · Analyser ses conversations</a></li>
+    <li><a href="#depannage">9 · Dépannage</a></li>
+  </ol>
+  <div class="theme" role="group" aria-label="Thème">
+    <button data-set-theme="light">Clair</button>
+    <button data-set-theme="system">Auto</button>
+    <button data-set-theme="dark">Sombre</button>
+  </div>
+</nav>
+
+<main>
+
+<section id="resume" class="hero">
+  <div class="eyebrow">Getting started · WSL 2 · GPU local</div>
+  <h1>De zéro à votre première veille</h1>
+  <p class="lead">Démarrer Ollama et le modèle local, lancer la veille en ligne de commande ou dans
+  l'interface de chat, vérifier que tout fonctionne, puis brancher Notion, Langfuse et LangSmith.</p>
+
+  <h3>En 5 minutes</h3>
+<pre><code>ollama serve &amp;                                  <span class="c"># 1. le serveur LLM local (si pas déjà en service)</span>
+ollama run gemma-3-4b-it "Réponds OK"            <span class="c"># 2. le modèle répond sur le GPU</span>
+cd ~/llm-harness &amp;&amp; source .venv/bin/activate
+python -m app.main doctor                        <span class="c"># 3. tout doit être OK</span>
+python -m app.main web                           <span class="c"># 4. http://127.0.0.1:8000</span></code></pre>
+  <div class="callout warn"><b>À vérifier une fois</b>Dans <code>.env</code>, <code>LLM_MODEL</code> doit
+  porter le nom exact affiché par <code>ollama list</code> (ici <code>gemma-3-4b-it</code>).
+  <code>doctor</code> signale l'écart s'il existe.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="ollama">
+  <div class="eyebrow">Étape 1</div>
+  <h2>Démarrer Ollama et le LLM local</h2>
+
+  <h3>Vérifier le GPU dans WSL</h3>
+<pre><code>nvidia-smi          <span class="c"># doit afficher la RTX 3070 Ti et la mémoire (8 Go)</span></code></pre>
+
+  <h3>Démarrer le serveur Ollama</h3>
+  <div class="two">
+    <div class="card"><h4>Service systemd (installation standard)</h4>
+<pre><code>sudo systemctl start ollama
+systemctl status ollama --no-pager</code></pre>
+      <p>Nécessite systemd dans WSL (<code>[boot] systemd=true</code> dans <code>/etc/wsl.conf</code>).</p></div>
+    <div class="card"><h4>À la main, dans un terminal</h4>
+<pre><code>ollama serve</code></pre>
+      <p>Laisser le terminal ouvert ; ou <code>ollama serve &amp;</code> en arrière-plan.</p></div>
+  </div>
+
+  <h3>Vérifier l'API et le modèle</h3>
+<pre><code>curl -s http://127.0.0.1:11434/api/tags | head -c 300   <span class="c"># l'API répond</span>
+ollama list                                            <span class="c"># gemma-3-4b-it, qwen:latest…</span>
+ollama run gemma-3-4b-it "Donne trois usages d'un LLM local."
+ollama ps                                              <span class="c"># PROCESSOR = 100% GPU</span></code></pre>
+  <p>Le modèle reste chargé quelques minutes après le dernier appel ; le premier appel d'une
+  session est plus lent (chargement en mémoire GPU, environ 30 à 40 s mesurées ici).</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Modèle installé</th><th>Capacités Ollama</th><th>Usage dans le projet</th></tr></thead>
+    <tbody>
+      <tr><td><code>gemma-3-4b-it</code></td><td>completion</td><td>Modèle par défaut : sorties JSON contraintes par schéma, réponses du chat</td></tr>
+      <tr><td><code>qwen:latest</code> (qwen3 4B)</td><td>tools, thinking, completion</td><td>Alternative à comparer : <code>LLM_MODEL=qwen:latest python -m app.main run</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout info"><b>Pas de « tool calling » natif nécessaire</b>Le routeur du chat et les
+  agents utilisent la sortie structurée (schéma JSON imposé par Ollama) : tout modèle
+  « completion » convient.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="projet">
+  <div class="eyebrow">Étape 2</div>
+  <h2>Installer le projet</h2>
+<pre><code>cd ~/llm-harness
+python3 -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -e ".[dev]"
+cp -n .env.example .env        <span class="c"># -n : ne jamais écraser un .env existant</span>
+python -m app.main doctor</code></pre>
+  <p><code>doctor</code> contrôle : Ollama, présence du modèle, GPU, sources déclarées, serveur MCP
+  github-scout, Skill, migrations SQLite, Store LangGraph, <code>.gitignore</code> et Langfuse.
+  Il renvoie le code 1 si un contrôle échoue.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="lancer">
+  <div class="eyebrow">Étape 3</div>
+  <h2>Quoi lancer</h2>
+  <div class="cards">
+    <div class="card"><h4>💬 Interface web de chat</h4>
+      <p><code>python -m app.main web</code> puis <a href="http://127.0.0.1:8000">http://127.0.0.1:8000</a>.
+      Chat sourcé, onglet Veille (lancement + validation), Rapports, Mémoire.</p></div>
+    <div class="card"><h4>⌨️ Ligne de commande</h4>
+      <p><code>python -m app.main run</code>, puis <code>resume &lt;run_id&gt; --approved --note "…"</code>.
+      Le rapport daté et la page Notion sont produits à la publication.</p></div>
+    <div class="card"><h4>🤖 Claude Code</h4>
+      <p>Ouvrir le dossier dans Claude Code et taper <code>/rapport-veille</code> : le skill déclenche
+      doctor → run → audit → resume → report → notion-sync → memory.</p></div>
+  </div>
+
+  <h3>Ce que produit une veille publiée</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Sortie</th><th>Emplacement</th></tr></thead>
+    <tbody>
+      <tr><td>Rapport Markdown daté (front matter, synthèse, à retenir, signaux, ressources, écartés, méthodologie)</td><td><code>reports/AAAA/veille-AAAA-MM-JJ-HHMM.md</code></td></tr>
+      <tr><td>Digest JSON conforme au schéma <code>Digest</code> + Markdown brut</td><td><code>output/digest-*.json</code>, <code>.md</code></td></tr>
+      <tr><td>Page Notion des 10 dernières veilles (si configuré)</td><td>sous la page parente Notion</td></tr>
+      <tr><td>Mémoire : items publiés, leçon, thèmes, santé des sources</td><td><code>data/*.db</code>, <code>.claude/memory/veille.md</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Instructions Claude templatées</h3>
+<pre><code>python -m app.main instructions demande --period "semaine 39"   <span class="c"># à coller dans Claude</span>
+python -m app.main instructions claude-md --output CLAUDE.generated.md
+python -m app.main instructions chat                            <span class="c"># prompt système du chat</span></code></pre>
+  <p>Les trois sont rendus depuis <code>templates/claude/profil.toml</code> (domaine, public, thèmes,
+  exclusions, sources, format, outils) : modifier le profil suffit à tout régénérer.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="tester">
+  <div class="eyebrow">Étape 4</div>
+  <h2>Comment tester</h2>
+  <h3>Tests automatiques</h3>
+<pre><code>python -m pytest -q                                   <span class="c"># unitaires + E2E, hors ligne, ~25 s</span>
+RUN_LIVE=1 python -m pytest -q tests/e2e/test_live.py -s  <span class="c"># Ollama + réseau réels (~1 à 2 min)</span></code></pre>
+  <p>Les E2E utilisent les vrais serveurs MCP (GitHub et Notion) branchés sur de fausses API HTTP
+  locales, le vrai serveur web FastAPI et de vraies bases SQLite temporaires ; seul le LLM est
+  simulé. Aucun test n'écrit dans <code>data/</code>, <code>reports/</code> ou votre Notion.</p>
+
+  <h3>Scénario manuel dans l'interface</h3>
+  <ul class="check-list">
+    <li><b>« Quoi de neuf ? »</b> → outil <em>Dernières veilles</em>, réponse avec citations [n] et cartes sources.</li>
+    <li><b>« Que disent mes sources sur la quantization ? »</b> → <em>Recherche dans la veille</em> (plein texte), réponse sourcée.</li>
+    <li><b>« Trouve des nouveaux repos GitHub sur les agents MCP »</b> → <em>GitHub via MCP</em>, dépôts récents.</li>
+    <li><b>« Lance une veille »</b> → carte « Suivre la progression » ; l'onglet Veille affiche la frise en direct.</li>
+    <li><b>Onglet Veille</b> → lire le digest, écrire une note, <span class="kbd">Publier</span> ou <span class="kbd">Rejeter</span>.</li>
+    <li><b>Onglet Rapports</b> → le rapport daté du jour s'affiche.</li>
+    <li><b>« Qu'as-tu en mémoire ? »</b> → la note saisie apparaît parmi les leçons.</li>
+    <li><b>« Mets à jour la page Notion »</b> → lien vers la page (après l'étape 5).</li>
+  </ul>
+  <p>Une conversation peut être rouverte par son lien : l'URL prend la forme
+  <code>http://127.0.0.1:8000/#c=&lt;id&gt;</code> ; <code>#runs</code>, <code>#reports</code> et
+  <code>#memory</code> ouvrent directement un onglet.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="notion">
+  <div class="eyebrow">Étape 5 · optionnelle</div>
+  <h2>Publier dans Notion</h2>
+  <ol class="steps">
+    <li>Créer une <b>intégration interne</b> sur <a href="https://www.notion.so/profile/integrations">notion.so/profile/integrations</a>
+      et copier son secret (il commence par <code>ntn_</code>).</li>
+    <li>Dans Notion, créer une page « Veille GenAI » puis, dans son menu <span class="kbd">•••</span> →
+      <b>Connexions</b>, ajouter l'intégration.</li>
+    <li>Copier l'identifiant de la page : les 32 caractères hexadécimaux à la fin de son URL.</li>
+    <li>Renseigner <code>.env</code> :
+<pre><code>NOTION_TOKEN=ntn_…
+NOTION_PARENT_PAGE_ID=0123456789abcdef0123456789abcdef</code></pre></li>
+    <li>Publier : <code>python -m app.main notion-sync</code> (ou « mets à jour Notion » dans le chat).</li>
+  </ol>
+  <p>La sous-page créée contient, pour chacune des 10 dernières veilles : <b>titre</b>, <b>résumé</b>
+  (encadré), <b>description</b> (date, nombre de signaux, sources), <b>ressources</b> (liens) et
+  <b>mots-clés</b>, précédés d'un sommaire. À chaque synchronisation, une nouvelle page est créée et
+  la précédente archivée (récupérable dans la corbeille Notion). Ensuite, chaque veille publiée
+  met la page à jour automatiquement.</p>
+  <div class="callout info"><b>Deux serveurs MCP Notion</b><code>notion-veille</code> (projet) publie la
+  page ; ses écritures sont bornées à la page parente configurée. Le serveur officiel
+  <code>@notionhq/notion-mcp-server</code> est aussi déclaré dans <code>.mcp.json</code> pour explorer
+  Notion depuis Claude Code (il faut exporter <code>NOTION_TOKEN</code> dans le shell). Toute
+  écriture Notion demandée par Claude passe par une confirmation (hook <code>guard.py</code>).</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="langfuse">
+  <div class="eyebrow">Étape 6 · optionnelle</div>
+  <h2>Langfuse</h2>
+  <div class="two">
+    <div class="card"><h4>Option A — Langfuse Cloud</h4>
+      <p>Créer un projet sur <a href="https://cloud.langfuse.com">cloud.langfuse.com</a> (région UE ;
+      <code>https://us.cloud.langfuse.com</code> pour les États-Unis), puis <b>Settings → API Keys</b>.</p></div>
+    <div class="card"><h4>Option B — auto-hébergé</h4>
+      <p>Avec Docker (activer l'intégration WSL de Docker Desktop) :</p>
+<pre><code>git clone https://github.com/langfuse/langfuse.git
+cd langfuse &amp;&amp; docker compose up -d</code></pre>
+      <p>Interface sur <code>http://localhost:3000</code>.</p></div>
+  </div>
+<pre><code><span class="c"># .env</span>
+LANGFUSE_ENABLED=true
+LANGFUSE_PUBLIC_KEY=pk-lf-…
+LANGFUSE_SECRET_KEY=…                          <span class="c"># jamais dans Git</span>
+LANGFUSE_HOST=https://cloud.langfuse.com       <span class="c"># ou http://localhost:3000</span></code></pre>
+  <p>Redémarrer <code>python -m app.main web</code> : la pastille <b>Langfuse</b> passe au vert.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="langsmith">
+  <div class="eyebrow">Étape 7 · optionnelle</div>
+  <h2>LangSmith</h2>
+  <p>Créer une clé dans <a href="https://smith.langchain.com">smith.langchain.com</a> →
+  <b>Settings → API Keys</b>, puis :</p>
+<pre><code><span class="c"># .env</span>
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=lsv2_…
+LANGSMITH_PROJECT=llm-watch-harness
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com   <span class="c"># région UE : https://eu.api.smith.langchain.com</span></code></pre>
+  <p>L'application recopie ces valeurs dans l'environnement du processus au démarrage : LangChain
+  et LangGraph tracent alors automatiquement vers LangSmith. Langfuse et LangSmith peuvent être
+  actifs en même temps.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="analyser">
+  <div class="eyebrow">Étape 8</div>
+  <h2>Analyser ses conversations</h2>
+  <p>Chaque trace porte les mêmes métadonnées, posées par <code>app/observability.py</code> :</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Métadonnée</th><th>Valeur</th><th>Sert à</th></tr></thead>
+    <tbody>
+      <tr><td><code>langfuse_session_id</code> · <code>session_id</code></td><td>id de conversation (chat) ou de run (veille)</td><td>Regrouper une conversation : <b>Sessions</b> (Langfuse), <b>Threads</b> (LangSmith)</td></tr>
+      <tr><td>tags <code>chat</code> / <code>veille</code></td><td>type d'exécution</td><td>Filtrer les conversations ou les runs de veille</td></tr>
+      <tr><td><code>langfuse_user_id</code></td><td><code>local-user</code></td><td>Vue « Users » de Langfuse</td></tr>
+      <tr><td><code>model</code></td><td>ex. <code>gemma-3-4b-it</code></td><td>Comparer deux modèles</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Ce que montre une trace de chat</h3>
+  <div class="flow">
+    <div><b>route</b>règle ou appel <code>ChatDecision</code> (JSON)</div><i>→</i>
+    <div><b>act</b>span de l'outil (<code>search_watch</code>, <code>github_search</code>…) et ses sources</div><i>→</i>
+    <div><b>respond</b>génération ChatOllama : prompt système complet, tokens, latence</div><i>→</i>
+    <div><b>guard</b>réponse finale contrôlée</div>
+  </div>
+
+  <div class="two">
+    <div class="card"><h4>Dans Langfuse</h4>
+      <ul>
+        <li><b>Tracing → Sessions</b> : ouvrir la session dont l'id est celui de l'URL <code>#c=…</code> pour relire la conversation tour par tour.</li>
+        <li><b>Traces</b>, filtre tag <code>chat</code> : repérer les tours lents (latence de <code>respond</code>) ou les routages inattendus (sortie de <code>route</code>).</li>
+        <li>Cliquer la génération ChatOllama : vérifier que le CONTEXTE fourni contenait bien l'information citée.</li>
+        <li>Tag <code>veille</code> : une trace par run, avec scout, critic et editor.</li>
+      </ul></div>
+    <div class="card"><h4>Dans LangSmith</h4>
+      <ul>
+        <li><b>Projects → llm-watch-harness → Threads</b> : une ligne par conversation (clé <code>session_id</code>).</li>
+        <li><b>Runs</b>, filtre sur le tag <code>chat</code> ou <code>veille</code> ; arbre d'exécution par nœud LangGraph.</li>
+        <li>Filtrer par métadonnée <code>model</code> pour comparer gemma et qwen sur les mêmes questions.</li>
+        <li>Ajouter un tour réussi à un dataset pour constituer un jeu d'évaluation.</li>
+      </ul></div>
+  </div>
+  <div class="callout ok"><b>Méthode conseillée</b>Rejouer la même liste de questions (le scénario de
+  l'étape 4) avec <code>LLM_MODEL=gemma-3-4b-it</code> puis <code>qwen:latest</code>, et comparer
+  dans les deux outils : routage choisi, sources récupérées, citations, latence.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="depannage">
+  <div class="eyebrow">Étape 9</div>
+  <h2>Dépannage</h2>
+  <details><summary>« Ollama injoignable » (pastille rouge)</summary>
+  <p>Lancer <code>ollama serve</code> ou <code>sudo systemctl start ollama</code>, puis
+  <code>curl http://127.0.0.1:11434/api/tags</code>.</p></details>
+  <details><summary>« gemma-3-4b-it absent »</summary>
+  <p>Aligner <code>LLM_MODEL</code> sur <code>ollama list</code>. Pour un essai ponctuel :
+  <code>LLM_MODEL=gemma-3-4b-it python -m app.main web</code>.</p></details>
+  <details><summary>Première réponse très lente</summary>
+  <p>Chargement du modèle en mémoire GPU. Les suivantes sont rapides tant que le modèle reste chargé (<code>ollama ps</code>).</p></details>
+  <details><summary>« Une veille est déjà en cours »</summary>
+  <p>Une seule veille à la fois (GPU partagé). Attendre la fin ou valider le run en cours dans l'onglet Veille.</p></details>
+  <details><summary>Notion : « Notion 401 » ou « 404 »</summary>
+  <p>401 : jeton invalide. 404 : la page parente n'est pas connectée à l'intégration (étape 5.2) ou l'identifiant est incorrect.</p></details>
+  <details><summary>Rien n'apparaît dans Langfuse / LangSmith</summary>
+  <p>Vérifier les pastilles de l'interface et <code>.env</code>, puis redémarrer le serveur : la configuration est lue au démarrage.</p></details>
+</section>
+
+</main>
+</div>
+<script src="doc.js"></script>
+</body>
+</html>

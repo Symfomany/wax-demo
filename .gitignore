@@ -1,0 +1,19 @@
+# Secrets
+.env
+*.pem
+*.key
+
+# Environnement
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Données locales (mémoire SQLite, checkpoints, digests générés)
+data/*.db
+data/*.db-*
+output/
+
+# Réglages Claude Code personnels et mémoire générée
+.claude/settings.local.json
+.claude/memory/

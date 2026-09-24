@@ -1,0 +1,67 @@
+# Sources autorisées pour la veille (sources primaires uniquement).
+# Chaque URL a été vérifiée (HTTP 200 + entrées présentes) avant ajout.
+
+[[rss]]
+name = "Hugging Face Blog"
+url = "https://huggingface.co/blog/feed.xml"
+
+[[rss]]
+name = "OpenAI News"
+url = "https://openai.com/news/rss.xml"
+
+[[rss]]
+name = "Google DeepMind Blog"
+url = "https://deepmind.google/blog/rss.xml"
+
+[[rss]]
+name = "PyTorch Blog"
+url = "https://pytorch.org/feed/"
+
+[[rss]]
+name = "NVIDIA Technical Blog"
+url = "https://developer.nvidia.com/blog/feed"
+
+[[rss]]
+name = "Ollama Blog"
+url = "https://ollama.com/blog/rss.xml"
+
+# Flux d'annonces quotidiennes arXiv (moins sujet au rate-limit que l'API).
+[arxiv]
+feeds = [
+    "https://rss.arxiv.org/rss/cs.CL",
+    "https://rss.arxiv.org/rss/cs.AI",
+]
+keywords = [
+    "llm", "language model", "agent", "retrieval", "rag", "benchmark",
+    "quantization", "inference", "reasoning", "evaluation", "mcp",
+]
+
+[github]
+repositories = [
+    "vllm-project/vllm",
+    "huggingface/transformers",
+    "langchain-ai/langgraph",
+    "ollama/ollama",
+]
+releases_per_repo = 3
+
+# Découverte de nouveaux dépôts open source via le serveur MCP github-scout.
+# Chaque requête devient : "<requête> created:>{aujourd'hui - lookback_days} stars:>={min_stars}"
+[github_mcp]
+enabled = true
+lookback_days = 21
+min_stars = 100
+per_query = 5
+max_repos = 8
+readme_chars = 1200
+queries = [
+    "llm inference",
+    "agent mcp",
+    "rag retrieval",
+    "llm evaluation benchmark",
+]
+# Leçon humaine devenue règle déterministe : ces dépôts ne sont pas des signaux.
+exclude_keywords = [
+    "tutorial", "course", "roadmap", "awesome", "interview", "learning path",
+    "教程", "学习路线", "面试",
+]

@@ -1,0 +1,214 @@
+"""Assistant de veille conversationnel : route → act → respond → guard.
+
+- route   : règles déterministes d'abord (actions explicites), puis LLM en sortie
+            structurée (fonctionne avec des modèles sans « tool calling » natif).
+- act     : exécute un outil LangChain et publie des événements de progression.
+- respond : réponse en streaming, fondée uniquement sur le résultat de l'outil,
+            ou réponse déterministe pour les actions (lancer, publier…).
+- guard   : retire les URLs absentes des sources et les citations hors plage.
+
+La conversation est conservée par le checkpointer (thread = conversation).
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import Annotated, Literal, TypedDict
+
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
+from langgraph.config import get_stream_writer
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
+from pydantic import BaseModel, Field
+
+from app.chat.tools import ChatServices, build_tools
+from app.harness.hooks import URL_PATTERN
+from app.harness.prompts import render_prompt
+from app.instructions import render_instructions
+from app.llm import BudgetExceeded, LLMOutputError, StructuredLLM
+from app.memory import WatchMemory
+
+ToolName = Literal[
+    "search_watch", "latest_digests", "run_watch", "github_search",
+    "memory_status", "notion_sync", "list_reports", "none",
+]
+
+
+class ChatDecision(BaseModel):
+    tool: ToolName
+    query: str = Field("", description="Mots-clés si l'outil en a besoin, sinon vide")
+
+
+# Règles déterministes : une intention explicite ne dépend pas du LLM.
+RULES: list[tuple[re.Pattern, ToolName]] = [
+    (re.compile(r"\b(lance|lancer|relance|relancer|démarre|démarrer|exécute|exécuter)\b.{0,40}\bveille\b", re.I), "run_watch"),
+    (re.compile(r"\bnotion\b", re.I), "notion_sync"),
+    (re.compile(r"\b(github|repos?|dépôts?|depots?)\b", re.I), "github_search"),
+    (re.compile(r"\b(mémoire|memoire|leçons?|préférences?|santé des sources)\b", re.I), "memory_status"),
+    (re.compile(r"\brapports?\b", re.I), "list_reports"),
+    (re.compile(r"\b(quoi de neuf|dernières? veilles?|derniers? digests?|résume la veille|nouveautés)\b", re.I), "latest_digests"),
+    (re.compile(r"^\s*(bonjour|salut|hello|merci|coucou)\b[\s!.?]*$", re.I), "none"),
+]
+QUERY_NOISE = re.compile(
+    r"\b(trouve|cherche|montre|donne|moi|les|des|de|du|la|le|nouveaux?|nouvelles?|récents?|"
+    r"github|repos?|dépôts?|sur|pour|qui|quels?|quelles?|parle|parlent|y a-t-il|a-t-il|il)\b",
+    re.I,
+)
+
+
+def rule_route(message: str) -> ChatDecision | None:
+    for pattern, tool in RULES:
+        if pattern.search(message):
+            query = message
+            if tool == "github_search":
+                query = re.sub(r"\s+", " ", QUERY_NOISE.sub(" ", message)).strip(" ?!.") or "llm"
+            return ChatDecision(tool=tool, query=query)
+    return None
+
+
+class ChatState(TypedDict, total=False):
+    messages: Annotated[list[AnyMessage], add_messages]
+    decision: dict
+    result: dict
+    answer: str
+    warnings: list[str]
+
+
+@dataclass
+class ChatContext:
+    services: ChatServices
+    router_llm: StructuredLLM
+    chat_model: BaseChatModel
+    history_turns: int = 6
+    tools: dict = field(default_factory=dict)
+
+
+def guard_answer(answer: str, sources: list[dict]) -> tuple[str, list[str]]:
+    """Retire les URLs non sourcées et les citations [n] hors plage."""
+    allowed = {source["url"] for source in sources}
+    warnings = []
+
+    def strip_url(match: re.Match) -> str:
+        url = match.group(0).rstrip(".,;)")
+        if url in allowed:
+            return match.group(0)
+        warnings.append(f"URL non sourcée retirée : {url}")
+        return "[lien retiré]"
+
+    answer = URL_PATTERN.sub(strip_url, answer)
+
+    def check_citation(match: re.Match) -> str:
+        number = int(match.group(1))
+        if 1 <= number <= len(sources):
+            return match.group(0)
+        warnings.append(f"Citation [{number}] sans source retirée")
+        return ""
+
+    answer = re.sub(r"\[(\d+)\]", check_citation, answer)
+    return answer.strip(), warnings
+
+
+def build_chat_graph(context: ChatContext, checkpointer=None):
+    context.tools = context.tools or build_tools(context.services)
+
+    def history(state: ChatState) -> list[AnyMessage]:
+        return state["messages"][-(context.history_turns * 2):]
+
+    def route(state: ChatState) -> dict:
+        message = state["messages"][-1].content
+        decision = rule_route(message)
+        if decision is None:
+            transcript = "\n".join(f"{m.type}: {str(m.content)[:200]}" for m in history(state)[:-1]) or "—"
+            try:
+                decision = context.router_llm.generate(
+                    render_prompt("router", history=transcript, message=message), ChatDecision
+                )
+            except (LLMOutputError, BudgetExceeded):
+                decision = ChatDecision(tool="search_watch", query=message)
+            if decision.tool in {"search_watch", "github_search"} and not decision.query.strip():
+                decision.query = message
+        return {"decision": decision.model_dump()}
+
+    def act(state: ChatState, config) -> dict:
+        decision = state["decision"]
+        writer = get_stream_writer()
+        if decision["tool"] == "none":
+            return {"result": {"summary": "", "sources": [], "context": "", "direct": None, "data": {}}}
+        tool = context.tools[decision["tool"]]
+        args = {"query": decision["query"]} if "query" in tool.args else {}
+        writer({"type": "tool_start", "tool": decision["tool"], "args": args})
+        try:
+            result = tool.invoke(args, config)
+        except Exception as error:  # noqa: BLE001 — l'échec d'un outil devient une réponse
+            result = {"summary": "échec", "sources": [], "context": "", "data": {},
+                      "direct": f"L'outil `{decision['tool']}` a échoué : {error}"}
+        writer({"type": "tool_end", "tool": decision["tool"], "summary": result["summary"],
+                "sources": result["sources"], "data": result["data"]})
+        return {"result": result}
+
+    def respond(state: ChatState, config) -> dict:
+        result = state["result"]
+        if result.get("direct"):
+            return {"answer": result["direct"], "messages": [AIMessage(result["direct"])]}
+        system = render_instructions(
+            "chat",
+            memory=WatchMemory(context.services.store).prompt_context(),
+            tool=state["decision"]["tool"],
+            context=result.get("context") or "Aucun (conversation générale).",
+        )
+        response = context.chat_model.invoke([SystemMessage(system), *history(state)], config)
+        # Le message renvoyé garde l'id des tokens streamés : pas de doublon côté interface.
+        return {"answer": response.text, "messages": [response]}
+
+    def guard(state: ChatState) -> dict:
+        answer, warnings = guard_answer(state["answer"], state["result"].get("sources", []))
+        if not answer:
+            answer = "Je n'ai pas de réponse sourcée à proposer."
+        # Remplace (même id) la réponse brute dans l'historique par la version
+        # contrôlée : une URL retirée ne doit pas revenir au tour suivant.
+        stored = AIMessage(
+            answer,
+            id=state["messages"][-1].id,
+            additional_kwargs={"sources": state["result"].get("sources", []),
+                               "tool": state["decision"]["tool"]},
+        )
+        return {"answer": answer, "warnings": warnings, "messages": [stored]}
+
+    builder = StateGraph(ChatState)
+    builder.add_node("route", route)
+    builder.add_node("act", act)
+    builder.add_node("respond", respond)
+    builder.add_node("guard", guard)
+    builder.add_edge(START, "route")
+    builder.add_edge("route", "act")
+    builder.add_edge("act", "respond")
+    builder.add_edge("respond", "guard")
+    builder.add_edge("guard", END)
+    return builder.compile(checkpointer=checkpointer)
+
+
+def stream_chat(graph, conversation_id: str, message: str, config: dict):
+    """Événements pour l'interface : tool_start/tool_end, token, final."""
+    config = config | {"configurable": {"thread_id": f"chat-{conversation_id}"}}
+    for mode, chunk in graph.stream(
+        {"messages": [HumanMessage(message)]}, config, stream_mode=["messages", "custom", "values"]
+    ):
+        if mode == "custom":
+            yield chunk
+        elif mode == "messages":
+            token, metadata = chunk
+            text = getattr(token, "text", "")  # .text : ignore les blocs « thinking » (Claude)
+            if metadata.get("langgraph_node") == "respond" and text:
+                yield {"type": "token", "text": text}
+        elif mode == "values":
+            final = chunk  # le dernier état du tour (après guard)
+    yield {
+        "type": "final",
+        "text": final["answer"],
+        "tool": final["decision"]["tool"],
+        "sources": final["result"].get("sources", []),
+        "data": final["result"].get("data", {}),
+        "warnings": final["warnings"],
+    }

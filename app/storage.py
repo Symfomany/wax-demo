@@ -1,0 +1,417 @@
+import functools
+import json
+import re
+import sqlite3
+import threading
+from collections.abc import Iterable
+from pathlib import Path
+
+from app.schemas import Document
+
+
+# Chaque migration est appliquée une seule fois, dans l'ordre ; la version
+# courante est stockée dans PRAGMA user_version. Ne jamais modifier une
+# migration existante : en ajouter une nouvelle (et son test).
+MIGRATIONS: list[str] = [
+    # v1 — schéma initial
+    """
+    CREATE TABLE IF NOT EXISTS documents (
+        url TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        title TEXT NOT NULL,
+        published_at TEXT,
+        summary TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tags_json TEXT NOT NULL,
+        collected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS digests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        generated_at TEXT NOT NULL,
+        markdown_path TEXT NOT NULL,
+        json_path TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+    );
+    """,
+    # v2 — mémoire de veille : runs, items publiés, retours humains, cache LLM
+    """
+    ALTER TABLE digests ADD COLUMN run_id TEXT;
+
+    CREATE TABLE runs (
+        run_id TEXT PRIMARY KEY,
+        started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        status TEXT NOT NULL,
+        stats_json TEXT NOT NULL DEFAULT '{}'
+    );
+
+    CREATE TABLE published_items (
+        url TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        digest_id INTEGER REFERENCES digests(id),
+        published_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT,
+        approved INTEGER NOT NULL,
+        note TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE llm_cache (
+        key TEXT PRIMARY KEY,
+        model TEXT NOT NULL,
+        response_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    """,
+    # v3 — chat (index des conversations), pages Notion, recherche plein texte
+    """
+    CREATE TABLE conversations (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE notion_pages (
+        page_id TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        digest_ids_json TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE VIRTUAL TABLE documents_fts USING fts5(
+        title, summary, content='documents', content_rowid='rowid',
+        tokenize='unicode61 remove_diacritics 2'
+    );
+    INSERT INTO documents_fts(rowid, title, summary)
+        SELECT rowid, title, summary FROM documents;
+
+    CREATE TRIGGER documents_fts_insert AFTER INSERT ON documents BEGIN
+        INSERT INTO documents_fts(rowid, title, summary)
+        VALUES (new.rowid, new.title, new.summary);
+    END;
+    CREATE TRIGGER documents_fts_delete AFTER DELETE ON documents BEGIN
+        INSERT INTO documents_fts(documents_fts, rowid, title, summary)
+        VALUES ('delete', old.rowid, old.title, old.summary);
+    END;
+    CREATE TRIGGER documents_fts_update AFTER UPDATE ON documents BEGIN
+        INSERT INTO documents_fts(documents_fts, rowid, title, summary)
+        VALUES ('delete', old.rowid, old.title, old.summary);
+        INSERT INTO documents_fts(rowid, title, summary)
+        VALUES (new.rowid, new.title, new.summary);
+    END;
+    """,
+]
+
+
+# Une connexion est partagée entre les threads des nœuds LangGraph parallèles :
+# tous les accès passent par ce verrou réentrant.
+_LOCK = threading.RLock()
+
+
+def locked(function):
+    @functools.wraps(function)
+    def wrapper(*args, **kwargs):
+        with _LOCK:
+            return function(*args, **kwargs)
+
+    return wrapper
+
+
+def schema_version(connection: sqlite3.Connection) -> int:
+    return connection.execute("PRAGMA user_version").fetchone()[0]
+
+
+def migrate(connection: sqlite3.Connection) -> int:
+    version = schema_version(connection)
+
+    for index, script in enumerate(MIGRATIONS[version:], start=version + 1):
+        # executescript valide toute transaction en cours : on encadre
+        # explicitement pour que migration + version soient atomiques.
+        connection.executescript(
+            f"BEGIN;\n{script}\nPRAGMA user_version = {index};\nCOMMIT;"
+        )
+
+    return schema_version(connection)
+
+
+def connect(path: Path) -> sqlite3.Connection:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # LangGraph peut exécuter les nœuds dans un thread de travail.
+    connection = sqlite3.connect(path, check_same_thread=False)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA foreign_keys=ON")
+    migrate(connection)
+    return connection
+
+
+# --- Documents -------------------------------------------------------------
+
+
+@locked
+def save_documents(connection: sqlite3.Connection, documents: Iterable[Document]) -> int:
+    count = 0
+
+    for document in documents:
+        cursor = connection.execute(
+            """
+            INSERT OR IGNORE INTO documents
+            (url, source, title, published_at, summary, content, tags_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(document.url),
+                document.source,
+                document.title,
+                document.published_at.isoformat() if document.published_at else None,
+                document.summary,
+                document.content,
+                json.dumps(document.tags),
+            ),
+        )
+        count += cursor.rowcount
+
+    connection.commit()
+    return count
+
+
+@locked
+def recent_documents(connection: sqlite3.Connection, limit: int = 60) -> list[Document]:
+    rows = connection.execute(
+        """
+        SELECT source, title, url, published_at, summary, content, tags_json
+        FROM documents
+        ORDER BY COALESCE(published_at, collected_at) DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+
+    return [
+        Document(
+            source=row[0],
+            title=row[1],
+            url=row[2],
+            published_at=row[3],
+            summary=row[4],
+            content=row[5],
+            tags=json.loads(row[6]),
+        )
+        for row in rows
+    ]
+
+
+# --- Mémoire de veille -----------------------------------------------------
+
+
+@locked
+def published_urls(connection: sqlite3.Connection) -> set[str]:
+    return {row[0] for row in connection.execute("SELECT url FROM published_items")}
+
+
+@locked
+def record_digest(
+    connection: sqlite3.Connection,
+    run_id: str,
+    digest: dict,
+    markdown_path: Path,
+    json_path: Path,
+) -> int:
+    cursor = connection.execute(
+        """
+        INSERT INTO digests (generated_at, markdown_path, json_path, payload_json, run_id)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            digest["generated_at"],
+            str(markdown_path),
+            str(json_path),
+            json.dumps(digest, ensure_ascii=False),
+            run_id,
+        ),
+    )
+    digest_id = cursor.lastrowid
+    connection.executemany(
+        "INSERT OR IGNORE INTO published_items (url, title, digest_id) VALUES (?, ?, ?)",
+        [(item["url"], item["title"], digest_id) for item in digest["items"]],
+    )
+    connection.commit()
+    return digest_id
+
+
+@locked
+def add_feedback(
+    connection: sqlite3.Connection, run_id: str, approved: bool, note: str
+) -> None:
+    connection.execute(
+        "INSERT INTO feedback (run_id, approved, note) VALUES (?, ?, ?)",
+        (run_id, int(approved), note),
+    )
+    connection.commit()
+
+
+@locked
+def recent_feedback(connection: sqlite3.Connection, limit: int = 5) -> list[str]:
+    rows = connection.execute(
+        "SELECT note FROM feedback WHERE note != '' ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
+@locked
+def set_run_status(
+    connection: sqlite3.Connection, run_id: str, status: str, stats: dict | None = None
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO runs (run_id, status, stats_json) VALUES (?, ?, ?)
+        ON CONFLICT(run_id) DO UPDATE SET
+            status = excluded.status,
+            stats_json = CASE WHEN excluded.stats_json = '{}'
+                              THEN runs.stats_json ELSE excluded.stats_json END
+        """,
+        (run_id, status, json.dumps(stats or {})),
+    )
+    connection.commit()
+
+
+@locked
+def cache_get(connection: sqlite3.Connection, key: str) -> str | None:
+    row = connection.execute(
+        "SELECT response_json FROM llm_cache WHERE key = ?", (key,)
+    ).fetchone()
+    return row[0] if row else None
+
+
+@locked
+def cache_set(connection: sqlite3.Connection, key: str, model: str, response_json: str) -> None:
+    connection.execute(
+        "INSERT OR REPLACE INTO llm_cache (key, model, response_json) VALUES (?, ?, ?)",
+        (key, model, response_json),
+    )
+    connection.commit()
+
+
+@locked
+def memory_stats(connection: sqlite3.Connection) -> dict[str, int]:
+    tables = [
+        "documents", "digests", "published_items", "feedback", "llm_cache", "runs",
+        "conversations", "notion_pages",
+    ]
+    return {
+        table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        for table in tables
+    }
+
+
+# --- Digests, recherche, chat, Notion (v3) --------------------------------------
+
+
+@locked
+def recent_digests(connection: sqlite3.Connection, limit: int = 10) -> list[dict]:
+    rows = connection.execute(
+        """
+        SELECT id, run_id, generated_at, markdown_path, json_path, payload_json
+        FROM digests ORDER BY generated_at DESC, id DESC LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [
+        {
+            "id": row[0],
+            "run_id": row[1],
+            "generated_at": row[2],
+            "markdown_path": row[3],
+            "json_path": row[4],
+            "digest": json.loads(row[5]),
+        }
+        for row in rows
+    ]
+
+
+def fts_query(text: str) -> str:
+    """Requête FTS5 sûre : mots alphanumériques en préfixe, reliés par OR."""
+    words = [word for word in re.findall(r"\w+", text.lower()) if len(word) > 2]
+    return " OR ".join(f'"{word}"*' for word in words[:12])
+
+
+@locked
+def search_documents(connection: sqlite3.Connection, text: str, limit: int = 6) -> list[dict]:
+    query = fts_query(text)
+    if not query:
+        return []
+    rows = connection.execute(
+        """
+        SELECT d.url, d.title, d.source, d.published_at, d.summary,
+               d.url IN (SELECT url FROM published_items) AS published
+        FROM documents_fts f JOIN documents d ON d.rowid = f.rowid
+        WHERE documents_fts MATCH ?
+        ORDER BY bm25(documents_fts, 3.0, 1.0), d.published_at DESC
+        LIMIT ?
+        """,
+        (query, limit),
+    ).fetchall()
+    return [
+        {
+            "url": row[0],
+            "title": row[1],
+            "source": row[2],
+            "published_at": row[3],
+            "summary": row[4][:600],
+            "published": bool(row[5]),
+        }
+        for row in rows
+    ]
+
+
+@locked
+def upsert_conversation(connection: sqlite3.Connection, conversation_id: str, title: str) -> None:
+    connection.execute(
+        """
+        INSERT INTO conversations (id, title) VALUES (?, ?)
+        ON CONFLICT(id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+        """,
+        (conversation_id, title[:80]),
+    )
+    connection.commit()
+
+
+@locked
+def list_conversations(connection: sqlite3.Connection, limit: int = 30) -> list[dict]:
+    rows = connection.execute(
+        "SELECT id, title, updated_at FROM conversations ORDER BY updated_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [{"id": row[0], "title": row[1], "updated_at": row[2]} for row in rows]
+
+
+@locked
+def record_notion_page(
+    connection: sqlite3.Connection, page_id: str, url: str, digest_ids: list[int]
+) -> str | None:
+    """Enregistre la nouvelle page ; renvoie l'id de la page active précédente."""
+    previous = connection.execute(
+        "SELECT page_id FROM notion_pages WHERE archived = 0 ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    connection.execute("UPDATE notion_pages SET archived = 1 WHERE archived = 0")
+    connection.execute(
+        "INSERT INTO notion_pages (page_id, url, digest_ids_json) VALUES (?, ?, ?)",
+        (page_id, url, json.dumps(digest_ids)),
+    )
+    connection.commit()
+    return previous[0] if previous else None
+
+
+@locked
+def current_notion_page(connection: sqlite3.Connection) -> dict | None:
+    row = connection.execute(
+        "SELECT page_id, url, created_at FROM notion_pages WHERE archived = 0 "
+        "ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    return {"page_id": row[0], "url": row[1], "created_at": row[2]} if row else None

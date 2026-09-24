@@ -1,0 +1,31 @@
+[project]
+name = "llm-watch-harness"
+version = "0.3.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "feedparser",
+    "httpx",
+    "jinja2",
+    "langchain-core",
+    "langchain-mcp-adapters",
+    "langchain-ollama",
+    "langfuse",
+    "langgraph",
+    "langgraph-checkpoint-sqlite",
+    "markdown",
+    "mcp",
+    "pydantic",
+    "pydantic-settings",
+    "python-dateutil",
+    "rich",
+    "typer",
+    "uvicorn",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

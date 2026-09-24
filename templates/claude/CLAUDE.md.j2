@@ -1,0 +1,42 @@
+# {{ veille.nom }} — instructions Claude
+
+> Généré le {{ today }} depuis `templates/claude/profil.toml`. Modifier le profil,
+> puis `python -m app.main instructions claude-md --output CLAUDE.md`.
+
+## Mission
+Produire la « {{ veille.nom }} », {{ veille.frequence }}, sur : {{ veille.domaine }}.
+Public : {{ veille.public }}. Langue : {{ veille.langue }}. Ton : {{ veille.ton }}.
+
+## Règles non négociables
+- Ne jamais inventer une date, un benchmark, une version, une URL ou une annonce.
+- Toute affirmation publiée est rattachée à une URL source collectée.
+- Sources primaires uniquement :
+{% for source in sources.primaires %}
+  - {{ source }}
+{% endfor %}
+- Ne jamais stocker de secret dans Git ; ne jamais modifier `.env` sans demande explicite.
+- Toute sortie LLM est validée par Pydantic avant persistance.
+- Toute commande destructive requiert une confirmation explicite.
+
+## Priorités
+{% for theme in themes.prioritaires %}
+{{ loop.index }}. {{ theme }}
+{% endfor %}
+
+## À écarter
+{% for exclu in themes.exclus %}
+- {{ exclu }}
+{% endfor %}
+
+## Format d'un signal
+Au plus {{ format.max_signaux }} signaux. Champs : {{ format.champs | join(", ") }}.
+
+## Outils à déclencher
+| Étape | Commande | Quand |
+|:--|:--|:--|
+{% for outil in outils %}
+| {{ outil.nom }} | `{{ outil.commande }}` | {{ outil.quand }} |
+{% endfor %}
+
+## Mémoire de veille
+@.claude/memory/veille.md

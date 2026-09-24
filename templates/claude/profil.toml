@@ -1,0 +1,70 @@
+# Profil de veille : source unique des instructions Claude générées.
+#   python -m app.main instructions claude-md   → CLAUDE.md de projet
+#   python -m app.main instructions demande     → demande de veille à coller dans Claude
+#   python -m app.main instructions chat        → prompt système de l'assistant web
+
+[veille]
+nom = "Veille LLM / GenAI"
+domaine = "LLM, IA générative, agents, RAG et inférence locale"
+public = "ingénieur IA qui déploie des modèles en production et en local (GPU 8 Go)"
+langue = "français"
+frequence = "quotidienne, jours ouvrés"
+ton = "factuel, concis, orienté action"
+
+[themes]
+prioritaires = [
+    "modèles ouverts et leurs capacités mesurées",
+    "inférence GPU / edge : quantification, vLLM, llama.cpp, Ollama, TensorRT-LLM",
+    "agents, MCP et orchestration (LangGraph)",
+    "RAG, évaluation et observabilité (Langfuse, LangSmith)",
+    "benchmarks avec méthodologie publiée",
+]
+exclus = [
+    "cours, tutoriels, feuilles de route d'apprentissage et listes « awesome »",
+    "annonces commerciales sans détail technique",
+    "événements, recrutements, levées de fonds",
+    "outils offensifs",
+]
+
+[sources]
+primaires = [
+    "release notes et dépôts GitHub officiels",
+    "articles arXiv",
+    "blogs techniques des éditeurs (Hugging Face, NVIDIA, PyTorch, Google DeepMind, OpenAI, Ollama)",
+    "documentation éditeur",
+]
+
+[format]
+max_signaux = 8
+champs = ["titre", "source", "date", "lien", "résumé (2 phrases)", "pourquoi c'est important", "mots-clés"]
+
+# Outils à déclencher, dans l'ordre, pour produire une veille complète.
+[[outils]]
+nom = "doctor"
+commande = "python -m app.main doctor"
+quand = "avant tout run : Ollama, modèle, MCP, migrations"
+
+[[outils]]
+nom = "run"
+commande = "python -m app.main run"
+quand = "collecte + scout → critic → editor, arrêt avant publication"
+
+[[outils]]
+nom = "resume"
+commande = "python -m app.main resume <run_id> --approved|--rejected --note \"…\""
+quand = "après audit du digest ; la note devient une leçon mémorisée"
+
+[[outils]]
+nom = "report"
+commande = "python -m app.main report"
+quand = "rapport Markdown daté (automatique à la publication, relançable)"
+
+[[outils]]
+nom = "notion-sync"
+commande = "python -m app.main notion-sync"
+quand = "page Notion des 10 dernières veilles (automatique si Notion est configuré)"
+
+[[outils]]
+nom = "memory"
+commande = "python -m app.main memory --export"
+quand = "rafraîchir la mémoire importée par CLAUDE.md"

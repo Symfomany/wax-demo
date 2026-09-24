@@ -1,0 +1,89 @@
+---
+title: "{{ title }}"
+date: {{ generated_at }}
+run_id: {{ run_id }}
+model: {{ model }}
+signals: {{ items | length }}
+rejected: {{ rejected | length }}
+keywords: [{{ keywords | join(", ") }}]
+---
+
+# 🛰️ {{ title }}
+
+> **En bref** — {{ digest.executive_summary }}
+
+| 📅 Date | 📥 Collectés | 🎯 Retenus | 🚫 Écartés | 🤖 Modèle |
+|:--|:--:|:--:|:--:|:--|
+| {{ date_long }} | {{ collected_total }} | **{{ items | length }}** | {{ rejected | length }} | `{{ model }}` |
+
+{% if keywords %}
+**Mots-clés :** {% for keyword in keywords %}`{{ keyword }}`{% if not loop.last %} · {% endif %}{% endfor %}
+
+
+{% endif %}
+---
+
+## 🔝 À retenir
+
+{% for item in top %}
+{{ loop.index }}. **[{{ item.title }}]({{ item.url }})** — {{ item.why_it_matters }}
+{% else %}
+_Aucun signal retenu sur la période._
+{% endfor %}
+
+## 📰 Signaux
+
+{% for item in items %}
+### {{ loop.index }}. {{ item.icon }} {{ item.title }}
+
+| Source | Date | Lien |
+|:--|:--|:--|
+| {{ item.source_label }} | {{ item.date_short }} | [ouvrir la source]({{ item.url }}) |
+
+{{ item.summary }}
+
+> 💡 **Pourquoi c'est important :** {{ item.why_it_matters }}
+
+{% if item.tags %}
+🏷️ {% for tag in item.tags %}`{{ tag }}`{% if not loop.last %} {% endif %}{% endfor %}
+
+
+{% endif %}
+{% endfor %}
+## 🗂️ Ressources
+
+| # | Ressource | Source | Date |
+|:--:|:--|:--|:--|
+{% for item in items %}| {{ loop.index }} | [{{ item.title | replace("|", "∣") }}]({{ item.url }}) | {{ item.source_label }} | {{ item.date_short }} |
+{% endfor %}
+
+{% if rejected %}
+## 🚫 Écartés par le Critic
+
+{% for critique in rejected %}
+- `{{ critique.verdict }}` <{{ critique.signal_url }}> — {{ critique.rationale }}{% if critique.factual_risks %} _(risques : {{ critique.factual_risks | join("; ") }})_{% endif %}
+
+{% endfor %}
+
+{% endif %}
+## 🧭 Méthodologie
+
+- **Collecte :** {% for name, count in collected.items() %}{{ name }} +{{ count }}{% if not loop.last %} · {% endif %}{% else %}mémoire existante (pas de collecte){% endfor %}
+
+- **Chaîne :** supervisor → research (Scouts parallèles) → review (Critic) → editorial (Editor + guards) → validation humaine.
+- **Garanties :** URLs, titres et dates recopiés depuis les sources collectées ; digest validé par Pydantic ; guards de publication passés.
+{% if errors %}- **Incidents :** {{ errors | join(" ; ") }}
+{% endif %}
+
+<details>
+<summary>Trace du supervisor</summary>
+
+{% for line in trace %}
+- {{ line }}
+{% endfor %}
+
+</details>
+
+---
+
+_Rapport généré le {{ generated_at }} par LLM Watch Harness · run `{{ run_id }}` · chaque affirmation renvoie à sa source._

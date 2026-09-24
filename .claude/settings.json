@@ -1,0 +1,73 @@
+{
+  "enabledMcpjsonServers": [
+    "github-scout",
+    "notion-veille",
+    "notion"
+  ],
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python -m pytest:*)",
+      "Bash(.venv/bin/python -m app.main doctor)",
+      "Bash(.venv/bin/python -m app.main memory)",
+      "Bash(.venv/bin/python -m app.main plan:*)",
+      "Bash(python -m compileall:*)",
+      "mcp__github-scout__search_repositories",
+      "mcp__github-scout__list_releases",
+      "mcp__github-scout__get_readme",
+      "Bash(.venv/bin/python -m app.main report:*)",
+      "Bash(.venv/bin/python -m app.main instructions:*)",
+      "mcp__notion-veille__search_pages",
+      "mcp__notion__API-post-search",
+      "mcp__notion__API-retrieve-a-page"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Edit(./.env)",
+      "Write(./.env)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session_context.py"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_edit.py"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop_tests.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
