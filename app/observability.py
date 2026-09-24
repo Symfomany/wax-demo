@@ -50,7 +50,15 @@ def _langfuse_client():
     )
 
 
-def langfuse_callbacks() -> list:
+def langfuse_trace_id(seed: str) -> str:
+    """Identifiant de trace Langfuse déterministe (32 hex) dérivé de notre identifiant :
+    l'URL de la trace est connue avant même l'appel."""
+    from langfuse import Langfuse
+
+    return Langfuse.create_trace_id(seed=seed)
+
+
+def langfuse_callbacks(trace_seed: str | None = None) -> list:
     if not settings.langfuse_enabled:
         return []
     if not langfuse_ready():
@@ -60,14 +68,49 @@ def langfuse_callbacks() -> list:
     from langfuse.langchain import CallbackHandler
 
     _langfuse_client()
-    return [CallbackHandler(public_key=settings.langfuse_public_key)]
+    context = {"trace_id": langfuse_trace_id(trace_seed)} if trace_seed else None
+    return [CallbackHandler(public_key=settings.langfuse_public_key, trace_context=context)]
 
 
-def trace_config(session_id: str, kind: str, user_id: str = "local-user", **extra) -> dict:
+_project_id_cache: dict[str, str] = {}
+
+
+def langfuse_project_id() -> str | None:
+    """LANGFUSE_PROJECT_ID si défini (aucun appel réseau), sinon lu via l'API.
+    Seul un succès est mis en cache : un échec réseau sera retenté au prochain lien."""
+    if settings.langfuse_project_id:
+        return settings.langfuse_project_id
+    if "id" not in _project_id_cache:
+        try:
+            project_id = _langfuse_client()._get_project_id()
+        except Exception:  # noqa: BLE001 — un lien manquant ne doit jamais casser une réponse
+            return None
+        if project_id:
+            _project_id_cache["id"] = project_id
+    return _project_id_cache.get("id")
+
+
+def langfuse_links(trace_seed: str, session_id: str) -> dict[str, str] | None:
+    """Liens vers la trace (ce tour / ce run) et la session (conversation / run) dans Langfuse."""
+    if not langfuse_ready():
+        return None
+    project_id = langfuse_project_id()
+    if not project_id:
+        return None
+    base = f"{settings.langfuse_host.rstrip('/')}/project/{project_id}"
+    return {
+        "trace": f"{base}/traces/{langfuse_trace_id(trace_seed)}",
+        "session": f"{base}/sessions/{session_id}",
+    }
+
+
+def trace_config(
+    session_id: str, kind: str, user_id: str = "local-user", trace_seed: str | None = None, **extra
+) -> dict:
     """Config LangChain/LangGraph commune : callbacks + métadonnées de session."""
     setup_langsmith()
     return {
-        "callbacks": langfuse_callbacks(),
+        "callbacks": langfuse_callbacks(trace_seed),
         "tags": [kind],
         "metadata": {
             # Langfuse : regroupement par session et par utilisateur

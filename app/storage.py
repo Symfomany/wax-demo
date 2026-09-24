@@ -106,6 +106,19 @@ MIGRATIONS: list[str] = [
         VALUES (new.rowid, new.title, new.summary);
     END;
     """,
+    # v4 — traces : parcours dans le graphe de chaque réponse du chat et de chaque veille
+    """
+    CREATE TABLE traces (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        steps_json TEXT NOT NULL,
+        engaged_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX traces_session ON traces(session_id);
+    """,
 ]
 
 
@@ -302,7 +315,7 @@ def cache_set(connection: sqlite3.Connection, key: str, model: str, response_jso
 def memory_stats(connection: sqlite3.Connection) -> dict[str, int]:
     tables = [
         "documents", "digests", "published_items", "feedback", "llm_cache", "runs",
-        "conversations", "notion_pages",
+        "conversations", "notion_pages", "traces",
     ]
     return {
         table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -335,36 +348,72 @@ def recent_digests(connection: sqlite3.Connection, limit: int = 10) -> list[dict
     ]
 
 
-def fts_query(text: str) -> str:
-    """Requête FTS5 sûre : mots alphanumériques en préfixe, reliés par OR."""
+def fts_query(text: str, match_all: bool = False) -> str:
+    """Requête FTS5 sûre : mots alphanumériques en préfixe, reliés par OR (ou AND)."""
     words = [word for word in re.findall(r"\w+", text.lower()) if len(word) > 2]
-    return " OR ".join(f'"{word}"*' for word in words[:12])
+    return (" AND " if match_all else " OR ").join(f'"{word}"*' for word in words[:12])
+
+
+# Filtre « source » de l'interface : github-mcp (nouveaux dépôts) est distingué des releases.
+SOURCE_FILTERS = {
+    "rss": "d.source = 'rss'",
+    "arxiv": "d.source = 'arxiv'",
+    "github": "(d.source = 'github' AND d.tags_json NOT LIKE '%\"github-mcp\"%')",
+    "github-mcp": "d.tags_json LIKE '%\"github-mcp\"%'",
+}
 
 
 @locked
-def search_documents(connection: sqlite3.Connection, text: str, limit: int = 6) -> list[dict]:
-    query = fts_query(text)
-    if not query:
+def search_documents(
+    connection: sqlite3.Connection,
+    text: str,
+    limit: int = 6,
+    sources: list[str] | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    published: bool | None = None,
+    match_all: bool = False,
+) -> list[dict]:
+    """Recherche plein texte (BM25, titre ×3) avec filtres ; sans mots-clés, parcours
+    chronologique des documents qui passent les filtres."""
+    query = fts_query(text, match_all)
+    filters, params = [], []
+    if sources:
+        unknown = set(sources) - set(SOURCE_FILTERS)
+        if unknown:
+            raise ValueError(f"Source(s) inconnue(s) : {', '.join(sorted(unknown))}")
+        filters.append("(" + " OR ".join(SOURCE_FILTERS[source] for source in sources) + ")")
+    if since:
+        filters.append("COALESCE(d.published_at, d.collected_at) >= ?")
+        params.append(since)
+    if until:
+        filters.append("COALESCE(d.published_at, d.collected_at) < ?")
+        params.append(until)
+    if published is not None:
+        filters.append(("" if published else "NOT ") + "d.url IN (SELECT url FROM published_items)")
+    if not query and not filters:
         return []
-    rows = connection.execute(
-        """
-        SELECT d.url, d.title, d.source, d.published_at, d.summary,
-               d.url IN (SELECT url FROM published_items) AS published
-        FROM documents_fts f JOIN documents d ON d.rowid = f.rowid
-        WHERE documents_fts MATCH ?
-        ORDER BY bm25(documents_fts, 3.0, 1.0), d.published_at DESC
-        LIMIT ?
-        """,
-        (query, limit),
-    ).fetchall()
+
+    columns = """d.url, d.title, d.source, d.published_at, d.summary, d.tags_json,
+                 d.url IN (SELECT url FROM published_items) AS published"""
+    where = " AND ".join(filters)
+    if query:
+        sql = f"""SELECT {columns} FROM documents_fts f JOIN documents d ON d.rowid = f.rowid
+                  WHERE documents_fts MATCH ? {"AND " + where if where else ""}
+                  ORDER BY bm25(documents_fts, 3.0, 1.0), d.published_at DESC LIMIT ?"""
+        params = [query, *params]
+    else:
+        sql = f"""SELECT {columns} FROM documents d WHERE {where}
+                  ORDER BY COALESCE(d.published_at, d.collected_at) DESC LIMIT ?"""
+    rows = connection.execute(sql, (*params, max(1, min(limit, 50)))).fetchall()
     return [
         {
             "url": row[0],
             "title": row[1],
-            "source": row[2],
+            "source": "github-mcp" if '"github-mcp"' in row[5] else row[2],
             "published_at": row[3],
             "summary": row[4][:600],
-            "published": bool(row[5]),
+            "published": bool(row[6]),
         }
         for row in rows
     ]
@@ -415,3 +464,47 @@ def current_notion_page(connection: sqlite3.Connection) -> dict | None:
         "ORDER BY created_at DESC LIMIT 1"
     ).fetchone()
     return {"page_id": row[0], "url": row[1], "created_at": row[2]} if row else None
+
+
+# --- Traces (v4) -----------------------------------------------------------------
+
+
+@locked
+def save_trace(
+    connection: sqlite3.Connection, trace_id: str, kind: str, session_id: str, title: str,
+    steps: list[dict], engaged: dict | None = None,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO traces (id, kind, session_id, title, steps_json, engaged_json)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET steps_json = excluded.steps_json,
+                                      engaged_json = excluded.engaged_json
+        """,
+        (trace_id, kind, session_id, title[:120], json.dumps(steps, ensure_ascii=False),
+         json.dumps(engaged or {}, ensure_ascii=False)),
+    )
+    connection.commit()
+
+
+@locked
+def get_trace(connection: sqlite3.Connection, trace_id: str) -> dict | None:
+    row = connection.execute(
+        "SELECT id, kind, session_id, title, steps_json, engaged_json, created_at FROM traces WHERE id = ?",
+        (trace_id,),
+    ).fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "kind": row[1], "session_id": row[2], "title": row[3],
+            "steps": json.loads(row[4]), "engaged": json.loads(row[5]), "created_at": row[6]}
+
+
+@locked
+def list_traces(connection: sqlite3.Connection, session_id: str) -> list[dict]:
+    rows = connection.execute(
+        "SELECT id, kind, title, created_at, engaged_json FROM traces WHERE session_id = ? "
+        "ORDER BY created_at, rowid",
+        (session_id,),
+    ).fetchall()
+    return [{"id": r[0], "kind": r[1], "title": r[2], "created_at": r[3], "engaged": json.loads(r[4])}
+            for r in rows]

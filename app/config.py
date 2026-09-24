@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     langfuse_host: str = "https://cloud.langfuse.com"
+    langfuse_project_id: str | None = None  # facultatif : évite un appel API pour construire les liens
 
     langsmith_tracing: bool = False
     langsmith_api_key: str | None = None
@@ -72,6 +73,7 @@ class Settings(BaseSettings):
 
     reports_dir: Path = Path("reports")
     templates_dir: Path = PROJECT_ROOT / "templates"
+    prompt_overrides_dir: Path = Path("data/prompts")  # prompts édités depuis l'interface
     web_host: str = "127.0.0.1"
     web_port: int = 8000
 

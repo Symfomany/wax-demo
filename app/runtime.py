@@ -72,5 +72,5 @@ def graph_config(run_id: str) -> dict:
     return {
         "configurable": {"thread_id": run_id},
         "recursion_limit": 60,
-        **observability.trace_config(run_id, "veille"),
+        **observability.trace_config(run_id, "veille", trace_seed=run_id),
     }

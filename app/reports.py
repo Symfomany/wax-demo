@@ -25,9 +25,11 @@ def _parse(value) -> datetime | None:
     return value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
 
 
-def _environment(templates_dir: Path) -> Environment:
+def _environment(templates_dir: Path, html: bool = False) -> Environment:
     return Environment(
         loader=FileSystemLoader(templates_dir),
+        # HTML : échappement automatique (titres et résumés viennent de sources externes)
+        autoescape=html,
         trim_blocks=True,
         lstrip_blocks=True,
         undefined=StrictUndefined,  # variable oubliée = erreur, pas un trou silencieux
@@ -79,8 +81,10 @@ def report_context(
     }
 
 
-def render_report(templates_dir: Path, **context_args) -> str:
-    template = _environment(templates_dir).get_template("report.md.j2")
+def render_report(templates_dir: Path, fmt: str = "md", **context_args) -> str:
+    """Rapport au format « md » (Markdown) ou « html » (page autonome, thème clair/sombre)."""
+    html = fmt == "html"
+    template = _environment(templates_dir, html=html).get_template(f"report.{fmt}.j2")
     return template.render(**report_context(**context_args))
 
 

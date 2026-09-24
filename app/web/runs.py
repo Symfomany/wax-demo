@@ -7,6 +7,7 @@ Une seule veille à la fois (GPU local). L'interface interroge les événements
 from __future__ import annotations
 
 import threading
+import time
 import traceback
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -33,9 +34,11 @@ class RunRecord:
     markdown: str = ""
     outputs: dict = field(default_factory=dict)
     started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    options: dict = field(default_factory=dict)
+    steps: list[dict] = field(default_factory=list)
 
     def public(self, after: int = 0) -> dict:
-        return {"id": self.id, "status": self.status, "markdown": self.markdown,
+        return {"id": self.id, "status": self.status, "markdown": self.markdown, "options": self.options,
                 "outputs": self.outputs, "started_at": self.started_at,
                 "events": self.events[after:], "next": len(self.events)}
 
@@ -83,11 +86,16 @@ class RunManager:
                 raise RuntimeError("Une veille est déjà en cours : attendez sa fin avant d'en relancer une.")
             record = RunRecord(id=str(uuid4()))
             self.runs[record.id] = record
+        wanted = options.get("sources") or list(COLLECTORS)
         collectors = tuple(
-            name for name in COLLECTORS if options.get("mcp", True) or name != "github_mcp"
+            name for name in COLLECTORS
+            if name in wanted and (options.get("mcp", True) or name != "github_mcp")
         )
         plan = default_plan(collect=options.get("collect", True), collectors=collectors)
-        payload = initial_state(record.id, plan, self.min_relevance)
+        run_options = {key: options[key] for key in ("keywords", "match_all", "max_age_days", "max_documents")
+                       if options.get(key)}
+        record.options = run_options | {"sources": list(collectors)}
+        payload = initial_state(record.id, plan, self.min_relevance, run_options)
         self._spawn(record, payload)
         return record.id
 
@@ -133,9 +141,21 @@ class RunManager:
             with self.graph_factory() as (graph, context):
                 if not isinstance(payload, Command):
                     storage.set_run_status(context.connection, record.id, "running")
-                for chunk in graph.stream(payload, config | context_trace(record.id), stream_mode="updates"):
-                    for event in translate(chunk):
-                        self._emit(record, event)
+                last = time.perf_counter()
+                for namespace, chunk in graph.stream(
+                    payload, config | context_trace(record.id), stream_mode="updates", subgraphs=True
+                ):
+                    now = time.perf_counter()
+                    # sous-graphes : espace de noms « research:<id> » → graphe « research »
+                    graph_name = namespace[0].split(":")[0] if namespace else "veille"
+                    for node, update in chunk.items():
+                        record.steps.append({"graph": graph_name, "node": node,
+                                             "ms": round((now - last) * 1000),
+                                             "detail": run_step_detail(node, update or {})})
+                    last = now
+                    if not namespace:
+                        for event in translate(chunk):
+                            self._emit(record, event)
                 snapshot = graph.get_state(config)
                 values = snapshot.values
                 if snapshot.next:
@@ -153,6 +173,12 @@ class RunManager:
                     record.status = "rejected"
                 else:
                     record.status = "failed"
+                storage.save_trace(
+                    context.connection, record.id, "veille", record.id,
+                    "Veille" + (f" ciblée : {', '.join(record.options.get('keywords', []))}"
+                                if record.options.get("keywords") else ""),
+                    record.steps, run_engagement(record),
+                )
         except Exception as error:  # noqa: BLE001 — remonté dans l'interface
             record.status = "error"
             self._emit(record, {"type": "error", "text": f"{type(error).__name__} : {error}"})
@@ -160,7 +186,47 @@ class RunManager:
         self._emit(record, {"type": "status", "status": record.status})
 
 
+def run_step_detail(node: str, update: dict) -> str:
+    if node == "__interrupt__":
+        return "validation humaine attendue"
+    if update.get("trace"):
+        return update["trace"][0]
+    if "collected" in update:
+        return ", ".join(f"{source} +{count}" for source, count in update["collected"].items())
+    if "signals" in update:
+        return f"{len(update['signals'])} signal(aux)"
+    if "accepted" in update:
+        return f"{len(update['accepted'])} accepté(s)"
+    if "violations" in update:
+        return f"{len(update['violations'])} violation(s)"
+    if "picks" in update:
+        return f"{len(update['picks'])} choix du Scout"
+    if update.get("errors"):
+        return update["errors"][0]
+    return ""
+
+
+AGENT_OF_NODE = {"scout_batch": "scout", "critic": "critic", "editor": "editor", "repair": "editor",
+                 "collector": "collector", "supervisor": "supervisor", "reflect": "reflect"}
+PROMPT_OF_NODE = {"scout_batch": "scout.md", "critic": "critic.md", "editor": "editor.md", "repair": "editor.md"}
+
+
+def run_engagement(record: RunRecord) -> dict:
+    nodes = [step["node"] for step in record.steps]
+    agents = list(dict.fromkeys(AGENT_OF_NODE[n] for n in nodes if n in AGENT_OF_NODE))
+    sources = record.options.get("sources", [])
+    return {
+        "nodes": list(dict.fromkeys(nodes)),
+        "agents": agents,
+        "skills": ["veille-tech"] if "scout" in agents else [],
+        "mcp": (["github-scout"] if "github_mcp" in sources else [])
+        + (["notion-veille"] if record.outputs.get("notion") else []),
+        "prompts": list(dict.fromkeys(PROMPT_OF_NODE[n] for n in nodes if n in PROMPT_OF_NODE)),
+        "options": record.options,
+    }
+
+
 def context_trace(run_id: str) -> dict:
     from app.observability import trace_config
 
-    return trace_config(run_id, "veille")
+    return trace_config(run_id, "veille", trace_seed=run_id)

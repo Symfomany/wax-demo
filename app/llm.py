@@ -139,6 +139,11 @@ def ollama_invoke() -> InvokeFn:
     return invoke
 
 
+def openai_temperature(value: float) -> float | None:
+    """Pas de température pour Claude : les modèles récents la refusent (même via la couche OpenAI)."""
+    return None if settings.llm_model.startswith("claude") else value
+
+
 def schema_instruction(json_schema: dict[str, Any]) -> str:
     return (
         "\n\nRéponds uniquement avec un objet JSON conforme à ce schéma, sans texte autour :\n"
@@ -162,7 +167,7 @@ def openai_invoke() -> InvokeFn:
             model=settings.llm_model,
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key,
-            temperature=settings.llm_temperature,
+            temperature=openai_temperature(settings.llm_temperature),
             timeout=settings.llm_timeout,
             max_retries=2,
         )
@@ -249,7 +254,7 @@ def get_chat_model():
 
         return ChatOpenAI(
             model=settings.llm_model, base_url=settings.llm_base_url, api_key=settings.llm_api_key,
-            temperature=0.3, timeout=settings.llm_timeout,
+            temperature=openai_temperature(0.3), timeout=settings.llm_timeout,
         )
     from langchain_ollama import ChatOllama
 

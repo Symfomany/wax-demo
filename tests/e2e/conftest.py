@@ -143,6 +143,7 @@ queries = ["llm inference", "agent mcp"]
         "output_dir": tmp_path / "output",
         "claude_memory_path": tmp_path / "claude" / "veille.md",
         "reports_dir": tmp_path / "reports",
+        "prompt_overrides_dir": tmp_path / "prompts",
         # Jamais de publication Notion réelle depuis les tests
         "notion_token": None,
         "notion_parent_page_id": None,

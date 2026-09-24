@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# veille — lanceur CLI de LLM Watch Harness.
+#
+#   bin/veille cycle -k MCP -k agents     # run → digest → décision interactive → resume
+#   bin/veille run [options de run]       # python -m app.main run …
+#   bin/veille resume <run_id> --approved --note "…"
+#   bin/veille approve <run_id> ["note"]  # raccourci : resume --approved
+#   bin/veille reject <run_id> "motif"    # raccourci : resume --rejected
+#
+# Variables : VEILLE_PYTHON (défaut .venv/bin/python), LLM_MODEL, LLM_PROVIDER… (priment sur .env).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON="${VEILLE_PYTHON:-$ROOT/.venv/bin/python}"
+export COLUMNS="${COLUMNS:-160}"   # sortie Rich lisible (lignes non coupées)
+
+usage() {
+  cat <<'EOF'
+Usage : veille <commande> [arguments]
+
+Veille
+  cycle [options run]          Lance une veille, affiche le digest, demande publier/rejeter, reprend le run
+  run [options run]            python -m app.main run (options : --no-collect --no-mcp --approve
+                               -k MOT -s SOURCE --max-age N --max-docs N --match-all)
+  resume <run_id> --approved|--rejected [--note "…"]
+  approve <run_id> ["note"]    Publie un run en attente (note facultative, mémorisée)
+  reject <run_id> "motif"      Rejette un run en attente ; le motif devient une leçon
+  pending                      Liste les runs en attente de validation
+  show <run_id>                Affiche le digest d'un run en attente
+
+Profil et outils
+  grill                        Entretien Grill-me : cerner ce que tu cherches en actu IA
+  web [--port N]               Interface de chat (http://127.0.0.1:8000)
+  doctor                       Diagnostic (Ollama, modèle, GPU, MCP, migrations)
+  report                       Régénère le rapport daté (Markdown + HTML) de la dernière veille
+  notion                       Publie la page Notion des 10 dernières veilles
+  memory                       Mémoire de veille (leçons, centres d'intérêt, sources)
+  test                         Lance les tests (pytest -q)
+
+Exemple : LLM_MODEL=gemma-3-4b-it veille cycle -k quantization --max-age 7
+EOF
+}
+
+die() { echo "veille : $*" >&2; exit 2; }
+
+app() { cd "$ROOT" && "$PYTHON" -m app.main "$@"; }
+
+require_python() {
+  [[ -x "$PYTHON" ]] || die "interpréteur introuvable : $PYTHON (créer le venv : python3 -m venv .venv && .venv/bin/pip install -e '.[dev]')"
+}
+
+cycle() {
+  local id_file run_id answer note
+  id_file="$(mktemp)"
+  # chemin figé à la définition (la variable locale n'existe plus quand le trap s'exécute)
+  # shellcheck disable=SC2064
+  trap "rm -f -- '$id_file'; trap - RETURN" RETURN
+  app run --run-id-file "$id_file" "$@"
+  run_id="$(cat "$id_file")"
+  [[ -n "$run_id" ]] || die "identifiant du run introuvable"
+
+  # Publication directe (--approve), run bloqué ou en échec : rien à valider.
+  if ! app pending | grep -q "^$run_id"; then
+    echo "Run $run_id terminé sans validation en attente."
+    return 0
+  fi
+  if [[ ! -t 0 && -z "${VEILLE_ASSUME_TTY:-}" ]]; then
+    echo "Validation en attente. Publier : veille approve $run_id \"note\" · Rejeter : veille reject $run_id \"motif\""
+    return 0
+  fi
+  echo
+  read -r -p "Publier ce digest ? [o]ui / [r]ejeter / [p]lus tard : " answer
+  case "${answer,,}" in
+    o|oui|y|yes)
+      read -r -p "Note (facultative, mémorisée pour les prochaines veilles) : " note
+      app resume "$run_id" --approved --note "$note" ;;
+    r|rejeter|n|non)
+      read -r -p "Motif du rejet (devient une leçon) : " note
+      app resume "$run_id" --rejected --note "$note" ;;
+    *)
+      echo "En attente. Plus tard : veille approve $run_id \"note\" ou veille reject $run_id \"motif\"" ;;
+  esac
+}
+
+main() {
+  local command="${1:-help}"
+  [[ $# -gt 0 ]] && shift
+  case "$command" in
+    help|-h|--help) usage; return 0 ;;
+  esac
+  require_python
+  case "$command" in
+    cycle)   cycle "$@" ;;
+    run)     app run "$@" ;;
+    resume)
+      [[ $# -ge 2 ]] || die "usage : veille resume <run_id> --approved|--rejected [--note \"…\"]"
+      app resume "$@" ;;
+    approve)
+      [[ $# -ge 1 ]] || die "usage : veille approve <run_id> [\"note\"]"
+      app resume "$1" --approved --note "${2:-}" ;;
+    reject)
+      [[ $# -ge 2 && -n "$2" ]] || die "usage : veille reject <run_id> \"motif\" (le motif est obligatoire : il devient une leçon)"
+      app resume "$1" --rejected --note "$2" ;;
+    pending) app pending ;;
+    show)
+      [[ $# -ge 1 ]] || die "usage : veille show <run_id>"
+      app show "$1" ;;
+    grill)   app grill ;;
+    web)     app web "$@" ;;
+    doctor)  app doctor ;;
+    report)  app report "$@" ;;
+    notion)  app notion-sync ;;
+    memory)  app memory "$@" ;;
+    test)    cd "$ROOT" && "$PYTHON" -m pytest -q "$@" ;;
+    *)       usage >&2; die "commande inconnue : $command" ;;
+  esac
+}
+
+main "$@"

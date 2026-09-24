@@ -8,6 +8,7 @@ Outils :
 - `memory_status` : leçons mémorisées, préférences, santé des sources
 - `notion_sync` : publier ou mettre à jour la page Notion
 - `list_reports` : lister les rapports de veille
+- `grill_me` : l'utilisateur veut être interrogé pour préciser ce qu'il cherche
 - `none` : salutation, remerciement ou question sur l'assistant lui-même
 
 Derniers échanges :

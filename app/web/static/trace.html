@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trace du graphe</title>
+<style>
+:root { --bg: #f6f5f1; --panel: #fff; --panel-2: #f1efe9; --line: #e4e1d8; --text: #1c1b19; --muted: #6d6a62;
+        --accent: #5b4bdb; --accent-soft: #ecebfd; --ok: #1f7a45; --ok-soft: #dcf3e4; --warn: #9a6a10;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #121216; --panel: #1b1b21; --panel-2: #24242c; --line: #30303a; --text: #ecebf2; --muted: #a09fae;
+          --accent: #9b90ff; --accent-soft: #29264a; --ok: #6fcf97; --ok-soft: #1a3326; --warn: #e6b85c; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.page { max-width: 1100px; margin: 0 auto; padding: calc(24px + env(safe-area-inset-top, 0px)) 16px calc(48px + env(safe-area-inset-bottom, 0px)); }
+.kicker { font-size: .75rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+h1 { font-size: 1.6rem; margin: .2em 0; }
+h2 { font-size: 1.05rem; margin: 1.8em 0 .6em; }
+.muted { color: var(--muted); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+.engaged { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 14px; }
+.engaged .card h3 { margin: 0 0 8px; font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.chip { display: inline-block; font-size: .8rem; padding: 2px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); margin: 2px 4px 2px 0; }
+.chip.none { background: var(--panel-2); color: var(--muted); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+td.n { color: var(--muted); font-family: var(--mono); }
+td.g code, td.node code { font-family: var(--mono); font-size: .82rem; }
+.bar { height: 6px; border-radius: 3px; background: var(--accent); min-width: 2px; }
+.diagrams { display: grid; gap: 14px; }
+.diagram { overflow-x: auto; }
+.diagram pre { font: 12px/1.45 var(--mono); white-space: pre; margin: 0; }
+.diagram h3 { margin: 0 0 8px; font-size: .95rem; }
+.legend { font-size: .8rem; color: var(--muted); margin-top: 6px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: #c9f2d6; border: 2px solid #1f7a45; vertical-align: -2px; margin-right: 4px; }
+.error { color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="kicker" id="kind">Trace</div>
+  <h1 id="title">Chargement…</h1>
+  <div class="muted" id="meta"></div>
+  <div id="external" style="margin-top:10px"></div>
+
+  <div class="engaged" id="engaged"></div>
+
+  <h2>Parcours dans le graphe</h2>
+  <div class="card table-wrap"><table>
+    <thead><tr><th>#</th><th>Graphe</th><th>Nœud</th><th>Durée</th><th></th><th>Détail</th></tr></thead>
+    <tbody id="steps"></tbody>
+  </table></div>
+
+  <h2>Graphes compilés <span class="muted">(nœuds traversés en vert)</span></h2>
+  <div class="diagrams" id="diagrams"></div>
+  <div class="legend"><i></i>nœud traversé pendant ce tour · diagrammes générés par LangGraph (<code>get_graph().draw_mermaid()</code>)</div>
+</div>
+
+<script type="module">
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const id = decodeURIComponent(location.pathname.split("/").pop());
+
+const LABELS = { agents: "Agents", tool: "Outil", skills: "Skills", mcp: "Serveurs MCP", prompts: "Prompts", data: "Données" };
+function chips(values) {
+  const list = (Array.isArray(values) ? values : [values]).filter(Boolean);
+  return list.length ? list.map((v) => `<span class="chip">${esc(v)}</span>`).join("") : `<span class="chip none">aucun</span>`;
+}
+
+async function main() {
+  const response = await fetch(`/api/traces/${encodeURIComponent(id)}`);
+  if (!response.ok) { document.querySelector("#title").textContent = "Trace introuvable"; return; }
+  const trace = await response.json();
+  document.title = `Trace · ${trace.title}`;
+  document.querySelector("#kind").textContent = trace.kind === "chat" ? "Trace d'une réponse du chat" : "Trace d'une veille";
+  document.querySelector("#title").textContent = trace.title;
+  const engaged = trace.engaged || {};
+  document.querySelector("#meta").textContent =
+    `${trace.created_at} UTC · ${trace.kind === "chat" ? "conversation" : "run"} ${trace.session_id}` +
+    (engaged.routed_by ? ` · routage : ${engaged.routed_by === "rule" ? "règle déterministe" : "LLM"}` : "") +
+    (engaged.options?.keywords?.length ? ` · focus : ${engaged.options.keywords.join(", ")}` : "");
+
+  if (trace.langfuse) {
+    document.querySelector("#external").innerHTML =
+      `<a class="chip" href="${esc(trace.langfuse.trace)}" target="_blank" rel="noopener">🔭 Trace Langfuse ↗</a>` +
+      `<a class="chip" href="${esc(trace.langfuse.session)}" target="_blank" rel="noopener">🗂 Session Langfuse (${trace.kind === "chat" ? "conversation" : "run"}) ↗</a>`;
+  }
+  document.querySelector("#engaged").innerHTML = Object.entries(LABELS)
+    .filter(([key]) => key in engaged)
+    .map(([key, label]) => `<div class="card"><h3>${label}</h3>${chips(engaged[key])}</div>`).join("");
+
+  const max = Math.max(1, ...trace.steps.map((s) => s.ms || 0));
+  document.querySelector("#steps").innerHTML = trace.steps.map((s, i) => `
+    <tr><td class="n">${i + 1}</td><td class="g"><code>${esc(s.graph)}</code></td><td class="node"><code>${esc(s.node)}</code></td>
+    <td>${s.ms} ms</td><td style="width:120px"><div class="bar" style="width:${Math.round(100 * (s.ms || 0) / max)}%"></div></td>
+    <td>${esc(s.detail)}</td></tr>`).join("");
+
+  const container = document.querySelector("#diagrams");
+  container.innerHTML = trace.diagrams.map((d, i) => `
+    <div class="card diagram"><h3>Graphe <code>${esc(d.graph)}</code></h3><pre class="mermaid-src" id="d${i}">${esc(d.mermaid)}</pre></div>`).join("");
+
+  try {
+    const { default: mermaid } = await import("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs");
+    const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+    mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "default", securityLevel: "strict" });
+    for (const [i, d] of trace.diagrams.entries()) {
+      const { svg } = await mermaid.render(`g${i}`, d.mermaid);
+      document.querySelector(`#d${i}`).outerHTML = svg;
+    }
+  } catch (error) {
+    container.insertAdjacentHTML("afterbegin",
+      `<p class="error">Rendu graphique indisponible (hors ligne ?) : code Mermaid affiché ci-dessous.</p>`);
+  }
+}
+main();
+</script>
+</body>
+</html>

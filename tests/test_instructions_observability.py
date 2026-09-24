@@ -79,3 +79,35 @@ def test_langfuse_requires_keys(monkeypatch):
 
 def test_langsmith_environment_does_not_leak_between_tests():
     assert os.environ.get("LANGSMITH_API_KEY") != "lsv2_test"
+
+
+def enable_langfuse(monkeypatch, project_id="proj-123"):
+    for name, value in {"langfuse_enabled": True, "langfuse_public_key": "pk-lf-test",
+                        "langfuse_secret_key": "test", "langfuse_host": "https://cloud.langfuse.com/",
+                        "langfuse_project_id": project_id}.items():
+        monkeypatch.setattr(settings, name, value)
+
+
+def test_langfuse_links_are_deterministic(monkeypatch):
+    enable_langfuse(monkeypatch)
+
+    links = observability.langfuse_links("tour-1", "conv-9")
+
+    trace_id = observability.langfuse_trace_id("tour-1")
+    assert len(trace_id) == 32 and trace_id == observability.langfuse_trace_id("tour-1")
+    assert links == {
+        "trace": f"https://cloud.langfuse.com/project/proj-123/traces/{trace_id}",
+        "session": "https://cloud.langfuse.com/project/proj-123/sessions/conv-9",
+    }
+
+
+def test_langfuse_handler_uses_the_same_trace_id(monkeypatch):
+    enable_langfuse(monkeypatch)
+    handler = observability.trace_config("conv-9", "chat", trace_seed="tour-1")["callbacks"][0]
+    # le handler ouvrira la trace Langfuse sous l'identifiant du lien affiché
+    assert observability.langfuse_trace_id("tour-1") in str(vars(handler))
+
+
+def test_no_langfuse_links_without_configuration(monkeypatch):
+    monkeypatch.setattr(settings, "langfuse_enabled", False)
+    assert observability.langfuse_links("t", "s") is None

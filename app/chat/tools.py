@@ -9,6 +9,8 @@ Chaque outil renvoie un `ToolResult` :
 
 from __future__ import annotations
 
+import re
+
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -88,23 +90,26 @@ def build_tools(services: ChatServices) -> dict[str, StructuredTool]:
             "Aucune veille n'a encore été publiée. Dites « lance une veille » pour en produire une.",
         ).as_dict()
 
-    def run_watch(collect: bool = True) -> dict:
-        """Lance une nouvelle veille (collecte, agents, arrêt avant publication)."""
+    def run_watch(collect: bool = True, keywords: str = "") -> dict:
+        """Lance une nouvelle veille (collecte, agents, arrêt avant publication),
+        éventuellement ciblée sur des mots-clés séparés par des virgules."""
         if services.start_run is None:
             return ToolResult(summary="lancement indisponible",
                               direct="Le lancement de veille n'est pas disponible ici.").as_dict()
         try:
-            run_id = services.start_run({"collect": collect})
+            focus = [k.strip() for k in re.split(r"[,;]| et ", keywords) if k.strip()]
+            run_id = services.start_run({"collect": collect, **({"keywords": focus} if focus else {})})
         except RuntimeError as error:
             return ToolResult(summary="veille déjà en cours", direct=str(error)).as_dict()
+        focus_text = f" ciblée sur **{', '.join(focus)}**" if focus else ""
         return ToolResult(
-            summary=f"veille lancée ({run_id[:8]})",
+            summary=f"veille lancée ({run_id[:8]})" + (f" · focus : {', '.join(focus)}" if focus else ""),
             direct=(
-                "Veille lancée. Suivez la progression dans le panneau **Veille** : collecte "
+                f"Veille lancée{focus_text}. Suivez la progression dans le panneau **Veille** : collecte "
                 "parallèle, Scout, Critic, Editor, puis validation. Vous pourrez publier ou "
                 "rejeter le digest avec une note, qui sera mémorisée."
             ),
-            data={"run_id": run_id},
+            data={"run_id": run_id, "keywords": focus},
         ).as_dict()
 
     def github_search(query: str) -> dict:
@@ -164,6 +169,16 @@ def build_tools(services: ChatServices) -> dict[str, StructuredTool]:
             data={"reports": names},
         ).as_dict()
 
+    def grill_me() -> dict:
+        """Lance l'entretien Grill-me (questions sur les centres d'intérêt)."""
+        return ToolResult(
+            summary="entretien Grill-me",
+            direct="Je vais te poser des questions, une à la fois, avec ma recommandation pour chacune : "
+                   "domaines (LLM, robotique, événements, architecture, nouveaux modèles…), puis chaque branche "
+                   "choisie. L'onglet **🎯 Grill-me** s'ouvre.",
+            data={"grill": True},
+        ).as_dict()
+
     functions = {
         "search_watch": search_watch,
         "latest_digests": latest_digests,
@@ -172,5 +187,6 @@ def build_tools(services: ChatServices) -> dict[str, StructuredTool]:
         "memory_status": memory_status,
         "notion_sync": notion_sync,
         "list_reports": list_reports_tool,
+        "grill_me": grill_me,
     }
     return {name: StructuredTool.from_function(function, name=name) for name, function in functions.items()}

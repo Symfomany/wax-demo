@@ -29,10 +29,10 @@ DIGEST = {
 CRITIQUES = [{"signal_url": "https://arxiv.org/abs/1", "verdict": "drop", "rationale": "Hors sujet.", "factual_risks": []}]
 
 
-def render(**overrides):
+def render(fmt="md", **overrides):
     args = dict(digest=DIGEST, critiques=CRITIQUES, run_id="run-1", model="gemma-3-4b-it",
                 collected={"rss": 3, "github_mcp": 2}, trace=["fan-out : collect:rss"], errors=[])
-    return render_report(settings.templates_dir, **(args | overrides))
+    return render_report(settings.templates_dir, fmt, **(args | overrides))
 
 
 def test_report_has_front_matter_sections_and_sources():
@@ -43,8 +43,9 @@ def test_report_has_front_matter_sections_and_sources():
     assert "keywords: [gpu, quantization, inference, python]" in front_matter
     for heading in ["## 🔝 À retenir", "## 📰 Signaux", "## 🗂️ Ressources", "## 🚫 Écartés par le Critic", "## 🧭 Méthodologie"]:
         assert heading in report
-    assert "| jeudi 24 septembre 2026 | 5 | **2** | 1 | `gemma-3-4b-it` |" in report
-    assert "✨ Nouveau dépôt GitHub" in report and "| non précisée |" in report
+    assert "**2 signal(aux) retenu(s)** · 1 écarté(s) · 5 document(s) collecté(s) · modèle `gemma-3-4b-it`" in report
+    assert "_Jeudi 24 septembre 2026_" in report
+    assert "✨ Nouveau dépôt GitHub · non précisée · [Lire la source ↗](https://github.com/acme/fast-infer)" in report
     assert all(item["url"] in report for item in DIGEST["items"])
     # tags d'affichage filtrés
     assert "🏷️ `quantization` `gpu`" in report and "`vllm-project/vllm`" not in report
@@ -160,3 +161,22 @@ def test_secondary_publisher_failure_does_not_block_publication(connection, tmp_
 
     assert "report" in outputs and "json" in outputs
     assert errors == ["publication notion : Notion 401 : unauthorized"]
+
+
+
+def test_html_report_is_standalone_and_escapes_source_content():
+    evil = DIGEST | {"items": [DIGEST["items"][0] | {"title": "<script>alert(1)</script> v0.30.0",
+                                                      "summary": "FP8 <b>sur</b> Ampere."}]}
+    html = render(fmt="html", digest=evil)
+
+    assert html.startswith("<!doctype html>") and "<title>Veille LLM / GenAI — 24/09/2026</title>" in html
+    assert "<script>alert(1)</script>" not in html and "&lt;script&gt;" in html
+    assert "FP8 &lt;b&gt;sur&lt;/b&gt; Ampere." in html
+    assert 'href="https://github.com/vllm-project/vllm/releases/tag/v0.30.0"' in html
+    assert "prefers-color-scheme: dark" in html
+
+
+def test_publisher_writes_markdown_and_html(connection, tmp_path):
+    outputs, _ = run_publishers(publication(connection, tmp_path), default_publishers())
+    assert outputs["report_html"].endswith(".html") and outputs["report"].endswith(".md")
+    assert "<article class=\"signal\"" in open(outputs["report_html"]).read()

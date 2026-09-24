@@ -7,9 +7,9 @@
 <style>
 :root {
   --bg: #f6f5f1; --panel: #ffffff; --panel-2: #f1efe9; --line: #e4e1d8; --text: #1c1b19; --muted: #6d6a62;
-  --accent: #5b4bdb; --accent-2: #7c6ff0; --accent-soft: #ecebfd; --ok: #2e7d4f; --ok-soft: #e0f2e7;
+  --accent: #5b4bdb; --accent-soft: #ecebfd; --ok: #2e7d4f; --ok-soft: #e0f2e7;
   --warn: #9a6a10; --warn-soft: #f8edd4; --bad: #b3372f; --bad-soft: #f9e2e0; --user: #1c1b19; --user-text: #fff;
-  --shadow: 0 1px 2px rgba(20,20,20,.04), 0 8px 24px rgba(20,20,20,.05); --radius: 14px;
+  --mark: #fde68a; --shadow: 0 1px 2px rgba(20,20,20,.04), 0 8px 24px rgba(20,20,20,.05); --radius: 14px;
   --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color-scheme: light;
@@ -17,24 +17,25 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #121216; --panel: #1b1b21; --panel-2: #24242c; --line: #30303a; --text: #ecebf2; --muted: #a09fae;
-    --accent: #9b90ff; --accent-2: #b3aaff; --accent-soft: #29264a; --ok: #6fcf97; --ok-soft: #1a3326;
+    --accent: #9b90ff; --accent-soft: #29264a; --ok: #6fcf97; --ok-soft: #1a3326;
     --warn: #e6b85c; --warn-soft: #372c14; --bad: #f08a80; --bad-soft: #3c1f1c; --user: #ecebf2; --user-text: #121216;
-    --shadow: none; color-scheme: dark;
+    --mark: #6b5310; --shadow: none; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #121216; --panel: #1b1b21; --panel-2: #24242c; --line: #30303a; --text: #ecebf2; --muted: #a09fae;
-  --accent: #9b90ff; --accent-2: #b3aaff; --accent-soft: #29264a; --ok: #6fcf97; --ok-soft: #1a3326;
+  --accent: #9b90ff; --accent-soft: #29264a; --ok: #6fcf97; --ok-soft: #1a3326;
   --warn: #e6b85c; --warn-soft: #372c14; --bad: #f08a80; --bad-soft: #3c1f1c; --user: #ecebf2; --user-text: #121216;
-  --shadow: none; color-scheme: dark;
+  --mark: #6b5310; --shadow: none; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 var(--sans); }
-button, textarea, input { font: inherit; color: inherit; }
+button, textarea, input, select { font: inherit; color: inherit; }
 a { color: var(--accent); }
 code { font-family: var(--mono); font-size: .86em; background: var(--panel-2); padding: .1em .35em; border-radius: 5px; }
+mark.hl { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1px; }
 
 .app { display: grid; grid-template-columns: 272px minmax(0, 1fr); height: 100vh; height: 100dvh; }
 
@@ -71,31 +72,33 @@ main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .tabs button[aria-selected="true"] { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
 .tabs .badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--accent); color: #fff; font-size: .7rem; }
 .view { flex: 1; min-height: 0; overflow-y: auto; }
-.view[hidden] { display: none !important; }
-.wrap { max-width: 860px; margin: 0 auto; padding: 24px 20px 40px; }
+.wrap { max-width: 900px; margin: 0 auto; padding: 24px 20px 40px; }
+.wrap.wide { max-width: 1180px; }
 
 /* --- Chat -------------------------------------------------------------------- */
-#chat { display: flex; flex-direction: column; }
+#chat { display: flex; flex-direction: column; overflow: hidden; }
 #chat .scroll { flex: 1; overflow-y: auto; min-height: 0; }
-.empty { text-align: center; padding-top: 7vh; }
+.empty { text-align: center; padding-top: 6vh; }
 .empty .logo { width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 14px; font-size: 1.6rem; }
 .empty h1 { font-size: 1.7rem; margin: 0 0 6px; letter-spacing: -.01em; }
-.empty p { color: var(--muted); margin: 0 auto 26px; max-width: 520px; }
+.empty p { color: var(--muted); margin: 0 auto 26px; max-width: 560px; }
 .suggestions { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; text-align: left; }
 .suggestion { border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 12px 14px; cursor: pointer; box-shadow: var(--shadow); }
-.suggestion:hover { border-color: var(--accent); transform: translateY(-1px); }
+.suggestion:hover { border-color: var(--accent); }
 .suggestion b { display: block; font-size: .92rem; margin-bottom: 2px; }
 .suggestion span { color: var(--muted); font-size: .82rem; }
 
 .msg { display: flex; gap: 12px; margin: 18px 0; }
 .msg.user { justify-content: flex-end; }
 .msg.user .bubble { background: var(--user); color: var(--user-text); border-radius: 16px 16px 4px 16px; padding: 10px 14px; max-width: 78%; white-space: pre-wrap; }
+.bubble .quote { border-left: 3px solid color-mix(in srgb, var(--user-text) 50%, transparent); padding-left: 8px; margin-bottom: 6px; opacity: .8; font-size: .9em; }
 .avatar { width: 30px; height: 30px; border-radius: 9px; flex: none; display: grid; place-items: center; color: #fff; font-size: .9rem;
           background: linear-gradient(135deg, var(--accent), #c05bd6); }
 .assistant .body { flex: 1; min-width: 0; }
 .answer { line-height: 1.65; }
 .answer p { margin: .4em 0; }
 .answer ul, .answer ol { margin: .4em 0; padding-left: 1.3em; }
+.answer blockquote { margin: .4em 0; padding: .2em .8em; border-left: 3px solid var(--accent); color: var(--muted); }
 .answer sup a { text-decoration: none; font-weight: 700; font-size: .75em; padding: 0 3px; border-radius: 4px; background: var(--accent-soft); }
 .cursor::after { content: "▍"; animation: blink 1s steps(1) infinite; color: var(--accent); }
 @keyframes blink { 50% { opacity: 0; } }
@@ -111,36 +114,78 @@ main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .source .n { flex: none; width: 22px; height: 22px; border-radius: 7px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-weight: 700; font-size: .75rem; }
 .source .t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-weight: 600; }
 .source .m { color: var(--muted); font-size: .75rem; }
+.engaged { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; font-size: .75rem; color: var(--muted); }
+.engaged .e { border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; background: var(--panel); }
+.engaged .e b { color: var(--text); font-weight: 600; }
+.engaged a.trace:first-of-type { margin-left: auto; }
+.engaged a.trace { font-weight: 700; text-decoration: none; border: 1px solid var(--accent); border-radius: 999px; padding: 2px 10px; }
 .warning { margin-top: 10px; font-size: .78rem; color: var(--warn); background: var(--warn-soft); border-radius: 8px; padding: 6px 10px; }
 .run-card { margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
             border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 12px; padding: 10px 14px; }
 
-.composer { padding: 12px 20px calc(16px + env(safe-area-inset-bottom, 0px)); }
-.composer form { max-width: 860px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; background: var(--panel);
+.composer { padding: 10px 20px calc(16px + env(safe-area-inset-bottom, 0px)); }
+.quotes { max-width: 900px; margin: 0 auto 8px; display: flex; flex-direction: column; gap: 6px; }
+.quote-chip { display: flex; gap: 8px; align-items: flex-start; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+              border-radius: 10px; padding: 6px 10px; font-size: .84rem; }
+.quote-chip span { flex: 1; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.quote-chip button { border: 0; background: none; cursor: pointer; color: var(--muted); }
+.composer form { max-width: 900px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; background: var(--panel);
                  border: 1px solid var(--line); border-radius: 16px; padding: 8px 8px 8px 16px; box-shadow: var(--shadow); }
 .composer form:focus-within { border-color: var(--accent); }
 .composer textarea { flex: 1; border: 0; outline: 0; resize: none; background: none; max-height: 180px; padding: 8px 0; }
 .send { flex: none; width: 40px; height: 40px; border-radius: 11px; border: 0; background: var(--accent); color: #fff; cursor: pointer; display: grid; place-items: center; }
 .send:disabled { opacity: .45; cursor: default; }
-.hint { max-width: 860px; margin: 6px auto 0; font-size: .74rem; color: var(--muted); text-align: center; }
+.hint { max-width: 900px; margin: 6px auto 0; font-size: .74rem; color: var(--muted); text-align: center; }
 
-/* --- Cartes, veille, rapports, mémoire ------------------------------------------ */
+.selection-pop { position: fixed; z-index: 50; display: flex; gap: 4px; background: var(--text); color: var(--bg); border-radius: 10px; padding: 4px; box-shadow: var(--shadow); }
+.selection-pop button { border: 0; background: none; color: inherit; cursor: pointer; padding: 5px 9px; border-radius: 7px; font-size: .82rem; font-weight: 600; }
+.selection-pop button:hover { background: color-mix(in srgb, var(--bg) 20%, transparent); }
+
+/* --- Composants communs ------------------------------------------------------------ */
 h2.title { font-size: 1.35rem; margin: 0 0 4px; }
 .subtitle { color: var(--muted); margin: 0 0 18px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow); margin-bottom: 14px; }
+.card h3 { margin: 0 0 10px; font-size: 1rem; }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 9px 14px; cursor: pointer; font-weight: 600; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px 16px; }
+.field label:not(.check), .label { display: block; font-size: .75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+.field input[type=date], .field input[type=number], .field select { width: 100%; border: 1px solid var(--line); background: var(--panel-2); border-radius: 9px; padding: 7px 9px; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 9px 14px; cursor: pointer; font-weight: 600; text-decoration: none; color: var(--text); }
 .btn:hover { border-color: var(--accent); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
 .btn.bad { color: var(--bad); }
+.btn.small { padding: 4px 10px; font-size: .8rem; }
 .btn:disabled { opacity: .5; cursor: default; }
-.check { display: inline-flex; gap: 6px; align-items: center; font-size: .88rem; color: var(--muted); }
+.check { display: inline-flex; gap: 6px; align-items: center; font-size: .88rem; color: var(--muted); margin-right: 10px; }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.segmented button { border: 0; background: var(--panel); padding: 5px 11px; cursor: pointer; font-size: .82rem; color: var(--muted); }
+.segmented button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border: 1px solid var(--line); background: var(--panel-2); border-radius: 10px; padding: 6px 8px; min-height: 42px; }
+.tags:focus-within { border-color: var(--accent); }
+.tags input { flex: 1; min-width: 140px; border: 0; outline: 0; background: none; padding: 4px; }
+.tag { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 2px 4px 2px 10px; font-size: .84rem; font-weight: 600; }
+.tag button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 5px; }
 .state { display: inline-flex; align-items: center; gap: 6px; font-size: .78rem; font-weight: 700; border-radius: 999px; padding: 3px 10px; background: var(--panel-2); color: var(--muted); }
 .state.running { background: var(--accent-soft); color: var(--accent); }
 .state.awaiting_approval { background: var(--warn-soft); color: var(--warn); }
 .state.published { background: var(--ok-soft); color: var(--ok); }
 .state.blocked, .state.failed, .state.error { background: var(--bad-soft); color: var(--bad); }
+.muted { color: var(--muted); }
+.toast { position: fixed; right: 18px; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: .88rem; box-shadow: var(--shadow); z-index: 60; }
+
+/* --- Recherche ---------------------------------------------------------------------- */
+.results { display: grid; gap: 10px; }
+.result { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.result .top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .76rem; color: var(--muted); }
+.result .kind { font-weight: 700; border-radius: 999px; padding: 1px 8px; background: var(--panel-2); color: var(--text); }
+.result .pub { color: var(--ok); font-weight: 700; }
+.result h4 { margin: 4px 0; font-size: 1rem; }
+.result h4 a { color: var(--text); text-decoration: none; }
+.result h4 a:hover { color: var(--accent); }
+.result p { margin: 4px 0 8px; font-size: .88rem; color: var(--muted); }
+
+/* --- Veille ------------------------------------------------------------------------- */
 .timeline { list-style: none; margin: 14px 0 0; padding: 0; position: relative; }
 .timeline::before { content: ""; position: absolute; left: 11px; top: 4px; bottom: 4px; width: 2px; background: var(--line); }
 .timeline li { position: relative; padding: 4px 0 8px 34px; font-size: .88rem; }
@@ -150,33 +195,60 @@ h2.title { font-size: 1.35rem; margin: 0 0 4px; }
 .timeline .warn { color: var(--warn); }
 .timeline .err { color: var(--bad); }
 .digest { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 6px; }
-.digest h1 { font-size: 1.2rem; } .digest h2 { font-size: 1.05rem; margin-top: 1.2em; } .digest h3 { font-size: .98rem; margin-bottom: .2em; }
+.digest h2 { font-size: 1.1rem; } .digest h3 { font-size: 1rem; } .digest h4 { font-size: .95rem; margin-bottom: .2em; }
 .decision textarea { width: 100%; min-height: 70px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); padding: 10px; margin: 8px 0; resize: vertical; }
-.reports { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 16px; }
+
+/* --- Rapports ------------------------------------------------------------------------- */
+.reports { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 16px; }
 .report-list { display: flex; flex-direction: column; gap: 4px; }
 .report-list button { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 9px 12px; cursor: pointer; font-size: .86rem; }
 .report-list button.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-.report-body { overflow-x: auto; }
-.report-body table { border-collapse: collapse; width: 100%; font-size: .86rem; margin: .6em 0; }
-.report-body th, .report-body td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; }
-.report-body th { background: var(--panel-2); }
-.report-body blockquote { margin: .6em 0; padding: .4em 1em; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0; }
-.report-body h1 { font-size: 1.45rem; } .report-body h2 { font-size: 1.15rem; margin-top: 1.4em; } .report-body h3 { font-size: 1rem; }
+.report-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.report-frame { width: 100%; height: 78vh; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+.report-md { white-space: pre-wrap; font: 13px/1.6 var(--mono); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; overflow-x: auto; max-height: 78vh; margin: 0; }
+
+/* --- Prompts ------------------------------------------------------------------------- */
+.prompts { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; }
+.prompt-list { display: flex; flex-direction: column; gap: 4px; }
+.prompt-list button { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 9px 12px; cursor: pointer; }
+.prompt-list button small { display: block; color: var(--muted); font-size: .76rem; }
+.prompt-list button.active { border-color: var(--accent); }
+.prompt-list .mod { color: var(--warn); font-size: .7rem; font-weight: 700; margin-left: 6px; }
+#prompt-text { width: 100%; min-height: 52vh; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); padding: 12px; font: 13px/1.6 var(--mono); resize: vertical; }
+.vars { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.vars button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 2px 10px; cursor: pointer; font: 600 .78rem var(--mono); }
+.vars button.req { border-color: var(--accent); color: var(--accent); }
+.error-box { color: var(--bad); background: var(--bad-soft); border-radius: 9px; padding: 8px 12px; font-size: .86rem; margin-top: 8px; }
+
+/* --- Grill-me ------------------------------------------------------------------------ */
+.grill-progress { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; margin: 6px 0 14px; }
+.grill-progress div { height: 100%; background: linear-gradient(90deg, var(--accent), #c05bd6); transition: width .3s; }
+.grill-q { font-size: 1.25rem; font-weight: 700; margin: 6px 0; line-height: 1.35; }
+.grill-why { color: var(--muted); font-size: .9rem; margin: 0 0 14px; }
+.grill-options { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.grill-options button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 7px 14px; cursor: pointer; font-weight: 600; font-size: .9rem; }
+.grill-options button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.grill-options button .reco { font-size: .7rem; margin-left: 6px; color: var(--ok); font-weight: 800; }
+.grill-options button[aria-pressed="true"] .reco { color: #fff; }
+#grill-text { width: 100%; border: 1px solid var(--line); background: var(--panel-2); border-radius: 10px; padding: 9px 11px; }
+.grill-log { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; font-size: .86rem; }
+.grill-log li { border-left: 3px solid var(--line); padding: 2px 10px; color: var(--muted); }
+.grill-log li b { color: var(--text); }
+.chip.bad { background: var(--bad-soft); color: var(--bad); }
+
+table.plain { width: 100%; border-collapse: collapse; font-size: .88rem; }
+table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { font-size: .8rem; border-radius: 999px; padding: 3px 10px; background: var(--accent-soft); color: var(--accent); }
 .chip b { margin-left: 4px; }
-table.plain { width: 100%; border-collapse: collapse; font-size: .88rem; }
-table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; }
-.muted { color: var(--muted); }
-.toast { position: fixed; right: 18px; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: .88rem; box-shadow: var(--shadow); }
 .menu-btn { display: none; }
 
-@media (max-width: 820px) {
+@media (max-width: 860px) {
   .app { grid-template-columns: minmax(0, 1fr); }
   aside { position: fixed; inset: 0 25% 0 0; z-index: 10; transform: translateX(-105%); transition: transform .2s; box-shadow: var(--shadow); }
   aside.open { transform: none; }
   .menu-btn { display: inline-block; }
-  .reports { grid-template-columns: minmax(0, 1fr); }
+  .reports, .prompts { grid-template-columns: minmax(0, 1fr); }
   .msg.user .bubble { max-width: 90%; }
   .tabs { padding-inline: 12px; }
   .wrap { padding-inline: 16px; }
@@ -190,8 +262,8 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     <button class="new-chat" id="new-chat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Nouvelle conversation</button>
     <div class="side-title">Conversations</div>
     <nav class="conversations" id="conversations" aria-label="Conversations"></nav>
-    <div class="status" id="status">
-      <div class="pill"><span class="dot" id="st-ollama"></span><span id="st-model">Ollama…</span></div>
+    <div class="status">
+      <div class="pill"><span class="dot" id="st-ollama"></span><span id="st-model">LLM…</span></div>
       <div class="pill"><span class="dot" id="st-langfuse"></span>Langfuse</div>
       <div class="pill"><span class="dot" id="st-langsmith"></span>LangSmith</div>
       <div class="pill"><span class="dot" id="st-notion"></span>Notion</div>
@@ -205,8 +277,11 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     <div class="tabs" role="tablist">
       <button class="menu-btn" id="menu" aria-label="Menu">☰</button>
       <button role="tab" data-view="chat" aria-selected="true">💬 Chat</button>
+      <button role="tab" data-view="search" aria-selected="false">🔎 Recherche</button>
       <button role="tab" data-view="runs" aria-selected="false">🛰️ Veille <span class="badge" id="run-badge" hidden>1</span></button>
       <button role="tab" data-view="reports" aria-selected="false">📰 Rapports</button>
+      <button role="tab" data-view="grill" aria-selected="false">🎯 Grill-me</button>
+      <button role="tab" data-view="prompts" aria-selected="false">✏️ Prompts</button>
       <button role="tab" data-view="memory" aria-selected="false">🧠 Mémoire</button>
     </div>
 
@@ -217,12 +292,13 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
           <div class="empty" id="empty">
             <div class="logo">✦</div>
             <h1>Votre veille LLM / GenAI</h1>
-            <p>Posez une question sur les sources collectées, lancez une veille, explorez GitHub via MCP ou publiez dans Notion. Chaque réponse cite ses sources.</p>
+            <p>Questions sourcées, veilles ciblées, GitHub via MCP, Notion. Sélectionnez un passage pour le <b>surligner</b>
+            ou le <b>citer</b> dans votre prochaine question ; chaque réponse montre les agents engagés et son parcours dans le graphe.</p>
             <div class="suggestions">
               <div class="suggestion" data-prompt="Quoi de neuf dans les dernières veilles ?"><b>Quoi de neuf ?</b><span>Résumé des dernières veilles publiées</span></div>
               <div class="suggestion" data-prompt="Que disent mes sources sur la quantization et l'inférence locale ?"><b>Rechercher un sujet</b><span>Quantization, inférence locale…</span></div>
               <div class="suggestion" data-prompt="Trouve des nouveaux repos GitHub sur les agents MCP"><b>Explorer GitHub (MCP)</b><span>Nouveaux dépôts agents &amp; MCP</span></div>
-              <div class="suggestion" data-prompt="Lance une veille"><b>Lancer une veille</b><span>Collecte, agents, validation</span></div>
+              <div class="suggestion" data-prompt="Relance la veille sur MCP, agents"><b>Veille ciblée</b><span>« relance la veille sur MCP, agents »</span></div>
               <div class="suggestion" data-prompt="Qu'as-tu en mémoire ?"><b>Mémoire</b><span>Leçons, préférences, sources</span></div>
               <div class="suggestion" data-prompt="Mets à jour la page Notion"><b>Publier dans Notion</b><span>Les 10 dernières veilles</span></div>
             </div>
@@ -230,13 +306,51 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
         </div>
       </div>
       <div class="composer">
+        <div class="quotes" id="quotes"></div>
         <form id="composer">
           <textarea id="input" rows="1" placeholder="Demandez à votre veille…" aria-label="Message"></textarea>
           <button class="send" id="send" type="submit" aria-label="Envoyer">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </button>
         </form>
-        <div class="hint">Entrée pour envoyer · Maj + Entrée pour une nouvelle ligne · modèle local via Ollama</div>
+        <div class="hint">Entrée pour envoyer · Maj + Entrée pour une nouvelle ligne · sélectionnez du texte pour surligner ou citer</div>
+      </div>
+    </section>
+
+    <!-- Recherche -->
+    <section class="view" id="search" hidden>
+      <div class="wrap wide">
+        <h2 class="title">Recherche dans la veille</h2>
+        <p class="subtitle">Un ou plusieurs mots-clés, filtres par source, date et statut — puis demandez au chat ou relancez une veille ciblée.</p>
+        <div class="card">
+          <span class="label">Mots-clés</span>
+          <div class="tags" id="search-tags"><input id="search-input" placeholder="Tapez un mot-clé puis Entrée (ex. MCP, quantization, RAG)" aria-label="Mot-clé"></div>
+          <div class="row" style="margin:10px 0 14px">
+            <span class="segmented" role="group" aria-label="Correspondance">
+              <button id="match-any" aria-pressed="true">au moins un</button><button id="match-all" aria-pressed="false">tous</button>
+            </span>
+          </div>
+          <div class="grid">
+            <div class="field"><span class="label">Sources</span>
+              <label class="check"><input type="checkbox" name="src" value="rss" checked> Blogs</label>
+              <label class="check"><input type="checkbox" name="src" value="arxiv" checked> arXiv</label>
+              <label class="check"><input type="checkbox" name="src" value="github" checked> Releases</label>
+              <label class="check"><input type="checkbox" name="src" value="github-mcp" checked> Nouveaux dépôts</label>
+            </div>
+            <div class="field"><label for="since">Depuis</label><input type="date" id="since"></div>
+            <div class="field"><label for="until">Jusqu'au</label><input type="date" id="until"></div>
+            <div class="field"><label for="published">Statut</label>
+              <select id="published"><option value="">Tous</option><option value="true">Publiés dans un digest</option><option value="false">Non publiés</option></select></div>
+            <div class="field"><label for="limit">Limite : <span id="limit-value">20</span></label><input type="range" id="limit" min="5" max="50" step="5" value="20" style="width:100%"></div>
+          </div>
+          <div class="row" style="margin-top:14px">
+            <button class="btn primary" id="do-search">🔎 Rechercher</button>
+            <button class="btn" id="ask-chat">💬 Demander au chat</button>
+            <button class="btn" id="targeted-run">🛰️ Lancer une veille ciblée</button>
+            <span class="muted" id="search-count"></span>
+          </div>
+        </div>
+        <div class="results" id="results"></div>
       </div>
     </section>
 
@@ -246,23 +360,36 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
         <h2 class="title">Veille en direct</h2>
         <p class="subtitle">Supervisor → collecte parallèle → Scout → Critic → Editor → validation humaine → rapport &amp; Notion.</p>
         <div class="card">
-          <div class="row">
-            <button class="btn primary" id="start-run">Lancer une veille</button>
-            <label class="check"><input type="checkbox" id="opt-collect" checked> Collecter les sources</label>
-            <label class="check"><input type="checkbox" id="opt-mcp" checked> GitHub via MCP</label>
+          <span class="label">Focus (optionnel)</span>
+          <div class="tags" id="run-tags"><input id="run-input" placeholder="Mots-clés de la veille ciblée, Entrée pour ajouter" aria-label="Mot-clé de focus"></div>
+          <div class="grid" style="margin-top:12px">
+            <div class="field"><span class="label">Sources</span>
+              <label class="check"><input type="checkbox" name="run-src" value="rss" checked> Blogs</label>
+              <label class="check"><input type="checkbox" name="run-src" value="arxiv" checked> arXiv</label>
+              <label class="check"><input type="checkbox" name="run-src" value="github_releases" checked> Releases</label>
+              <label class="check"><input type="checkbox" name="run-src" value="github_mcp" checked> GitHub (MCP)</label>
+            </div>
+            <div class="field"><label for="max-age">Âge maximal (jours)</label><input type="number" id="max-age" min="1" max="365" placeholder="14"></div>
+            <div class="field"><label for="max-docs">Candidats maximum</label><input type="number" id="max-docs" min="1" max="60" placeholder="24"></div>
+            <div class="field"><span class="label">Options</span>
+              <label class="check"><input type="checkbox" id="opt-collect" checked> Collecter</label>
+              <label class="check"><input type="checkbox" id="run-match-all"> Tous les mots-clés</label></div>
+          </div>
+          <div class="row" style="margin-top:14px">
+            <button class="btn primary" id="start-run">Lancer la veille</button>
             <span style="flex:1"></span>
+            <a id="run-trace" class="btn small" target="_blank" rel="noopener" hidden>🧭 Graphe du run ↗</a>
+            <a id="run-langfuse" class="btn small" target="_blank" rel="noopener" hidden>🔭 Langfuse ↗</a>
             <span class="state" id="run-state">aucune veille</span>
           </div>
+          <div class="muted" id="run-options" style="margin-top:8px;font-size:.85rem"></div>
           <ol class="timeline" id="timeline"></ol>
           <div id="approval" hidden>
-            <div class="digest report-body" id="digest"></div>
+            <div class="digest answer" id="digest"></div>
             <div class="decision">
               <label for="note" class="muted">Note (devient une leçon mémorisée, réinjectée dans les prochains prompts)</label>
               <textarea id="note" placeholder="Ex. « Écarter les tutoriels ; privilégier les releases d'outillage »"></textarea>
-              <div class="row">
-                <button class="btn ok" id="approve">✓ Publier</button>
-                <button class="btn bad" id="reject">✕ Rejeter</button>
-              </div>
+              <div class="row"><button class="btn ok" id="approve">✓ Publier</button><button class="btn bad" id="reject">✕ Rejeter</button></div>
             </div>
           </div>
           <div id="published" hidden></div>
@@ -272,12 +399,76 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
 
     <!-- Rapports -->
     <section class="view" id="reports" hidden>
-      <div class="wrap">
+      <div class="wrap wide">
         <h2 class="title">Rapports datés</h2>
-        <p class="subtitle">Un rapport Markdown par veille publiée, dans <code>reports/AAAA/</code>.</p>
+        <p class="subtitle">Deux formats par veille publiée : HTML lisible et Markdown, dans <code>reports/AAAA/</code>.</p>
         <div class="reports">
           <div class="report-list" id="report-list"></div>
-          <div class="card report-body" id="report-body"><p class="muted">Sélectionnez un rapport.</p></div>
+          <div>
+            <div class="report-toolbar" id="report-toolbar" hidden>
+              <span class="segmented" role="group" aria-label="Format">
+                <button id="fmt-html" aria-pressed="true">Lisible (HTML)</button><button id="fmt-md" aria-pressed="false">Markdown</button>
+              </span>
+              <a class="btn small" id="report-open" target="_blank" rel="noopener">Ouvrir dans un onglet ↗</a>
+            </div>
+            <iframe class="report-frame" id="report-frame" title="Rapport" sandbox="allow-popups allow-popups-to-escape-sandbox" hidden></iframe>
+            <pre class="report-md" id="report-md" hidden></pre>
+            <p class="muted" id="report-empty">Sélectionnez un rapport.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Grill-me -->
+    <section class="view" id="grill" hidden>
+      <div class="wrap">
+        <h2 class="title">🎯 Grill-me</h2>
+        <p class="subtitle">Je t'interroge, une question à la fois et avec ma recommandation, pour cerner ce que tu
+        cherches en actu IA : LLM, nouveaux modèles, robotique, agents, architecture, recherche, événements…
+        Ton profil guide ensuite le Scout, l'Editor et les veilles ciblées.</p>
+        <div class="card" id="grill-intro">
+          <div id="grill-current" class="muted">Aucun profil enregistré.</div>
+          <div class="row" style="margin-top:12px"><button class="btn primary" id="grill-start">Commencer l'entretien</button></div>
+        </div>
+        <div class="card" id="grill-card" hidden>
+          <div class="row"><span class="state running" id="grill-branch"></span><span class="muted" id="grill-count"></span></div>
+          <div class="grill-progress"><div id="grill-bar" style="width:0%"></div></div>
+          <div class="grill-q" id="grill-question"></div>
+          <p class="grill-why" id="grill-why"></p>
+          <div class="grill-options" id="grill-options"></div>
+          <input id="grill-text" placeholder="Texte libre">
+          <div class="row" style="margin-top:12px">
+            <button class="btn primary" id="grill-answer">Répondre</button>
+            <button class="btn" id="grill-reco">✓ Prendre ta recommandation</button>
+            <button class="btn" id="grill-skip">Passer</button>
+          </div>
+        </div>
+        <div class="card" id="grill-result" hidden></div>
+        <div class="card" id="grill-history" hidden><h3>Réponses</h3><ol class="grill-log" id="grill-log"></ol></div>
+      </div>
+    </section>
+
+    <!-- Prompts -->
+    <section class="view" id="prompts" hidden>
+      <div class="wrap wide">
+        <h2 class="title">Prompts des agents</h2>
+        <p class="subtitle">Les modifications sont des surcharges dans <code>data/prompts/</code> (historisées, réinitialisables) ; les fichiers du dépôt ne sont pas modifiés.</p>
+        <div class="prompts">
+          <div class="prompt-list" id="prompt-list"></div>
+          <div class="card" id="prompt-editor" hidden>
+            <div class="row"><h3 id="prompt-title" style="margin:0"></h3><span class="state" id="prompt-state"></span></div>
+            <p class="muted" id="prompt-desc" style="margin:.3em 0"></p>
+            <span class="label">Variables (clic pour insérer — obligatoires en couleur)</span>
+            <div class="vars" id="prompt-vars"></div>
+            <textarea id="prompt-text" spellcheck="false" aria-label="Texte du prompt"></textarea>
+            <div id="prompt-error" class="error-box" hidden></div>
+            <div class="row" style="margin-top:10px">
+              <button class="btn primary" id="prompt-save">Enregistrer</button>
+              <button class="btn" id="prompt-cancel">Annuler les modifications</button>
+              <button class="btn bad" id="prompt-reset">Revenir au prompt par défaut</button>
+              <span class="muted" id="prompt-history"></span>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -287,6 +478,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
       <div class="wrap">
         <h2 class="title">Mémoire de veille</h2>
         <p class="subtitle">Store LangGraph : ce que les agents retiennent entre deux veilles.</p>
+        <div class="card" id="memory-interests"><h3>Centres d'intérêt (Grill-me)</h3><p class="muted">Aucun profil : lance l'onglet 🎯 Grill-me.</p></div>
         <div class="card"><h3>Leçons humaines</h3><div id="lessons"></div></div>
         <div class="card"><h3>Thèmes privilégiés</h3><div class="chips" id="tags"></div></div>
         <div class="card"><h3>Santé des sources</h3><div id="sources-health"></div></div>
@@ -296,15 +488,18 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     </section>
   </main>
 </div>
+<div class="selection-pop" id="selection-pop" hidden>
+  <button id="sel-highlight">🖍 Surligner</button><button id="sel-cite">❝ Citer dans le prompt</button>
+</div>
 
 <script>
 (() => {
   const $ = (s) => document.querySelector(s);
-  const state = { conversation: null, busy: false, run: null, runCursor: 0, poll: null };
+  const state = { conversation: null, busy: false, run: null, runCursor: 0, poll: null, quotes: [], report: null, prompt: null };
 
   // --- Utilitaires -------------------------------------------------------------
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const safeUrl = (u) => /^https?:\/\//i.test(u) ? u : "#";
+  const safeUrl = (u) => /^https?:\/\//i.test(u) || /^\/(trace|reports)\//.test(u) ? u : "#";
   const toast = (text) => {
     const el = document.createElement("div"); el.className = "toast"; el.textContent = text;
     document.body.appendChild(el); setTimeout(() => el.remove(), 3200);
@@ -312,11 +507,11 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   const api = async (path, options = {}) => {
     const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.detail || response.statusText);
+    if (!response.ok) throw new Error(typeof body.detail === "string" ? body.detail : response.statusText);
     return body;
   };
 
-  // Markdown minimal et sûr (échappement d'abord) pour les réponses et le digest.
+  // Markdown minimal et sûr (échappement d'abord).
   function inline(text, sources) {
     let html = esc(text);
     html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
@@ -325,10 +520,10 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     html = html.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, (_, t, u) => `<a href="${safeUrl(u)}" target="_blank" rel="noopener">${t}</a>`);
     html = html.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (_, p, u) => `${p}<a href="${safeUrl(u)}" target="_blank" rel="noopener">${u}</a>`);
     if (sources) {
-      html = html.replace(/\[(\d+)\]/g, (m, n) => {
-        const s = sources[Number(n) - 1];
-        return s ? `<sup><a href="${safeUrl(s.url)}" target="_blank" rel="noopener" title="${esc(s.title)}">${n}</a></sup>` : m;
-      });
+      html = html.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (m, list) => list.split(",").map((n) => {
+        const s = sources[Number(n.trim()) - 1];
+        return s ? `<sup><a href="${safeUrl(s.url)}" target="_blank" rel="noopener" title="${esc(s.title)}">${n.trim()}</a></sup>` : "";
+      }).join(""));
     }
     return html;
   }
@@ -336,8 +531,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     const out = []; let list = null;
     const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
     for (const raw of String(text).split("\n")) {
-      const line = raw.trimEnd();
-      let m;
+      const line = raw.trimEnd(); let m;
       if ((m = line.match(/^(#{1,4})\s+(.*)/))) { close(); const l = Math.min(m[1].length + 1, 4); out.push(`<h${l}>${inline(m[2], sources)}</h${l}>`); }
       else if ((m = line.match(/^\s*[-*]\s+(.*)/))) { if (list !== "ul") { close(); out.push("<ul>"); list = "ul"; } out.push(`<li>${inline(m[1], sources)}</li>`); }
       else if ((m = line.match(/^\s*\d+[.)]\s+(.*)/))) { if (list !== "ol") { close(); out.push("<ol>"); list = "ol"; } out.push(`<li>${inline(m[1], sources)}</li>`); }
@@ -347,6 +541,33 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     }
     close();
     return out.join("");
+  }
+
+  // Champ de mots-clés (Entrée ou virgule pour ajouter, retour arrière pour retirer).
+  function tagInput(container) {
+    const input = container.querySelector("input"); let values = [];
+    const render = () => {
+      container.querySelectorAll(".tag").forEach((t) => t.remove());
+      values.forEach((v, i) => {
+        const tag = document.createElement("span"); tag.className = "tag";
+        tag.innerHTML = `${esc(v)}<button aria-label="Retirer ${esc(v)}">×</button>`;
+        tag.querySelector("button").addEventListener("click", () => { values.splice(i, 1); render(); });
+        container.insertBefore(tag, input);
+      });
+    };
+    const add = (text) => { for (const v of text.split(/[,;]/).map((s) => s.trim()).filter(Boolean)) if (!values.includes(v)) values.push(v); input.value = ""; render(); };
+    input.addEventListener("keydown", (e) => {
+      if ((e.key === "Enter" || e.key === ",") && input.value.trim()) { e.preventDefault(); add(input.value); }
+      else if (e.key === "Backspace" && !input.value && values.length) { values.pop(); render(); }
+    });
+    input.addEventListener("blur", () => input.value.trim() && add(input.value));
+    container.addEventListener("click", () => input.focus());
+    return { get: () => { if (input.value.trim()) add(input.value); return [...values]; }, set: (v) => { values = [...v]; render(); } };
+  }
+  function segmented(a, b) {
+    const set = (first) => { a.setAttribute("aria-pressed", String(first)); b.setAttribute("aria-pressed", String(!first)); };
+    a.addEventListener("click", () => set(true)); b.addEventListener("click", () => set(false));
+    return { second: () => b.getAttribute("aria-pressed") === "true", set };
   }
 
   // --- Thème -------------------------------------------------------------------
@@ -366,6 +587,8 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     document.querySelectorAll(".view").forEach((v) => (v.hidden = v.id !== view));
     if (view === "reports") loadReports();
     if (view === "memory") loadMemory();
+    if (view === "prompts") loadPrompts();
+    if (view === "grill") loadGrillProfile();
     $("#sidebar").classList.remove("open");
   }
   document.querySelectorAll("[role=tab][data-view]").forEach((t) => t.addEventListener("click", () => show(t.dataset.view)));
@@ -376,19 +599,73 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     try {
       const h = await api("/api/health");
       $("#st-ollama").className = "dot " + (h.ollama && h.model_available ? "on" : "off");
-      $("#st-model").textContent = h.ollama ? (h.model_available ? h.model : `${h.model} absent`) : "Ollama injoignable";
+      $("#st-model").textContent = h.ollama ? (h.model_available ? h.model : `${h.model} absent`) : "LLM injoignable";
       $("#st-langfuse").className = "dot " + (h.tracing.langfuse ? "on" : "");
       $("#st-langsmith").className = "dot " + (h.tracing.langsmith ? "on" : "");
       $("#st-notion").className = "dot " + (h.notion ? "on" : "");
     } catch { $("#st-model").textContent = "API injoignable"; }
   }
 
+  // --- Sélection : surligner / citer ----------------------------------------------------
+  const pop = $("#selection-pop"); let selectedRange = null;
+  const citable = (node) => node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".answer, .bubble, .result, #digest, #report-md");
+  document.addEventListener("mouseup", (e) => {
+    if (pop.contains(e.target)) return;
+    setTimeout(() => {
+      const selection = getSelection();
+      const text = selection.toString().trim();
+      if (!text || !selection.rangeCount || !citable(selection.anchorNode) || !citable(selection.focusNode)) { pop.hidden = true; return; }
+      selectedRange = selection.getRangeAt(0).cloneRange();
+      const rect = selectedRange.getBoundingClientRect();
+      pop.hidden = false;
+      pop.style.top = `${Math.max(8, rect.top - pop.offsetHeight - 8)}px`;
+      pop.style.left = `${Math.min(innerWidth - pop.offsetWidth - 8, Math.max(8, rect.left + rect.width / 2 - pop.offsetWidth / 2))}px`;
+    }, 0);
+  });
+  document.addEventListener("scroll", () => (pop.hidden = true), true);
+  function highlightRange(range) {
+    // Enveloppe chaque portion de texte sélectionnée (fonctionne à travers plusieurs éléments).
+    const root = range.commonAncestorContainer;
+    const nodes = [];
+    if (root.nodeType === 3) nodes.push(root);
+    else {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) if (range.intersectsNode(walker.currentNode)) nodes.push(walker.currentNode);
+    }
+    for (const node of nodes) {
+      const start = node === range.startContainer ? range.startOffset : 0;
+      const end = node === range.endContainer ? range.endOffset : node.length;
+      if (end <= start || !node.nodeValue.slice(start, end).trim()) continue;
+      const middle = node.splitText(start); middle.splitText(end - start);
+      const mark = document.createElement("mark"); mark.className = "hl";
+      middle.parentNode.replaceChild(mark, middle); mark.appendChild(middle);
+    }
+  }
+  $("#sel-highlight").addEventListener("click", () => {
+    if (selectedRange) highlightRange(selectedRange);
+    getSelection().removeAllRanges(); pop.hidden = true;
+  });
+  $("#sel-cite").addEventListener("click", () => {
+    const text = getSelection().toString().trim() || selectedRange?.toString().trim();
+    if (text) addQuote(text);
+    getSelection().removeAllRanges(); pop.hidden = true; show("chat"); $("#input").focus();
+  });
+  function addQuote(text) {
+    state.quotes.push(text.replace(/\s+/g, " ").slice(0, 600));
+    renderQuotes();
+  }
+  function renderQuotes() {
+    $("#quotes").innerHTML = state.quotes.map((q, i) => `<div class="quote-chip">❝ <span>${esc(q)}</span><button data-i="${i}" aria-label="Retirer la citation">×</button></div>`).join("");
+    $("#quotes").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { state.quotes.splice(Number(b.dataset.i), 1); renderQuotes(); }));
+  }
+
   // --- Conversations -------------------------------------------------------------
   async function loadConversations() {
     const list = await api("/api/conversations").catch(() => []);
-    $("#conversations").innerHTML = list.map((c) =>
-      `<button data-id="${esc(c.id)}" class="${c.id === state.conversation ? "active" : ""}" title="${esc(c.title)}">${esc(c.title)}</button>`).join("")
-      || `<div class="muted" style="padding:6px 10px;font-size:.85rem">Aucune conversation</div>`;
+    $("#conversations").innerHTML = list.map((c) => {
+      const title = c.title.split("\n").filter((l) => !l.startsWith(">")).join(" ").trim() || c.title;
+      return `<button data-id="${esc(c.id)}" class="${c.id === state.conversation ? "active" : ""}" title="${esc(title)}">${esc(title)}</button>`;
+    }).join("") || `<div class="muted" style="padding:6px 10px;font-size:.85rem">Aucune conversation</div>`;
     $("#conversations").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => openConversation(b.dataset.id)));
   }
   async function openConversation(id) {
@@ -400,7 +677,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
       else {
         const view = addAssistant();
         view.answer.innerHTML = markdown(m.content, m.sources);
-        renderExtra(view.extra, { sources: m.sources, warnings: [], data: {} });
+        renderExtra(view.extra, { sources: m.sources, warnings: [], data: {}, trace_url: m.trace_url, engaged: m.engaged, langfuse: m.langfuse });
       }
     }
     show("chat"); loadConversations(); scrollDown();
@@ -419,7 +696,9 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   function addUser(text) {
     emptyState.remove();
     const el = document.createElement("div"); el.className = "msg user";
-    el.innerHTML = `<div class="bubble">${esc(text)}</div>`;
+    const lines = String(text).split("\n");
+    const quotes = lines.filter((l) => l.startsWith(">")).map((l) => `<div class="quote">${esc(l.replace(/^>\s?/, ""))}</div>`).join("");
+    el.innerHTML = `<div class="bubble">${quotes}${esc(lines.filter((l) => !l.startsWith(">")).join("\n"))}</div>`;
     $("#messages").appendChild(el);
   }
   function addAssistant() {
@@ -434,15 +713,18 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     notion_sync: "📝 Notion via MCP", list_reports: "📰 Rapports" };
 
   async function send(text) {
-    if (!text.trim() || state.busy) return;
+    if ((!text.trim() && !state.quotes.length) || state.busy) return;
+    const message = [...state.quotes.map((q) => `> ${q}`), text.trim()].filter(Boolean).join("\n");
+    state.quotes = []; renderQuotes();
     state.busy = true; $("#send").disabled = true;
-    addUser(text);
+    addUser(message);
     const view = addAssistant(); view.answer.classList.add("cursor");
     let streamed = "";
     scrollDown();
     try {
       const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, conversation_id: state.conversation }) });
+        body: JSON.stringify({ message, conversation_id: state.conversation }) });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || response.statusText);
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
       while (true) {
         const { value, done } = await reader.read(); if (done) break;
@@ -475,6 +757,23 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     }
     state.busy = false; $("#send").disabled = false; scrollDown(); loadConversations();
   }
+  function renderEngaged(engaged, traceUrl, totalMs, langfuse) {
+    if (!engaged && !traceUrl) return "";
+    const parts = [];
+    if (engaged) {
+      if (engaged.nodes?.length) parts.push(`<span class="e">🤖 <b>${engaged.nodes.map(esc).join(" → ")}</b></span>`);
+      if (engaged.tool) parts.push(`<span class="e">🛠 outil <b>${esc(engaged.tool)}</b>${engaged.routed_by === "llm" ? " (routage LLM)" : " (règle)"}</span>`);
+      if (engaged.agents?.length) parts.push(`<span class="e">👥 agents <b>${engaged.agents.map(esc).join(", ")}</b></span>`);
+      if (engaged.skills?.length) parts.push(`<span class="e">📚 skills <b>${engaged.skills.map(esc).join(", ")}</b></span>`);
+      if (engaged.mcp?.length) parts.push(`<span class="e">🔌 MCP <b>${engaged.mcp.map(esc).join(", ")}</b></span>`);
+      if (engaged.prompts?.length) parts.push(`<span class="e">📝 <b>${engaged.prompts.map(esc).join(", ")}</b></span>`);
+      if (engaged.data?.length) parts.push(`<span class="e">🗄 ${engaged.data.map(esc).join(", ")}</span>`);
+    }
+    if (totalMs) parts.push(`<span class="e">⏱ ${(totalMs / 1000).toFixed(1)} s</span>`);
+    if (traceUrl) parts.push(`<a class="trace" href="${safeUrl(traceUrl)}" target="_blank" rel="noopener">🧭 Graphe ↗</a>`);
+    if (langfuse?.trace) parts.push(`<a class="trace" href="${safeUrl(langfuse.trace)}" target="_blank" rel="noopener" title="Trace de ce tour dans Langfuse">🔭 Langfuse ↗</a>`);
+    return `<div class="engaged">${parts.join("")}</div>`;
+  }
   function renderExtra(container, event) {
     let html = "";
     if (event.sources?.length) {
@@ -485,12 +784,14 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     }
     if (event.warnings?.length) html += `<div class="warning">🛡️ Guard : ${event.warnings.map(esc).join(" · ")}</div>`;
     if (event.data?.run_id) {
-      html += `<div class="run-card"><span>🛰️ Veille <code>${esc(event.data.run_id.slice(0, 8))}</code> en cours</span>
+      html += `<div class="run-card"><span>🛰️ Veille <code>${esc(event.data.run_id.slice(0, 8))}</code>${event.data.keywords?.length ? ` · focus ${event.data.keywords.map(esc).join(", ")}` : ""}</span>
                <button class="btn primary" data-follow="${esc(event.data.run_id)}">Suivre la progression</button></div>`;
     }
+    html += renderEngaged(event.engaged, event.trace_url, event.total_ms, event.langfuse);
     container.innerHTML = html;
     container.querySelector("[data-follow]")?.addEventListener("click", (e) => { followRun(e.target.dataset.follow); show("runs"); });
-    if (event.data?.run_id) followRun(event.data.run_id);
+    if (event.data?.run_id && event.type === "final") followRun(event.data.run_id);
+    if (event.data?.grill && event.type === "final") { show("grill"); startGrill(); }
   }
 
   const input = $("#input");
@@ -499,7 +800,54 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   $("#composer").addEventListener("submit", (e) => { e.preventDefault(); const text = input.value; input.value = ""; input.style.height = "auto"; send(text); });
   document.querySelectorAll(".suggestion").forEach((s) => s.addEventListener("click", () => send(s.dataset.prompt)));
 
+  // --- Recherche --------------------------------------------------------------------
+  const searchTags = tagInput($("#search-tags"));
+  const matchMode = segmented($("#match-any"), $("#match-all"));
+  $("#limit").addEventListener("input", () => ($("#limit-value").textContent = $("#limit").value));
+  const KIND = { rss: "Blog", arxiv: "arXiv", github: "Release", "github-mcp": "Nouveau dépôt" };
+  const RUN_SOURCE = { rss: "rss", arxiv: "arxiv", github: "github_releases", "github-mcp": "github_mcp" };
+  const checkedValues = (name) => [...document.querySelectorAll(`input[name=${name}]:checked`)].map((c) => c.value);
+  function highlightTerms(html, keywords) {
+    if (!keywords.length) return html;
+    const pattern = new RegExp(`(${keywords.map((k) => esc(k).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+    return html.replace(pattern, '<mark class="hl">$1</mark>');
+  }
+  async function runSearch() {
+    const keywords = searchTags.get();
+    const published = $("#published").value;
+    try {
+      const { count, results } = await api("/api/search", { method: "POST", body: JSON.stringify({
+        keywords, match_all: matchMode.second(), sources: checkedValues("src"),
+        since: $("#since").value || null, until: $("#until").value || null,
+        published: published === "" ? null : published === "true", limit: Number($("#limit").value) }) });
+      $("#search-count").textContent = `${count} résultat(s)`;
+      $("#results").innerHTML = results.map((r) => `
+        <div class="result">
+          <div class="top"><span class="kind">${esc(KIND[r.source] || r.source)}</span><span>${esc((r.published_at || "").slice(0, 10) || "date non précisée")}</span>${r.published ? '<span class="pub">✓ publié</span>' : ""}</div>
+          <h4><a href="${safeUrl(r.url)}" target="_blank" rel="noopener">${highlightTerms(esc(r.title), keywords)}</a></h4>
+          <p>${highlightTerms(esc(r.summary.slice(0, 320)), keywords)}${r.summary.length > 320 ? "…" : ""}</p>
+          <button class="btn small" data-cite="${esc(r.title)} — ${esc(r.url)}">❝ Citer</button>
+        </div>`).join("") || `<p class="muted">Aucun document : élargissez les filtres ou lancez une veille ciblée.</p>`;
+      $("#results").querySelectorAll("[data-cite]").forEach((b) => b.addEventListener("click", () => { addQuote(b.dataset.cite); toast("Ajouté aux citations du chat"); }));
+    } catch (error) { toast(error.message); }
+  }
+  $("#do-search").addEventListener("click", runSearch);
+  $("#search-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.target.value.trim()) runSearch(); });
+  $("#ask-chat").addEventListener("click", () => {
+    const keywords = searchTags.get();
+    if (!keywords.length) { toast("Ajoutez au moins un mot-clé"); return; }
+    show("chat"); send(`Que disent mes sources sur ${keywords.join(", ")} ?`);
+  });
+  $("#targeted-run").addEventListener("click", async () => {
+    const keywords = searchTags.get();
+    const since = $("#since").value;
+    const maxAge = since ? Math.max(1, Math.ceil((Date.now() - new Date(since)) / 86400000)) : null;
+    await startRun({ keywords, match_all: matchMode.second(), sources: checkedValues("src").map((s) => RUN_SOURCE[s]),
+                     max_age_days: maxAge, max_documents: Number($("#limit").value) });
+  });
+
   // --- Veille en direct ------------------------------------------------------------
+  const runTags = tagInput($("#run-tags"));
   const ICONS = { step: "🧭", collect: "📥", agent: "🤖", warning: "⚠", error: "✕", awaiting_approval: "✋",
                   published: "✓", decision: "👤", status: "●" };
   const STATE_LABELS = { running: "en cours", awaiting_approval: "validation attendue", published: "publiée",
@@ -512,11 +860,17 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
       case "warning": return `<span class="warn">${esc(e.text)}</span>`;
       case "error": return `<span class="err">${esc(e.text)}</span>`;
       case "awaiting_approval": return "digest prêt : <b>validation humaine attendue</b>";
-      case "published": return "publication : fichiers, rapport daté" + (e.outputs?.notion ? ", Notion" : "");
+      case "published": return "publication : fichiers, rapport daté (MD + HTML)" + (e.outputs?.notion ? ", Notion" : "");
       case "decision": return e.approved ? `publication demandée${e.note ? ` — « ${esc(e.note)} »` : ""}` : `rejet${e.note ? ` — « ${esc(e.note)} »` : ""}`;
       case "status": return `statut final : <b>${esc(STATE_LABELS[e.status] || e.status)}</b>`;
       default: return esc(JSON.stringify(e));
     }
+  }
+  async function startRun(options) {
+    try {
+      const { id } = await api("/api/runs", { method: "POST", body: JSON.stringify(options) });
+      followRun(id); show("runs");
+    } catch (error) { toast(error.message); }
   }
   function followRun(id) {
     if (state.run !== id) { state.run = id; state.runCursor = 0; $("#timeline").innerHTML = ""; $("#approval").hidden = true; $("#published").hidden = true; }
@@ -529,28 +883,34 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
         const li = document.createElement("li"); li.dataset.icon = ICONS[e.type] || "•";
         li.innerHTML = `<time>${esc(e.at || "")}</time>${eventText(e)}`; $("#timeline").appendChild(li);
       }
+      const o = run.options || {};
+      $("#run-options").innerHTML = [o.keywords?.length ? `focus : <b>${o.keywords.map(esc).join(o.match_all ? " ET " : " OU ")}</b>` : "",
+        o.sources?.length ? `sources : ${o.sources.map(esc).join(", ")}` : "", o.max_age_days ? `≤ ${o.max_age_days} j` : "",
+        o.max_documents ? `≤ ${o.max_documents} candidats` : ""].filter(Boolean).join(" · ");
       const st = $("#run-state"); st.className = `state ${run.status}`; st.textContent = STATE_LABELS[run.status] || run.status;
       $("#run-badge").hidden = !["running", "awaiting_approval"].includes(run.status);
       $("#start-run").disabled = run.status === "running";
+      $("#run-trace").hidden = run.status === "running"; $("#run-trace").href = `/trace/${encodeURIComponent(run.id)}`;
+      $("#run-langfuse").hidden = !run.langfuse; if (run.langfuse) $("#run-langfuse").href = safeUrl(run.langfuse.trace);
       if (run.status === "awaiting_approval") { $("#digest").innerHTML = markdown(run.markdown); $("#approval").hidden = false; }
       else $("#approval").hidden = true;
       if (run.status === "published") {
-        const o = run.outputs;
+        const out = run.outputs;
         $("#published").hidden = false;
         $("#published").innerHTML = `<div class="warning" style="background:var(--ok-soft);color:var(--ok)">✓ Veille publiée.
-          ${o.report ? ` <a href="#" data-report="${esc(o.report.split("reports/").pop())}">Lire le rapport daté</a>` : ""}
-          ${o.notion ? ` · <a href="${safeUrl(o.notion)}" target="_blank" rel="noopener">Page Notion</a>` : ""}</div>`;
+          ${out.report ? ` <a href="#" data-report="${esc(out.report.split("reports/").pop())}">Lire le rapport daté</a>` : ""}
+          ${out.notion ? ` · <a href="${safeUrl(out.notion)}" target="_blank" rel="noopener">Page Notion</a>` : ""}</div>`;
         $("#published").querySelector("[data-report]")?.addEventListener("click", (e) => { e.preventDefault(); show("reports"); openReport(e.target.dataset.report); });
       }
       if (!["running", "awaiting_approval"].includes(run.status)) clearInterval(state.poll);
     };
     tick(); state.poll = setInterval(tick, 1200);
   }
-  $("#start-run").addEventListener("click", async () => {
-    try {
-      const { id } = await api("/api/runs", { method: "POST", body: JSON.stringify({ collect: $("#opt-collect").checked, mcp: $("#opt-mcp").checked }) });
-      followRun(id);
-    } catch (error) { toast(error.message); }
+  $("#start-run").addEventListener("click", () => {
+    const sources = checkedValues("run-src");
+    startRun({ collect: $("#opt-collect").checked, mcp: sources.includes("github_mcp"), sources, keywords: runTags.get(),
+               match_all: $("#run-match-all").checked, max_age_days: Number($("#max-age").value) || null,
+               max_documents: Number($("#max-docs").value) || null });
   });
   async function decide(approved) {
     try {
@@ -562,25 +922,159 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   $("#reject").addEventListener("click", () => decide(false));
 
   // --- Rapports --------------------------------------------------------------------
+  const reportFormat = segmented($("#fmt-html"), $("#fmt-md"));
+  [$("#fmt-html"), $("#fmt-md")].forEach((b) => b.addEventListener("click", () => state.report && openReport(state.report)));
   async function loadReports() {
     const reports = await api("/api/reports").catch(() => []);
-    $("#report-list").innerHTML = reports.map((r) => `<button data-name="${esc(r.name)}">📄 ${esc(r.date)}</button>`).join("")
+    $("#report-list").innerHTML = reports.map((r) => `<button data-name="${esc(r.name)}">📄 ${esc(r.date)}${r.html ? "" : " <small class='muted'>(MD)</small>"}</button>`).join("")
       || `<p class="muted">Aucun rapport : publiez une veille.</p>`;
     $("#report-list").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => openReport(b.dataset.name)));
-    if (reports.length && !$("#report-list .active")) openReport(reports[0].name);
+    if (reports.length && !state.report) openReport(reports[0].name);
+    else if (state.report) openReport(state.report);
   }
   async function openReport(name) {
     try {
       const report = await api(`/api/reports/${name}`);
-      $("#report-body").innerHTML = report.html; // HTML rendu côté serveur depuis nos propres rapports
-      $("#report-body").querySelectorAll("a").forEach((a) => { a.target = "_blank"; a.rel = "noopener"; });
+      state.report = name;
+      const html = !reportFormat.second() && report.html_url;
+      $("#report-empty").hidden = true; $("#report-toolbar").hidden = false;
+      $("#report-frame").hidden = !html; $("#report-md").hidden = !!html;
+      if (html) $("#report-frame").src = report.html_url;       // HTML échappé, iframe sandboxée sans scripts
+      else $("#report-md").textContent = report.markdown;       // texte brut, jamais interprété
+      $("#report-open").href = report.html_url || "#"; $("#report-open").hidden = !report.html_url;
       $("#report-list").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.name === name));
     } catch (error) { toast(error.message); }
   }
 
+  // --- Prompts ---------------------------------------------------------------------
+  async function loadPrompts() {
+    const prompts = await api("/api/prompts").catch(() => []);
+    $("#prompt-list").innerHTML = prompts.map((p) => `<button data-name="${esc(p.name)}" class="${p.name === state.prompt ? "active" : ""}">
+      <b>${esc(p.name)}</b>${p.overridden ? '<span class="mod">MODIFIÉ</span>' : ""}<small>${esc(p.description)}</small></button>`).join("");
+    $("#prompt-list").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => openPrompt(b.dataset.name)));
+    if (!state.prompt && prompts.length) openPrompt(prompts[0].name);
+  }
+  function renderPrompt(p) {
+    state.prompt = p.name;
+    $("#prompt-editor").hidden = false; $("#prompt-error").hidden = true;
+    $("#prompt-title").textContent = p.name;
+    $("#prompt-state").className = `state ${p.overridden ? "awaiting_approval" : "published"}`;
+    $("#prompt-state").textContent = p.overridden ? "modifié" : "par défaut";
+    $("#prompt-desc").textContent = `${p.description} · moteur ${p.engine === "jinja" ? "Jinja2 ({{ variable }})" : "string.Template ($variable)"}`;
+    const token = (v) => (p.engine === "jinja" ? `{{ ${v} }}` : `$${v}`);
+    $("#prompt-vars").innerHTML = [...p.required.map((v) => `<button class="req" data-v="${esc(token(v))}">${esc(token(v))}</button>`),
+                                   ...p.optional.map((v) => `<button data-v="${esc(token(v))}">${esc(token(v))}</button>`)].join("");
+    $("#prompt-vars").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      const area = $("#prompt-text"); const { selectionStart: s, selectionEnd: e } = area;
+      area.setRangeText(b.dataset.v, s, e, "end"); area.focus();
+    }));
+    $("#prompt-text").value = p.text;
+    $("#prompt-history").textContent = p.history.length ? `${p.history.length} version(s) archivée(s)` : "";
+    $("#prompt-list").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.name === p.name));
+    $("#prompt-reset").dataset.confirm = "";
+    $("#prompt-reset").textContent = "Revenir au prompt par défaut";
+  }
+  async function openPrompt(name) {
+    try { renderPrompt(await api(`/api/prompts/${name}`)); } catch (error) { toast(error.message); }
+  }
+  $("#prompt-save").addEventListener("click", async () => {
+    try {
+      renderPrompt(await api(`/api/prompts/${state.prompt}`, { method: "PUT", body: JSON.stringify({ text: $("#prompt-text").value }) }));
+      toast("Prompt enregistré : il s'applique aux prochains appels"); loadPrompts();
+    } catch (error) { $("#prompt-error").hidden = false; $("#prompt-error").textContent = error.message; }
+  });
+  $("#prompt-cancel").addEventListener("click", () => openPrompt(state.prompt));
+  $("#prompt-reset").addEventListener("click", async (e) => {
+    if (!e.target.dataset.confirm) { e.target.dataset.confirm = "1"; e.target.textContent = "Confirmer la réinitialisation ?"; return; }
+    try { renderPrompt(await api(`/api/prompts/${state.prompt}`, { method: "DELETE" })); toast("Prompt par défaut rétabli"); loadPrompts(); }
+    catch (error) { toast(error.message); }
+  });
+
+  // --- Grill-me --------------------------------------------------------------------
+  const grill = { session: null, question: null, selected: new Set(), profile: null };
+  const chipList = (values, cls = "chip") => (values || []).map((v) => `<span class="${cls}">${esc(v)}</span>`).join(" ") || '<span class="muted">—</span>';
+  function renderProfile(p, container, title = "Ton profil de veille") {
+    container.innerHTML = `<h3>${title}</h3><p>${esc(p.summary)}</p>
+      <div class="grid">
+        <div><span class="label">Priorités</span><div class="chips">${chipList(p.priorities)}</div></div>
+        <div><span class="label">Rythme · détail</span>${esc(p.frequency)} · ${esc(p.depth)}</div>
+      </div>
+      <span class="label" style="margin-top:12px">Mots-clés</span><div class="chips">${chipList(p.keywords)}</div>
+      <span class="label" style="margin-top:12px">À écarter</span><div class="chips">${chipList(p.exclusions, "chip bad")}</div>
+      ${p.suggested_sources?.length ? `<span class="label" style="margin-top:12px">Sources suggérées (à vérifier avec le skill ajout-source)</span>
+        <ul>${p.suggested_sources.map((s) => `<li><b>${esc(s.name)}</b> ${s.url ? `<code>${esc(s.url)}</code>` : ""} — <span class="muted">${esc(s.reason)}</span></li>`).join("")}</ul>` : ""}`;
+  }
+  async function loadGrillProfile() {
+    const profile = await api("/api/grill/profile").catch(() => ({}));
+    if (profile.summary) {
+      renderProfile(profile, $("#grill-current"), `Profil actuel <span class="muted">(${esc((profile.answered_at || "").slice(0, 10))})</span>`);
+      $("#grill-start").textContent = "Refaire l'entretien";
+    }
+  }
+  async function startGrill() {
+    try {
+      grill.profile = null; $("#grill-log").innerHTML = ""; $("#grill-history").hidden = true; $("#grill-result").hidden = true;
+      const step = await api("/api/grill", { method: "POST" });
+      grill.session = step.session; handleGrillStep(step);
+    } catch (error) { toast(error.message); }
+  }
+  function handleGrillStep(step) {
+    if (step.question) return renderQuestion(step.question);
+    grill.question = null; grill.profile = step.profile;
+    $("#grill-card").hidden = true; $("#grill-intro").hidden = true; $("#grill-result").hidden = false;
+    renderProfile(step.profile, $("#grill-result"), "✓ Profil enregistré dans la mémoire des agents");
+    $("#grill-result").insertAdjacentHTML("beforeend", `<div class="row" style="margin-top:14px">
+      <button class="btn primary" id="grill-run">🛰️ Lancer une veille ciblée</button>
+      <button class="btn" id="grill-search">🔎 Rechercher ces mots-clés</button>
+      <button class="btn" id="grill-restart">Recommencer</button></div>`);
+    const focus = (step.profile.keywords || []).slice(0, 5);
+    $("#grill-run").addEventListener("click", () => startRun({ keywords: focus }));
+    $("#grill-search").addEventListener("click", () => { searchTags.set(focus); show("search"); runSearch(); });
+    $("#grill-restart").addEventListener("click", startGrill);
+  }
+  function renderQuestion(q) {
+    grill.question = q; grill.selected = new Set();
+    $("#grill-intro").hidden = true; $("#grill-card").hidden = false;
+    $("#grill-branch").textContent = q.branch;
+    const total = q.progress.index + q.progress.remaining;
+    $("#grill-count").textContent = q.id === "domains" ? "Question 1 · les suivantes dépendent de tes domaines"
+      : `Question ${q.progress.index}` + (q.progress.remaining ? ` · encore ~${q.progress.remaining}` : " · dernière question");
+    $("#grill-bar").style.width = `${Math.round(100 * (q.progress.index - 1) / Math.max(1, total))}%`;
+    $("#grill-question").textContent = q.text;
+    $("#grill-why").textContent = `Pourquoi je te demande ça : ${q.why}`;
+    $("#grill-options").innerHTML = q.options.map((o) => `<button data-id="${esc(o.id)}" aria-pressed="false">${esc(o.label)}${q.recommended.includes(o.id) ? '<span class="reco">RECOMMANDÉ</span>' : ""}</button>`).join("");
+    $("#grill-options").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      const id = b.dataset.id;
+      if (!q.multi) { grill.selected.clear(); $("#grill-options").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", "false")); }
+      if (grill.selected.has(id)) grill.selected.delete(id); else grill.selected.add(id);
+      b.setAttribute("aria-pressed", String(grill.selected.has(id)));
+    }));
+    $("#grill-text").value = ""; $("#grill-text").placeholder = q.hint || "Texte libre";
+    $("#grill-reco").hidden = !q.recommended.length;
+    (q.options.length ? $("#grill-options button") : $("#grill-text"))?.focus();
+  }
+  async function answerGrill(payload, label) {
+    if (!grill.session || !grill.question) return;
+    const q = grill.question;
+    $("#grill-history").hidden = false;
+    $("#grill-log").insertAdjacentHTML("beforeend", `<li><b>${esc(q.text)}</b><br>${esc(label)}</li>`);
+    try { handleGrillStep(await api(`/api/grill/${grill.session}/answer`, { method: "POST", body: JSON.stringify(payload) })); }
+    catch (error) { toast(error.message); }
+  }
+  const optionLabels = (ids) => grill.question.options.filter((o) => ids.includes(o.id)).map((o) => o.label).join(", ");
+  $("#grill-start").addEventListener("click", startGrill);
+  $("#grill-answer").addEventListener("click", () => {
+    const options = [...grill.selected]; const text = $("#grill-text").value.trim();
+    answerGrill({ options, text }, [optionLabels(options), text].filter(Boolean).join(" · ") || "(passé)");
+  });
+  $("#grill-reco").addEventListener("click", () => answerGrill({ recommended: true }, `✓ ${optionLabels(grill.question.recommended)}`));
+  $("#grill-skip").addEventListener("click", () => answerGrill({ options: [], text: "" }, "(passé)"));
+  $("#grill-text").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#grill-answer").click(); });
+
   // --- Mémoire ---------------------------------------------------------------------
   async function loadMemory() {
     const m = await api("/api/memory").catch(() => null); if (!m) return;
+    if (m.interests?.summary) renderProfile(m.interests, $("#memory-interests"), "Centres d'intérêt (Grill-me)");
     $("#lessons").innerHTML = m.lessons.length ? `<ul>${m.lessons.map((l) => `<li>${l.approved ? "✅" : "❌"} ${esc(l.note)} <span class="muted">· ${esc(l.created_at.slice(0, 10))}</span></li>`).join("")}</ul>`
       : `<p class="muted">Aucune leçon : ajoutez une note lors de la validation d'une veille.</p>`;
     $("#tags").innerHTML = m.tags.map(([t, s]) => `<span class="chip">${esc(t)}<b>${s}</b></span>`).join("") || `<p class="muted">Aucune préférence apprise.</p>`;
@@ -600,7 +1094,8 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   api("/api/runs").then((runs) => { const active = runs.find((r) => ["running", "awaiting_approval"].includes(r.status)); if (active) followRun(active.id); }).catch(() => {});
   const linked = location.hash.match(/^#c=(.+)$/);
   if (linked) openConversation(decodeURIComponent(linked[1])).catch(() => {});
-  else if (["#runs", "#reports", "#memory"].includes(location.hash)) show(location.hash.slice(1));
+  else if (location.hash === "#grill-start") { show("grill"); startGrill(); }  // lien direct : démarre l'entretien
+  else if (["#search", "#runs", "#reports", "#prompts", "#memory", "#grill"].includes(location.hash)) show(location.hash.slice(1));
   input.focus();
 })();
 </script>

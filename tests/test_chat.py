@@ -59,6 +59,8 @@ def run(graph, message, conversation="c1"):
     ("Montre les rapports", "list_reports"),
     ("Quoi de neuf cette semaine ?", "latest_digests"),
     ("Bonjour !", "none"),
+    ("Grill me sur ma veille", "grill_me"),
+    ("Interroge-moi pour préciser ce que je cherche", "grill_me"),
 ])
 def test_rules_route_explicit_intents(message, tool):
     assert rule_route(message).tool == tool
@@ -112,7 +114,7 @@ def test_run_watch_is_a_deterministic_action(services):
     _, final = run(graph, "Lance une veille")
 
     assert started == [{"collect": True}]
-    assert final["data"] == {"run_id": "run-1234567890"}
+    assert final["data"] == {"run_id": "run-1234567890", "keywords": []}
     assert final["text"].startswith("Veille lancée.")
 
 
@@ -184,3 +186,46 @@ def test_tool_failure_becomes_an_answer(services):
     services.github_search = failing
     _, final = run(make_chat(services), "nouveaux repos github agents")
     assert "a échoué" in final["text"] and "MCP injoignable" in final["text"]
+
+
+def test_chat_launches_a_targeted_watch(services):
+    started = []
+    services.start_run = lambda options: started.append(options) or "run-42"
+
+    _, final = run(make_chat(services, model=chat_model()), "Relance la veille sur MCP, agents et RAG")
+
+    assert started == [{"collect": True, "keywords": ["MCP", "agents", "RAG"]}]
+    assert "ciblée sur **MCP, agents, RAG**" in final["text"]
+
+
+def test_quoted_passages_do_not_drive_routing(services):
+    message = "> Nouveaux repos GitHub pour Notion\nQue sait-on sur la quantization ?"
+    assert rule_route(message) is None  # la citation ne déclenche ni GitHub ni Notion
+
+
+def test_final_event_reports_path_and_engagement(services):
+    graph = make_chat(services, model=chat_model("Réponse [1]."))
+
+    _, final = run(graph, "Que sait-on sur la quantization FP8 ?")
+
+    assert [step["node"] for step in final["steps"]] == ["route", "act", "respond", "guard"]
+    assert final["steps"][0]["detail"].startswith("LLM (router.md) → search_watch")
+    engaged = final["engaged"]
+    assert engaged["tool"] == "search_watch" and engaged["routed_by"] == "llm"
+    assert engaged["prompts"] == ["router.md", "chat-system.md.j2"]
+    assert engaged["data"] == ["SQLite FTS5 (documents)"]
+
+
+def test_action_engagement_lists_agents_skills_and_mcp(services):
+    services.start_run = lambda options: "run-1"
+    _, final = run(make_chat(services, model=chat_model()), "lance une veille")
+    engaged = final["engaged"]
+    assert engaged["agents"][:2] == ["supervisor", "collector"] and engaged["skills"] == ["veille-tech"]
+    assert engaged["mcp"] == ["github-scout"] and engaged["prompts"] == []
+
+
+def test_guard_normalizes_citation_lists():
+    sources = [{"url": "https://a.example/1"}, {"url": "https://a.example/2"}]
+    text, warnings = guard_answer("Vu dans [1, 2] et [2, 9].", sources)
+    assert text == "Vu dans [1][2] et [2]."
+    assert warnings == ["Citation [9] sans source retirée"]

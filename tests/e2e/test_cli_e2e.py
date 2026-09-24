@@ -31,7 +31,8 @@ def test_full_lifecycle(isolated_settings, fake_llm_factory, fake_github):
     tmp = isolated_settings
 
     # 1. Run : supervisor + collecte parallèle (RSS, arXiv, MCP) → arrêt avant publication
-    first = invoke("run")
+    id_file = tmp / "run-id.txt"
+    first = invoke("run", "--run-id-file", str(id_file))
     assert first.exit_code == 0, first.output
     assert (
         "fan-out : collect:rss, collect:arxiv, collect:github_releases, collect:github_mcp"
@@ -42,6 +43,9 @@ def test_full_lifecycle(isolated_settings, fake_llm_factory, fake_github):
     assert "Digest prêt pour validation humaine" in first.output
     assert not (tmp / "output").exists()
     run_id = run_id_from(first.output)
+    assert id_file.read_text() == run_id  # pour les scripts (bin/veille cycle)
+    assert run_id in invoke("pending").output
+    assert "Veille LLM" in invoke("show", run_id).output
 
     connection = storage.connect(settings.database_path)
     collected = {row[0] for row in connection.execute("SELECT url FROM documents")}

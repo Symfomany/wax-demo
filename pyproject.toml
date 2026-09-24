@@ -1,15 +1,18 @@
 [project]
 name = "llm-watch-harness"
-version = "0.3.0"
+version = "0.5.0"
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic",
     "fastapi",
     "feedparser",
     "httpx",
     "jinja2",
+    "langchain-anthropic",
     "langchain-core",
     "langchain-mcp-adapters",
     "langchain-ollama",
+    "langchain-openai",
     "langfuse",
     "langgraph",
     "langgraph-checkpoint-sqlite",

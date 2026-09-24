@@ -10,11 +10,11 @@ keywords: [{{ keywords | join(", ") }}]
 
 # 🛰️ {{ title }}
 
+_{{ date_long | capitalize }}_
+
 > **En bref** — {{ digest.executive_summary }}
 
-| 📅 Date | 📥 Collectés | 🎯 Retenus | 🚫 Écartés | 🤖 Modèle |
-|:--|:--:|:--:|:--:|:--|
-| {{ date_long }} | {{ collected_total }} | **{{ items | length }}** | {{ rejected | length }} | `{{ model }}` |
+**{{ items | length }} signal(aux) retenu(s)** · {{ rejected | length }} écarté(s) · {{ collected_total }} document(s) collecté(s) · modèle `{{ model }}`
 
 {% if keywords %}
 **Mots-clés :** {% for keyword in keywords %}`{{ keyword }}`{% if not loop.last %} · {% endif %}{% endfor %}
@@ -26,7 +26,8 @@ keywords: [{{ keywords | join(", ") }}]
 ## 🔝 À retenir
 
 {% for item in top %}
-{{ loop.index }}. **[{{ item.title }}]({{ item.url }})** — {{ item.why_it_matters }}
+{{ loop.index }}. **[{{ item.title }}]({{ item.url }})**
+   {{ item.why_it_matters }}
 {% else %}
 _Aucun signal retenu sur la période._
 {% endfor %}
@@ -34,11 +35,9 @@ _Aucun signal retenu sur la période._
 ## 📰 Signaux
 
 {% for item in items %}
-### {{ loop.index }}. {{ item.icon }} {{ item.title }}
+### {{ loop.index }}. {{ item.title }}
 
-| Source | Date | Lien |
-|:--|:--|:--|
-| {{ item.source_label }} | {{ item.date_short }} | [ouvrir la source]({{ item.url }}) |
+{{ item.source_label }} · {{ item.date_short }} · [Lire la source ↗]({{ item.url }})
 
 {{ item.summary }}
 

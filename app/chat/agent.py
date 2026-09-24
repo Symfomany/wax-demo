@@ -13,6 +13,7 @@ La conversation est conservée par le checkpointer (thread = conversation).
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Annotated, Literal, TypedDict
 
@@ -32,7 +33,7 @@ from app.memory import WatchMemory
 
 ToolName = Literal[
     "search_watch", "latest_digests", "run_watch", "github_search",
-    "memory_status", "notion_sync", "list_reports", "none",
+    "memory_status", "notion_sync", "list_reports", "grill_me", "none",
 ]
 
 
@@ -43,6 +44,7 @@ class ChatDecision(BaseModel):
 
 # Règles déterministes : une intention explicite ne dépend pas du LLM.
 RULES: list[tuple[re.Pattern, ToolName]] = [
+    (re.compile(r"\b(grill[- ]?me|grille[- ]moi|interroge[- ]moi|questionne[- ]moi|pose[- ]moi des questions|cerne mes (besoins|centres d'intérêt))\b", re.I), "grill_me"),
     (re.compile(r"\b(lance|lancer|relance|relancer|démarre|démarrer|exécute|exécuter)\b.{0,40}\bveille\b", re.I), "run_watch"),
     (re.compile(r"\bnotion\b", re.I), "notion_sync"),
     (re.compile(r"\b(github|repos?|dépôts?|depots?)\b", re.I), "github_search"),
@@ -58,14 +60,62 @@ QUERY_NOISE = re.compile(
 )
 
 
+FOCUS = re.compile(r"\b(?:sur|autour de|avec les mots[- ]clés?|mots[- ]clés?\s*:?)\s+(.+)$", re.I)
+
+
+def intent_text(message: str) -> str:
+    """Le message sans les passages cités (« > … ») : ils ne doivent pas influencer le routage."""
+    return "\n".join(line for line in message.splitlines() if not line.lstrip().startswith(">")).strip()
+
+
 def rule_route(message: str) -> ChatDecision | None:
+    message = intent_text(message)
     for pattern, tool in RULES:
         if pattern.search(message):
             query = message
             if tool == "github_search":
                 query = re.sub(r"\s+", " ", QUERY_NOISE.sub(" ", message)).strip(" ?!.") or "llm"
+            elif tool == "run_watch":
+                # « relance la veille sur MCP, agents » → veille ciblée sur ces mots-clés
+                focus = FOCUS.search(message)
+                query = focus.group(1).strip(" ?!.") if focus else ""
             return ChatDecision(tool=tool, query=query)
     return None
+
+
+# Ce que chaque outil engage dans le harness (affiché sous chaque réponse).
+TOOL_ENGAGEMENT: dict[str, dict[str, list[str]]] = {
+    "search_watch": {"data": ["SQLite FTS5 (documents)"]},
+    "latest_digests": {"data": ["digests publiés"]},
+    "run_watch": {"agents": ["supervisor", "collector", "scout", "critic", "editor"],
+                  "skills": ["veille-tech"], "mcp": ["github-scout"]},
+    "github_search": {"skills": ["github-scout"], "mcp": ["github-scout"]},
+    "memory_status": {"data": ["Store LangGraph (mémoire)"]},
+    "notion_sync": {"skills": ["rapport-veille"], "mcp": ["notion-veille"]},
+    "list_reports": {"data": ["reports/"]},
+    "grill_me": {"skills": ["grill-me"], "data": ["Store LangGraph (centres d'intérêt)"]},
+    "none": {},
+}
+
+
+def engagement(decision: dict, result: dict, visited: list[str]) -> dict:
+    tool = decision["tool"]
+    spec = TOOL_ENGAGEMENT.get(tool, {})
+    prompts = []
+    if decision.get("routed_by") == "llm":
+        prompts.append("router.md")
+    if not result.get("direct"):
+        prompts.append("chat-system.md.j2")
+    return {
+        "nodes": visited,
+        "tool": None if tool == "none" else tool,
+        "routed_by": decision.get("routed_by", "rule"),
+        "agents": spec.get("agents", []),
+        "skills": spec.get("skills", []),
+        "mcp": spec.get("mcp", []),
+        "data": spec.get("data", []),
+        "prompts": prompts,
+    }
 
 
 class ChatState(TypedDict, total=False):
@@ -100,13 +150,15 @@ def guard_answer(answer: str, sources: list[dict]) -> tuple[str, list[str]]:
     answer = URL_PATTERN.sub(strip_url, answer)
 
     def check_citation(match: re.Match) -> str:
-        number = int(match.group(1))
-        if 1 <= number <= len(sources):
-            return match.group(0)
-        warnings.append(f"Citation [{number}] sans source retirée")
-        return ""
+        # [3] ou liste [1, 2] : chaque numéro doit correspondre à une source
+        numbers = [int(n) for n in re.findall(r"\d+", match.group(1))]
+        kept = [n for n in numbers if 1 <= n <= len(sources)]
+        for number in numbers:
+            if number not in kept:
+                warnings.append(f"Citation [{number}] sans source retirée")
+        return "".join(f"[{n}]" for n in kept)
 
-    answer = re.sub(r"\[(\d+)\]", check_citation, answer)
+    answer = re.sub(r"\[(\d+(?:\s*,\s*\d+)*)\]", check_citation, answer)
     return answer.strip(), warnings
 
 
@@ -119,6 +171,7 @@ def build_chat_graph(context: ChatContext, checkpointer=None):
     def route(state: ChatState) -> dict:
         message = state["messages"][-1].content
         decision = rule_route(message)
+        routed_by = "rule" if decision else "llm"
         if decision is None:
             transcript = "\n".join(f"{m.type}: {str(m.content)[:200]}" for m in history(state)[:-1]) or "—"
             try:
@@ -129,7 +182,7 @@ def build_chat_graph(context: ChatContext, checkpointer=None):
                 decision = ChatDecision(tool="search_watch", query=message)
             if decision.tool in {"search_watch", "github_search"} and not decision.query.strip():
                 decision.query = message
-        return {"decision": decision.model_dump()}
+        return {"decision": decision.model_dump() | {"routed_by": routed_by}}
 
     def act(state: ChatState, config) -> dict:
         decision = state["decision"]
@@ -137,7 +190,11 @@ def build_chat_graph(context: ChatContext, checkpointer=None):
         if decision["tool"] == "none":
             return {"result": {"summary": "", "sources": [], "context": "", "direct": None, "data": {}}}
         tool = context.tools[decision["tool"]]
-        args = {"query": decision["query"]} if "query" in tool.args else {}
+        args = {}
+        if "query" in tool.args:
+            args["query"] = decision["query"]
+        if "keywords" in tool.args and decision["query"]:
+            args["keywords"] = decision["query"]
         writer({"type": "tool_start", "tool": decision["tool"], "args": args})
         try:
             result = tool.invoke(args, config)
@@ -190,12 +247,20 @@ def build_chat_graph(context: ChatContext, checkpointer=None):
 
 
 def stream_chat(graph, conversation_id: str, message: str, config: dict):
-    """Événements pour l'interface : tool_start/tool_end, token, final."""
+    """Événements pour l'interface : tool_start/tool_end, token, final (+ parcours du graphe)."""
     config = config | {"configurable": {"thread_id": f"chat-{conversation_id}"}}
+    steps, started = [], time.perf_counter()
+    last = started
     for mode, chunk in graph.stream(
-        {"messages": [HumanMessage(message)]}, config, stream_mode=["messages", "custom", "values"]
+        {"messages": [HumanMessage(message)]}, config, stream_mode=["messages", "custom", "values", "updates"]
     ):
-        if mode == "custom":
+        if mode == "updates":
+            now = time.perf_counter()
+            for node, update in chunk.items():
+                steps.append({"graph": "chat", "node": node, "ms": round((now - last) * 1000),
+                              "detail": step_detail(node, update or {})})
+            last = now
+        elif mode == "custom":
             yield chunk
         elif mode == "messages":
             token, metadata = chunk
@@ -211,4 +276,21 @@ def stream_chat(graph, conversation_id: str, message: str, config: dict):
         "sources": final["result"].get("sources", []),
         "data": final["result"].get("data", {}),
         "warnings": final["warnings"],
+        "steps": steps,
+        "total_ms": round((time.perf_counter() - started) * 1000),
+        "engaged": engagement(final["decision"], final["result"], [s["node"] for s in steps]),
     }
+
+
+def step_detail(node: str, update: dict) -> str:
+    if node == "route" and "decision" in update:
+        decision = update["decision"]
+        how = "règle" if decision.get("routed_by") == "rule" else "LLM (router.md)"
+        return f"{how} → {decision['tool']}" + (f" « {decision['query'][:60]} »" if decision.get("query") else "")
+    if node == "act" and "result" in update:
+        return update["result"].get("summary", "")
+    if node == "respond":
+        return f"{len(update.get('answer', ''))} caractères"
+    if node == "guard":
+        return f"{len(update.get('warnings', []))} correction(s)"
+    return ""

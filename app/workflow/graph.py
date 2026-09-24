@@ -133,6 +133,11 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
     def prefilter(state: WatchState) -> dict:
         """Mémoire + dédoublonnage + fraîcheur + équilibrage des sources."""
         now = context.now()
+        options = state.get("options") or {}
+        max_age = options.get("max_age_days") or context.max_age_days
+        max_documents = options.get("max_documents") or context.max_documents
+        keywords = [k.lower() for k in options.get("keywords", []) if k.strip()]
+        matches = all if options.get("match_all") else any
         already_published = storage.published_urls(context.connection)
         documents = storage.recent_documents(context.connection, limit=300)
 
@@ -143,7 +148,12 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
             title = normalize_title(document.title)
             if str(document.url) in already_published or title in seen_titles:
                 continue
-            if any("plus de" in risk for risk in document_risks(document, now, context.max_age_days)):
+            if any("plus de" in risk for risk in document_risks(document, now, max_age)):
+                continue
+            # Veille ciblée : mots-clés de focus demandés pour ce run.
+            if keywords and not matches(
+                keyword in f"{document.title} {document.summary}".lower() for keyword in keywords
+            ):
                 continue
             # Règle issue d'une leçon humaine : aussi appliquée aux dépôts déjà en mémoire.
             if "github-mcp" in document.tags and any(
@@ -159,13 +169,13 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
         # Tourniquet entre sources : arXiv ne doit pas écraser les releases.
         candidates: list[Document] = []
         queues = list(by_source.values())
-        while queues and len(candidates) < context.max_documents:
+        while queues and len(candidates) < max_documents:
             for queue in list(queues):
                 if not queue:
                     queues.remove(queue)
                     continue
                 candidates.append(queue.pop(0))
-                if len(candidates) >= context.max_documents:
+                if len(candidates) >= max_documents:
                     break
 
         return {
@@ -179,7 +189,7 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
             {
                 "candidates": state["candidates"],
                 "min_relevance": state["min_relevance"],
-                "memory": WatchMemory(store).prompt_context(),
+                "memory": focus_note(state) + WatchMemory(store).prompt_context(),
             }
         )
         return {
@@ -333,11 +343,17 @@ def _stats(state: WatchState) -> dict:
     }
 
 
-def initial_state(run_id: str, plan: TaskGraph, min_relevance: int) -> WatchState:
+def focus_note(state: WatchState) -> str:
+    keywords = (state.get("options") or {}).get("keywords") or []
+    return f"- Focus demandé pour cette veille : {', '.join(keywords)}\n" if keywords else ""
+
+
+def initial_state(run_id: str, plan: TaskGraph, min_relevance: int, options: dict | None = None) -> WatchState:
     return {
         "run_id": run_id,
         "plan": plan.model_dump(),
         "status": {task.id: "pending" for task in plan.tasks},
         "min_relevance": min_relevance,
         "review_round": 0,
+        "options": options or {},
     }

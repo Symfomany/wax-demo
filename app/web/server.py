@@ -13,7 +13,6 @@ from pathlib import Path
 from uuid import uuid4
 
 import httpx
-import markdown as markdown_lib
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,10 +20,11 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import BaseModel, Field
 
 from app import observability, storage
-from app.chat.agent import ChatContext, build_chat_graph, stream_chat
+from app.chat.agent import ChatContext, build_chat_graph, intent_text, stream_chat
 from app.chat.tools import ChatServices
 from app.config import settings
 from app.memory import WatchMemory
+from app.harness.prompts import PromptError, load_prompt, prompt_names, reset_prompt, save_prompt
 from app.reports import list_reports
 from app.web.runs import RunManager
 
@@ -76,6 +76,31 @@ class ChatRequest(BaseModel):
 class RunRequest(BaseModel):
     collect: bool = True
     mcp: bool = True
+    keywords: list[str] = Field(default_factory=list, max_length=10)
+    match_all: bool = False
+    sources: list[str] = Field(default_factory=list)  # rss, arxiv, github_releases, github_mcp
+    max_age_days: int | None = Field(None, ge=1, le=365)
+    max_documents: int | None = Field(None, ge=1, le=60)
+
+
+class SearchRequest(BaseModel):
+    keywords: list[str] = Field(default_factory=list, max_length=10)
+    match_all: bool = False
+    sources: list[str] = Field(default_factory=list)  # rss, arxiv, github, github-mcp
+    since: str | None = None  # AAAA-MM-JJ
+    until: str | None = None
+    published: bool | None = None
+    limit: int = Field(20, ge=1, le=50)
+
+
+class PromptRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=20000)
+
+
+class GrillAnswer(BaseModel):
+    options: list[str] = Field(default_factory=list, max_length=20)
+    text: str = Field("", max_length=500)
+    recommended: bool = False
 
 
 class Decision(BaseModel):
@@ -102,6 +127,7 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         stack.close()
 
     app = FastAPI(title="LLM Watch Harness", lifespan=lifespan)
+    diagram_cache: dict[str, dict[str, str]] = {}
     app.state.runs = runs
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -149,10 +175,17 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             ChatContext(services(), deps.router_llm(app.state.connection), deps.chat_model()), app.state.saver
         )
         state = graph.get_state({"configurable": {"thread_id": f"chat-{conversation_id}"}}).values
-        return [
-            {"role": m.type, "content": str(m.content), "sources": m.additional_kwargs.get("sources", [])}
-            for m in state.get("messages", [])
-        ]
+        traces = iter(storage.list_traces(app.state.connection, conversation_id))
+        messages = []
+        for m in state.get("messages", []):
+            item = {"role": m.type, "content": m.text, "sources": m.additional_kwargs.get("sources", [])}
+            if m.type == "ai":  # une trace par réponse, dans l'ordre
+                trace = next(traces, None)
+                item["trace_url"] = f"/trace/{trace['id']}" if trace else None
+                item["engaged"] = trace["engaged"] if trace else None
+                item["langfuse"] = observability.langfuse_links(trace["id"], conversation_id) if trace else None
+            messages.append(item)
+        return messages
 
     @app.post("/api/chat")
     def chat(request: ChatRequest):
@@ -161,12 +194,22 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         graph = build_chat_graph(
             ChatContext(services(), deps.router_llm(app.state.connection), deps.chat_model()), app.state.saver
         )
-        config = observability.trace_config(conversation_id, "chat")
+        trace_id = str(uuid4())  # notre trace et la trace Langfuse partagent cette graine
+        config = observability.trace_config(conversation_id, "chat", trace_seed=trace_id)
 
         def events():
             yield _sse({"type": "conversation", "id": conversation_id})
             try:
                 for event in stream_chat(graph, conversation_id, request.message, config):
+                    if event["type"] == "final":
+                        # Parcours du graphe de ce tour : consultable dans un nouvel onglet.
+                        title = intent_text(request.message) or request.message
+                        quoted = request.message.count("\n>") + request.message.startswith(">")
+                        storage.save_trace(app.state.connection, trace_id, "chat", conversation_id,
+                                           title + (f" (+{quoted} citation(s))" if quoted else ""),
+                                           event["steps"], event["engaged"])
+                        event |= {"trace_id": trace_id, "trace_url": f"/trace/{trace_id}",
+                                  "langfuse": observability.langfuse_links(trace_id, conversation_id)}
                     yield _sse(event)
             except Exception as error:  # noqa: BLE001 — affiché dans l'interface
                 yield _sse({"type": "error", "text": f"{type(error).__name__} : {error}"})
@@ -175,6 +218,20 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
 
         return StreamingResponse(events(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    # --- Recherche -------------------------------------------------------------------
+
+    @app.post("/api/search")
+    def search(request: SearchRequest):
+        try:
+            results = storage.search_documents(
+                app.state.connection, " ".join(request.keywords), limit=request.limit,
+                sources=request.sources or None, since=request.since, until=request.until,
+                published=request.published, match_all=request.match_all,
+            )
+        except ValueError as error:
+            raise HTTPException(400, str(error))
+        return {"count": len(results), "results": results}
 
     # --- Veilles -------------------------------------------------------------------
 
@@ -192,7 +249,7 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
     @app.get("/api/runs/{run_id}")
     def run_events(run_id: str, after: int = 0):
         try:
-            return runs.get(run_id).public(after)
+            return runs.get(run_id).public(after) | {"langfuse": observability.langfuse_links(run_id, run_id)}
         except KeyError:
             raise HTTPException(404, "Run inconnu")
 
@@ -208,23 +265,131 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
 
     # --- Rapports, mémoire, Notion ------------------------------------------------------
 
+    def report_file(year: str, name: str, suffix: str) -> Path:
+        """Chemin d'un rapport, confiné à REPORTS_DIR (pas de traversée de répertoire)."""
+        root = settings.reports_dir.resolve()
+        path = (root / year / name).resolve()
+        if root not in path.parents or path.suffix != suffix or not path.exists():
+            raise HTTPException(404, "Rapport introuvable")
+        return path
+
     @app.get("/api/reports")
     def reports():
         return [
-            {"name": f"{path.parent.name}/{path.name}", "date": path.stem.removeprefix("veille-")}
+            {"name": f"{path.parent.name}/{path.name}", "date": path.stem.removeprefix("veille-"),
+             "html": f"/reports/{path.parent.name}/{path.with_suffix('.html').name}"
+             if path.with_suffix(".html").exists() else None}
             for path in list_reports(settings.reports_dir)
         ]
 
     @app.get("/api/reports/{year}/{name}")
     def report(year: str, name: str):
-        root = settings.reports_dir.resolve()
-        path = (root / year / name).resolve()
-        if root not in path.parents or path.suffix != ".md" or not path.exists():
-            raise HTTPException(404, "Rapport introuvable")
-        text = path.read_text(encoding="utf-8")
-        body = text.split("---\n", 2)[2] if text.startswith("---\n") else text  # sans front matter
-        html = markdown_lib.markdown(body, extensions=["tables", "fenced_code", "md_in_html"])
-        return {"name": f"{year}/{name}", "markdown": text, "html": html}
+        # Markdown brut uniquement : l'interface l'affiche comme texte. La version lisible
+        # est le rapport HTML (échappé à la génération), servi par /reports/…
+        path = report_file(year, name, ".md")
+        html = path.with_suffix(".html")
+        return {"name": f"{year}/{name}", "markdown": path.read_text(encoding="utf-8"),
+                "html_url": f"/reports/{year}/{html.name}" if html.exists() else None}
+
+    @app.get("/reports/{year}/{name}")
+    def report_html(year: str, name: str):
+        return FileResponse(report_file(year, name, ".html"), media_type="text/html",
+                            headers={"Content-Security-Policy": "script-src 'none'; object-src 'none'"})
+
+    # --- Prompts éditables ------------------------------------------------------------
+
+    @app.get("/api/prompts")
+    def prompts():
+        return [{"name": name, "description": load_prompt(name)["description"],
+                 "overridden": load_prompt(name)["overridden"]} for name in prompt_names()]
+
+    @app.get("/api/prompts/{name}")
+    def get_prompt(name: str):
+        try:
+            return load_prompt(name)
+        except PromptError as error:
+            raise HTTPException(404, str(error))
+
+    @app.put("/api/prompts/{name}")
+    def put_prompt(name: str, request: PromptRequest):
+        try:
+            return save_prompt(name, request.text)
+        except PromptError as error:
+            raise HTTPException(400, str(error))
+
+    @app.delete("/api/prompts/{name}")
+    def delete_prompt(name: str):
+        try:
+            return reset_prompt(name)
+        except PromptError as error:
+            raise HTTPException(404, str(error))
+
+    # --- Grill-me ----------------------------------------------------------------------
+
+    def grill_graph():
+        from app.collectors import load_sources
+        from app.grill import GrillContext, build_grill_graph
+
+        sources = load_sources(settings.sources_path)
+        feeds = {s["url"] for s in sources.get("rss", [])} | set(sources.get("arxiv", {}).get("feeds", []))
+        context = GrillContext(llm=deps.router_llm(app.state.connection), configured_feeds=feeds)
+        return build_grill_graph(context, app.state.saver, app.state.store)
+
+    def grill_step(result: dict, session_id: str) -> dict:
+        if "__interrupt__" in result:
+            return {"session": session_id, "question": result["__interrupt__"][0].value}
+        WatchMemory(app.state.store).export_markdown(settings.claude_memory_path)
+        return {"session": session_id, "profile": result["profile"]}
+
+    @app.post("/api/grill")
+    def grill_start():
+        session_id = str(uuid4())
+        config = {"configurable": {"thread_id": f"grill-{session_id}"},
+                  **observability.trace_config(session_id, "grill", trace_seed=session_id)}
+        return grill_step(grill_graph().invoke({"queue": ["domains"]}, config), session_id)
+
+    @app.post("/api/grill/{session_id}/answer")
+    def grill_answer(session_id: str, answer: GrillAnswer):
+        from langgraph.types import Command
+
+        from app.grill import resume_payload
+
+        graph = grill_graph()
+        config = {"configurable": {"thread_id": f"grill-{session_id}"},
+                  **observability.trace_config(session_id, "grill", trace_seed=session_id)}
+        if not graph.get_state(config).next:
+            raise HTTPException(409, "Entretien terminé ou inconnu : relancez Grill-me.")
+        return grill_step(graph.invoke(Command(resume=resume_payload(answer.model_dump())), config), session_id)
+
+    @app.get("/api/grill/profile")
+    def grill_profile():
+        return WatchMemory(app.state.store).interests() or {}
+
+    # --- Traces : parcours dans le graphe ------------------------------------------------
+
+    @app.get("/trace/{trace_id}")
+    def trace_page(trace_id: str):
+        return FileResponse(STATIC / "trace.html")
+
+    @app.get("/api/traces/{trace_id}")
+    def trace(trace_id: str):
+        found = storage.get_trace(app.state.connection, trace_id)
+        if not found:
+            raise HTTPException(404, "Trace inconnue")
+        visited: dict[str, list[str]] = {}
+        for step in found["steps"]:
+            visited.setdefault(step["graph"], []).append(step["node"])
+        found["langfuse"] = observability.langfuse_links(found["id"], found["session_id"])
+        found["diagrams"] = [
+            {"graph": name, "mermaid": highlight(mermaid, visited.get(name, []))}
+            for name, mermaid in graph_diagrams(found["kind"]).items()
+        ]
+        return found
+
+    def graph_diagrams(kind: str) -> dict[str, str]:
+        if kind not in diagram_cache:
+            diagram_cache[kind] = build_diagrams(kind, services(), app.state.connection)
+        return diagram_cache[kind]
 
     @app.get("/api/memory")
     def memory():
@@ -233,6 +398,7 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             "lessons": watch_memory.lessons(limit=10),
             "tags": watch_memory.top_tags(limit=12),
             "sources": watch_memory.source_health(),
+            "interests": watch_memory.interests(),
             "notion": storage.current_notion_page(app.state.connection),
         }
 
@@ -246,6 +412,39 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             raise HTTPException(502, str(error))
 
     return app
+
+
+def build_diagrams(kind: str, services: ChatServices, connection) -> dict[str, str]:
+    """Mermaid des graphes compilés (graphe principal + sous-agents pour une veille)."""
+    if kind == "chat":
+        return {"chat": build_chat_graph(ChatContext(services, None, None)).get_graph().draw_mermaid()}
+    from app.harness.skills import load_skill
+    from app.llm import StructuredLLM
+    from app.workflow.graph import build_graph
+    from app.workflow.state import HarnessContext
+    from app.workflow.subagents import build_editorial, build_research, build_review
+
+    context = HarnessContext(
+        llm=StructuredLLM(lambda messages, schema: "{}", model="diagramme"),
+        connection=connection, skill=load_skill(settings.skill_path), output_dir=settings.output_dir,
+    )
+    return {
+        "veille": build_graph(None, context).get_graph().draw_mermaid(),
+        "research": build_research(context).get_graph().draw_mermaid(),
+        "review": build_review(context).get_graph().draw_mermaid(),
+        "editorial": build_editorial(context).get_graph().draw_mermaid(),
+    }
+
+
+def highlight(mermaid: str, nodes: list[str]) -> str:
+    """Colorie les nœuds traversés (et __start__/__end__ s'il y a eu un parcours)."""
+    visited = list(dict.fromkeys(n for n in nodes if not n.startswith("__")))
+    if not visited:
+        return mermaid
+    return mermaid.rstrip() + (
+        "\n\tclassDef visited fill:#c9f2d6,stroke:#1f7a45,stroke-width:3px,color:#0b2e19;\n"
+        f"\tclass {','.join(visited)} visited;\n"
+    )
 
 
 def _sse(event: dict) -> str:

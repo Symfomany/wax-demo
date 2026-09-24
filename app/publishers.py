@@ -47,22 +47,22 @@ def publish_files(publication: Publication) -> dict:
 
 
 def publish_report(publication: Publication) -> dict:
+    """Rapport daté en deux formats : Markdown (partage, Git) et HTML (lecture)."""
     path = report_path(publication.reports_dir, publication.digest["generated_at"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        render_report(
-            publication.templates_dir,
-            digest=publication.digest,
-            critiques=publication.critiques,
-            run_id=publication.run_id,
-            model=publication.model,
-            collected=publication.collected,
-            trace=publication.trace,
-            errors=publication.errors,
-        ),
-        encoding="utf-8",
+    context = dict(
+        digest=publication.digest,
+        critiques=publication.critiques,
+        run_id=publication.run_id,
+        model=publication.model,
+        collected=publication.collected,
+        trace=publication.trace,
+        errors=publication.errors,
     )
-    return {"report": str(path)}
+    path.write_text(render_report(publication.templates_dir, "md", **context), encoding="utf-8")
+    html_path = path.with_suffix(".html")
+    html_path.write_text(render_report(publication.templates_dir, "html", **context), encoding="utf-8")
+    return {"report": str(path), "report_html": str(html_path)}
 
 
 def notion_publisher(sync: Callable) -> Callable[[Publication], dict]:

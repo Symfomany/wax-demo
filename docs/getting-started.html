@@ -133,6 +133,36 @@ python -m app.main doctor</code></pre>
     </tbody>
   </table></div>
 
+  <h3>Le lanceur <code>bin/veille</code></h3>
+<pre><code>bin/veille cycle -k MCP -k agents   <span class="c"># run → digest → [o]ui / [r]ejeter / [p]lus tard → resume</span>
+bin/veille pending                  <span class="c"># runs en attente de validation</span>
+bin/veille approve &lt;run_id&gt; "note"   <span class="c"># = python -m app.main resume &lt;run_id&gt; --approved --note "note"</span>
+bin/veille reject &lt;run_id&gt; "motif"
+bin/veille grill                    <span class="c"># entretien Grill-me dans le terminal</span>
+bin/veille help</code></pre>
+  <p>Le lanceur utilise <code>.venv/bin/python</code> (surcharge : <code>VEILLE_PYTHON</code>) et respecte les variables
+  d'environnement (<code>LLM_MODEL=gemma-3-4b-it bin/veille cycle</code>).</p>
+
+  <h3>🎯 Grill-me : dire ce que tu cherches</h3>
+  <p>Un entretien serré, une question à la fois avec une recommandation : domaines (LLM, nouveaux modèles,
+  robotique, agents, architecture, recherche, événements, outils, réglementation), puis chaque branche choisie.
+  Il te challenge (plus de 3 domaines → priorités ; « tout » → exemple concret). Le profil obtenu (mots-clés,
+  exclusions, sources arXiv suggérées) est mémorisé et guide le Scout et l'Editor. Trois portes d'entrée :
+  l'onglet 🎯 Grill-me (lien direct <code>/#grill-start</code>), « grill me » dans le chat, ou
+  <code>bin/veille grill</code> ; dans Claude Code, le skill <code>/grill-me</code>.</p>
+
+  <h3>Nouveautés de l'interface (v0.4)</h3>
+  <ul>
+    <li><b>Recherche</b> : un ou plusieurs mots-clés (« au moins un » / « tous »), filtres source, dates, statut, limite ; puis « Demander au chat » ou « Lancer une veille ciblée ».</li>
+    <li><b>Veille ciblée</b> : aussi dans le chat (« relance la veille sur MCP, agents ») et en CLI (<code>run -k MCP -k agents --max-age 7</code>).</li>
+    <li><b>Surligner / citer</b> : sélectionner un passage d'une réponse, d'un résultat ou d'un digest → 🖍 Surligner ou ❝ Citer dans le prompt.</li>
+    <li><b>Agents engagés</b> sous chaque réponse (nœuds, outil, agents, skills, MCP, prompts) et lien <b>🧭 Graphe ↗</b> vers la trace du parcours.</li>
+    <li><b>Prompts</b> : édition validée des prompts Scout, Critic, Editor, routeur et système du chat.</li>
+    <li><b>Rapports</b> : version HTML lisible (et Markdown).</li>
+  </ul>
+  <p>Changer de modèle, y compris vers l'API Claude : voir <code>docs/llm-ollama-claude.md</code>.
+  Déploiement sur Jetson Orin 8 Go : <code>docs/jetson-orin.md</code>.</p>
+
   <h3>Instructions Claude templatées</h3>
 <pre><code>python -m app.main instructions demande --period "semaine 39"   <span class="c"># à coller dans Claude</span>
 python -m app.main instructions claude-md --output CLAUDE.generated.md
@@ -214,7 +244,10 @@ LANGFUSE_ENABLED=true
 LANGFUSE_PUBLIC_KEY=pk-lf-…
 LANGFUSE_SECRET_KEY=…                          <span class="c"># jamais dans Git</span>
 LANGFUSE_HOST=https://cloud.langfuse.com       <span class="c"># ou http://localhost:3000</span></code></pre>
-  <p>Redémarrer <code>python -m app.main web</code> : la pastille <b>Langfuse</b> passe au vert.</p>
+  <p>Redémarrer <code>python -m app.main web</code> : la pastille <b>Langfuse</b> passe au vert, et chaque réponse
+  affiche un lien <b>🔭 Langfuse ↗</b> vers sa trace. La page <code>/trace/&lt;id&gt;</code> ajoute le lien vers la
+  <b>session</b> (conversation entière ou run). Facultatif : <code>LANGFUSE_PROJECT_ID</code> (réglages du projet)
+  évite un appel API pour construire ces liens.</p>
 </section>
 
 <!-- ============================================================ -->
@@ -259,6 +292,7 @@ LANGSMITH_ENDPOINT=https://api.smith.langchain.com   <span class="c"># région U
   <div class="two">
     <div class="card"><h4>Dans Langfuse</h4>
       <ul>
+        <li><b>Lien direct</b> : 🔭 Langfuse sous chaque réponse (trace du tour), et « Session Langfuse » sur la page de trace.</li>
         <li><b>Tracing → Sessions</b> : ouvrir la session dont l'id est celui de l'URL <code>#c=…</code> pour relire la conversation tour par tour.</li>
         <li><b>Traces</b>, filtre tag <code>chat</code> : repérer les tours lents (latence de <code>respond</code>) ou les routages inattendus (sortie de <code>route</code>).</li>
         <li>Cliquer la génération ChatOllama : vérifier que le CONTEXTE fourni contenait bien l'information citée.</li>

@@ -1,3 +1,4 @@
+import pytest
 import sqlite3
 
 from app import storage
@@ -41,7 +42,7 @@ def test_v3_backfills_full_text_index_for_existing_documents(tmp_path):
 
     connection = storage.connect(path)
 
-    assert storage.schema_version(connection) == 3
+    assert storage.schema_version(connection) == len(storage.MIGRATIONS)
     assert [r["url"] for r in storage.search_documents(connection, "quantization")] == [
         "https://example.org/q"
     ]
@@ -107,3 +108,41 @@ def test_feedback_and_cache_roundtrip(connection):
     storage.cache_set(connection, "k", "model", '{"x": 1}')
     assert storage.cache_get(connection, "k") == '{"x": 1}'
     assert storage.cache_get(connection, "absent") is None
+
+
+def test_traces_roundtrip_and_update(connection):
+    steps = [{"graph": "chat", "node": "route", "ms": 3}]
+    storage.save_trace(connection, "t1", "chat", "conv-1", "Question ?", steps, {"agents": ["route"]})
+    storage.save_trace(connection, "t1", "chat", "conv-1", "Question ?", steps * 2, {"agents": ["route"]})
+
+    trace = storage.get_trace(connection, "t1")
+    assert trace["kind"] == "chat" and len(trace["steps"]) == 2
+    assert trace["engaged"] == {"agents": ["route"]}
+    assert storage.list_traces(connection, "conv-1")[0]["id"] == "t1"
+    assert storage.get_trace(connection, "absent") is None
+
+
+def test_search_filters_sources_dates_publication_and_match_all(connection):
+    repo = Document(source="github", title="fast-infer : nouveau dépôt", url="https://example.org/r",
+                    summary="Agent inference server.", tags=["github-mcp", "Rust"],
+                    published_at="2026-09-20T00:00:00Z")
+    release = Document(source="github", title="vllm v1 release", url="https://example.org/v",
+                       summary="Agent inference speedups.", tags=["github", "vllm"],
+                       published_at="2026-09-01T00:00:00Z")
+    paper = Document(source="arxiv", title="Agents benchmark", url="https://example.org/a",
+                     summary="Evaluation of agents.", published_at="2026-09-22T00:00:00Z")
+    storage.save_documents(connection, [repo, release, paper])
+    storage.record_digest(connection, "r", {"generated_at": "2026-09-23T00:00:00Z",
+                                            "items": [{"url": "https://example.org/a", "title": "A"}]},
+                          "d.md", "d.json")
+    urls = lambda **kw: {r["url"] for r in storage.search_documents(connection, **kw)}
+
+    assert urls(text="agent", sources=["github-mcp"]) == {"https://example.org/r"}
+    assert urls(text="agent", sources=["github"]) == {"https://example.org/v"}
+    assert urls(text="agent", since="2026-09-10") == {"https://example.org/r", "https://example.org/a"}
+    assert urls(text="agent inference", match_all=True) == {"https://example.org/r", "https://example.org/v"}
+    assert urls(text="", published=True) == {"https://example.org/a"}
+    assert urls(text="", sources=["arxiv", "github-mcp"], limit=1) == {"https://example.org/a"}
+    assert storage.search_documents(connection, "") == []
+    with pytest.raises(ValueError, match="inconnue"):
+        storage.search_documents(connection, "x", sources=["twitter"])

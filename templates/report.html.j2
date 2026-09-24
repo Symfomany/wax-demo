@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="generator" content="LLM Watch Harness">
+<meta name="keywords" content="{{ keywords | join(', ') }}">
+<title>{{ title }}</title>
+<style>
+:root {
+  --bg: #f6f5f1; --paper: #ffffff; --ink: #1b1a17; --muted: #6b675e; --line: #e6e2d8;
+  --accent: #5b4bdb; --accent-soft: #eeecfd; --ok: #2e7d4f; --ok-soft: #e3f3e8; --warn: #9a6a10; --warn-soft: #faf0d9;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #131316; --paper: #1c1c21; --ink: #ecebf1; --muted: #a3a1ad; --line: #30303a;
+          --accent: #a197ff; --accent-soft: #2a2748; --ok: #74cf98; --ok-soft: #1b3325; --warn: #e6b85c; --warn-soft: #362b14; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.7 var(--sans); }
+a { color: var(--accent); text-underline-offset: 3px; }
+.page { max-width: 820px; margin: 0 auto; padding: calc(40px + env(safe-area-inset-top, 0px)) 20px calc(64px + env(safe-area-inset-bottom, 0px)); }
+header .kicker { font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+header h1 { font-family: var(--serif); font-size: clamp(2rem, 5vw, 2.8rem); line-height: 1.15; margin: .3em 0 .2em; letter-spacing: -.01em; }
+header .date { color: var(--muted); }
+.lead { font-family: var(--serif); font-size: 1.22rem; line-height: 1.6; border-left: 3px solid var(--accent); padding: .2em 0 .2em 1em; margin: 1.6em 0; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 1.6em 0; }
+.kpi { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.kpi b { display: block; font-size: 1.6rem; line-height: 1.1; }
+.kpi span { color: var(--muted); font-size: .8rem; }
+.kpi code { font: 600 .85rem var(--mono); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: .4em 0; }
+.chip { font-size: .8rem; padding: 2px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+h2 { font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 3em 0 1em; padding-bottom: .5em; border-bottom: 1px solid var(--line); }
+.top { counter-reset: top; list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.top li { counter-increment: top; background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 14px 56px; position: relative; }
+.top li::before { content: counter(top); position: absolute; left: 16px; top: 14px; width: 28px; height: 28px; border-radius: 50%;
+                  background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: .85rem; }
+.top a { font-weight: 700; text-decoration: none; }
+.top p { margin: .3em 0 0; color: var(--muted); font-size: .95rem; }
+article.signal { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 22px 24px; margin: 0 0 18px; }
+.signal .meta { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: .82rem; color: var(--muted); }
+.signal .badge { font-weight: 700; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; }
+.signal h3 { font-family: var(--serif); font-size: 1.35rem; line-height: 1.3; margin: .45em 0 .4em; }
+.signal h3 a { color: var(--ink); text-decoration: none; }
+.signal h3 a:hover { color: var(--accent); }
+.signal .summary { margin: 0 0 .9em; }
+.why { background: var(--ok-soft); border-radius: 10px; padding: 10px 14px; font-size: .95rem; }
+.why b { color: var(--ok); }
+.signal .chips { margin-top: 12px; }
+.signal .chip { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; background: var(--paper); border-radius: 12px; overflow: hidden; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.rejected li { margin: .4em 0; font-size: .92rem; }
+.rejected code { font: .8rem var(--mono); background: var(--warn-soft); color: var(--warn); padding: 1px 6px; border-radius: 5px; }
+.method { font-size: .9rem; color: var(--muted); }
+details { margin-top: .8em; }
+summary { cursor: pointer; }
+footer { margin-top: 3em; font-size: .8rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 1em; }
+@media print { body { background: #fff; } article.signal, .top li, .kpi { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="kicker">Veille LLM / GenAI · rapport daté</div>
+    <h1>{{ title }}</h1>
+    <div class="date">{{ date_long | capitalize }} · modèle <code>{{ model }}</code></div>
+  </header>
+
+  <p class="lead">{{ digest.executive_summary }}</p>
+
+  <div class="kpis">
+    <div class="kpi"><b>{{ items | length }}</b><span>signaux retenus</span></div>
+    <div class="kpi"><b>{{ rejected | length }}</b><span>écartés par le Critic</span></div>
+    <div class="kpi"><b>{{ collected_total }}</b><span>documents collectés</span></div>
+  </div>
+  {% if keywords %}
+  <div class="chips" aria-label="Mots-clés">{% for keyword in keywords %}<span class="chip">{{ keyword }}</span>{% endfor %}</div>
+  {% endif %}
+
+  <h2>À retenir</h2>
+  <ol class="top">
+  {% for item in top %}
+    <li><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a><p>{{ item.why_it_matters }}</p></li>
+  {% else %}
+    <li>Aucun signal retenu sur la période.</li>
+  {% endfor %}
+  </ol>
+
+  <h2>Signaux</h2>
+  {% for item in items %}
+  <article class="signal" id="signal-{{ loop.index }}">
+    <div class="meta"><span class="badge">{{ item.source_label }}</span><span>{{ item.date_short }}</span><span>#{{ loop.index }}</span></div>
+    <h3><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a></h3>
+    <p class="summary">{{ item.summary }}</p>
+    <div class="why"><b>Pourquoi c'est important —</b> {{ item.why_it_matters }}</div>
+    {% if item.tags %}<div class="chips">{% for tag in item.tags %}<span class="chip">{{ tag }}</span>{% endfor %}</div>{% endif %}
+  </article>
+  {% endfor %}
+
+  <h2>Ressources</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>#</th><th>Ressource</th><th>Source</th><th>Date</th></tr></thead>
+    <tbody>
+    {% for item in items %}
+      <tr><td>{{ loop.index }}</td><td><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a></td><td>{{ item.source_label }}</td><td>{{ item.date_short }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+
+  {% if rejected %}
+  <h2>Écartés par le Critic</h2>
+  <ul class="rejected">
+  {% for critique in rejected %}
+    <li><code>{{ critique.verdict }}</code> <a href="{{ critique.signal_url }}" target="_blank" rel="noopener">{{ critique.signal_url }}</a> — {{ critique.rationale }}{% if critique.factual_risks %} <em>(risques : {{ critique.factual_risks | join("; ") }})</em>{% endif %}</li>
+  {% endfor %}
+  </ul>
+  {% endif %}
+
+  <h2>Méthodologie</h2>
+  <div class="method">
+    <p><b>Collecte :</b> {% for name, count in collected.items() %}{{ name }} +{{ count }}{% if not loop.last %} · {% endif %}{% else %}mémoire existante (pas de collecte){% endfor %}.
+    Chaîne : supervisor → research (Scouts parallèles) → review (Critic) → editorial (Editor + guards) → validation humaine.
+    URLs, titres et dates sont recopiés depuis les sources collectées ; le digest est validé par Pydantic.</p>
+    {% if errors %}<p><b>Incidents :</b> {{ errors | join(" ; ") }}</p>{% endif %}
+    {% if trace %}<details><summary>Trace du supervisor</summary><ul>{% for line in trace %}<li>{{ line }}</li>{% endfor %}</ul></details>{% endif %}
+  </div>
+
+  <footer>Rapport généré le {{ generated_at }} par LLM Watch Harness · run <code>{{ run_id }}</code> · chaque affirmation renvoie à sa source.</footer>
+</div>
+</body>
+</html>

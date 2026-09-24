@@ -33,6 +33,8 @@ class WatchState(TypedDict, total=False):
     candidates: list[dict]
     min_relevance: int
     review_round: int
+    # Options du run : keywords, match_all, max_age_days, max_documents
+    options: dict
     signals: list[dict]
     critiques: list[dict]
     accepted: list[dict]

@@ -4,7 +4,7 @@ import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
+from jinja2 import ChoiceLoader, Environment, FileSystemLoader, StrictUndefined
 
 from app.config import settings
 
@@ -24,7 +24,11 @@ def render_instructions(target: str, profile_path: Path | None = None, **values)
     if target not in TARGETS:
         raise ValueError(f"Cible inconnue : {target} (attendu : {', '.join(TARGETS)})")
     environment = Environment(
-        loader=FileSystemLoader(settings.templates_dir / "claude"),
+        # Une surcharge éditée depuis l'interface (data/prompts) prime sur le template livré.
+        loader=ChoiceLoader([
+            FileSystemLoader(settings.prompt_overrides_dir),
+            FileSystemLoader(settings.templates_dir / "claude"),
+        ]),
         trim_blocks=True,
         lstrip_blocks=True,
         undefined=StrictUndefined,

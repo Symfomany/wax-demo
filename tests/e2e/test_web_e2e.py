@@ -115,6 +115,14 @@ def test_chat_streams_events_and_keeps_the_conversation(client):
     assert client.get("/api/conversations").json()[0]["id"] == conversation_id
     history = client.get(f"/api/conversations/{conversation_id}").json()
     assert [m["role"] for m in history] == ["human", "ai"]
+    # Chaque réponse a une trace de son parcours dans le graphe du chat
+    assert final["trace_url"] == history[1]["trace_url"] == f"/trace/{final['trace_id']}"
+    assert history[1]["engaged"]["tool"] == "search_watch"
+    assert final["engaged"]["tool"] == "search_watch"
+    trace = client.get(f"/api/traces/{final['trace_id']}").json()
+    assert [step["node"] for step in trace["steps"]] == ["route", "act", "respond", "guard"]
+    assert "class route,act,respond,guard visited;" in trace["diagrams"][0]["mermaid"]
+    assert client.get(final["trace_url"]).text.startswith("<!doctype html>")
 
 
 def test_chat_rejects_empty_messages(client):
@@ -137,8 +145,19 @@ def test_watch_run_from_api_to_dated_report_and_notion(client, notion_calls):
     reports = client.get("/api/reports").json()
     assert len(reports) == 1 and reports[0]["name"].startswith("2026/veille-2026-09-24")
     report = client.get(f"/api/reports/{reports[0]['name']}").json()
-    assert "<table>" in report["html"] and "🛰️ Veille LLM / GenAI" in report["html"]
-    assert report["markdown"].startswith("---\ntitle:")
+    assert report["markdown"].startswith("---\ntitle:") and "html" not in report
+    page = client.get(report["html_url"])
+    assert page.headers["content-type"].startswith("text/html")
+    assert "script-src 'none'" in page.headers["content-security-policy"]
+    assert '<article class="signal"' in page.text
+
+    trace = client.get(f"/api/traces/{run_id}").json()
+    graphs = {step["graph"] for step in trace["steps"]}
+    assert {"veille", "research", "review", "editorial"} <= graphs
+    assert trace["engaged"]["agents"][:2] == ["supervisor", "collector"]
+    assert "scout.md" in trace["engaged"]["prompts"]
+    research = next(d for d in trace["diagrams"] if d["graph"] == "research")
+    assert "class scout_batch,rank visited;" in research["mermaid"]
 
     memory = client.get("/api/memory").json()
     assert memory["lessons"][0]["note"] == "x"
@@ -192,3 +211,71 @@ def test_only_one_run_at_a_time(tmp_path):
     release.set()
     manager.wait(run_id)
     assert manager.get(run_id).status == "failed"
+
+
+
+def test_filtered_search_endpoint(client):
+    storage.save_documents(storage.connect(settings.database_path), DOCS)
+
+    found = client.post("/api/search", json={"keywords": ["quantization"], "sources": ["rss"], "limit": 2}).json()
+    assert found["count"] == 2 and all(r["source"] == "rss" for r in found["results"])
+    assert client.post("/api/search", json={"keywords": ["quantization"], "sources": ["arxiv"]}).json()["count"] == 0
+    assert client.post("/api/search", json={"keywords": ["x"], "sources": ["twitter"]}).status_code == 400
+
+
+def test_targeted_run_from_api(client):
+    run_id = client.post("/api/runs", json={"keywords": ["inexistant-xyz"], "sources": ["rss"],
+                                            "max_documents": 3}).json()["id"]
+    run = wait_status(client, run_id, {"blocked", "awaiting_approval"})
+    assert run["options"]["keywords"] == ["inexistant-xyz"] and run["options"]["sources"] == ["rss"]
+    assert run["status"] == "blocked"  # aucun document ne correspond : digest vide bloqué par les guards
+
+
+def test_prompt_editing_api(client):
+    prompts = {p["name"] for p in client.get("/api/prompts").json()}
+    assert prompts == {"scout", "critic", "editor", "router", "chat-system", "grill"}
+    original = client.get("/api/prompts/critic").json()
+    assert original["overridden"] is False and original["required"] == ["signals"]
+
+    bad = client.put("/api/prompts/critic", json={"text": "Sans variable"})
+    assert bad.status_code == 400 and "signals" in bad.json()["detail"]
+    saved = client.put("/api/prompts/critic", json={"text": "Juge strictement.\n$signals"}).json()
+    assert saved["overridden"] is True and len(saved["history"]) == 1
+
+    reset = client.delete("/api/prompts/critic").json()
+    assert reset["overridden"] is False and reset["text"] == original["text"]
+    assert client.get("/api/prompts/inconnu").status_code == 404
+
+
+def test_grill_me_interview_through_the_api(client):
+    step = client.post("/api/grill").json()
+    session, question = step["session"], step["question"]
+    assert question["id"] == "domains" and question["recommended"]
+
+    step = client.post(f"/api/grill/{session}/answer", json={"options": ["robotics"]}).json()
+    asked = [step["question"]["id"]]
+    while "question" in step:
+        reply = {"text": "Jetson Thor"} if step["question"]["id"] == "keywords" else {"recommended": True}
+        step = client.post(f"/api/grill/{session}/answer", json=reply).json()
+        if "question" in step:
+            asked.append(step["question"]["id"])
+
+    assert asked[:2] == ["robotics_topics", "robotics_angle"] and asked[-1] == "keywords"
+    profile = step["profile"]
+    assert "Jetson Thor" in profile["keywords"] and profile["domains"] == ["robotics"]
+    assert client.get("/api/grill/profile").json()["keywords"] == profile["keywords"]
+    assert client.get("/api/memory").json()["interests"]["summary"] == profile["summary"]
+    assert "Centres d'intérêt (Grill-me)" in settings.claude_memory_path.read_text()
+    # entretien terminé : une réponse de plus est refusée
+    assert client.post(f"/api/grill/{session}/answer", json={"options": []}).status_code == 409
+
+
+def test_chat_opens_grill_me(client):
+    final = sse(client.post("/api/chat", json={"message": "Grill me sur ma veille"}))[-1]
+    assert final["tool"] == "grill_me" and final["data"] == {"grill": True}
+    assert final["engaged"]["skills"] == ["grill-me"]
+
+
+def test_chat_answer_has_no_langfuse_link_when_disabled(client):
+    final = sse(client.post("/api/chat", json={"message": "quoi de neuf ?"}))[-1]
+    assert final["langfuse"] is None

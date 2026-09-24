@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import subprocess
 from uuid import uuid4
@@ -34,6 +35,8 @@ def show_result(result: dict, run_id: str, context) -> None:
         f"[dim]LLM : {context.llm.calls} appel(s), "
         f"{context.llm.cache_hits} depuis le cache SQLite[/dim]"
     )
+    if links := observability.langfuse_links(run_id, run_id):
+        print(f"[dim]Langfuse : {links['trace']}[/dim]")
 
     if "__interrupt__" in result:
         print(Markdown(result["__interrupt__"][0].value["markdown"]))
@@ -58,20 +61,35 @@ def run(
     approve: bool = typer.Option(False, help="Publier sans validation humaine."),
     collect: bool = typer.Option(True, help="--no-collect : réutiliser la mémoire SQLite."),
     mcp: bool = typer.Option(True, help="--no-mcp : ne pas interroger le serveur MCP GitHub."),
+    keyword: list[str] = typer.Option([], "--keyword", "-k", help="Mot-clé de focus (répétable)."),
+    match_all: bool = typer.Option(False, help="Exiger tous les mots-clés (défaut : au moins un)."),
+    source: list[str] = typer.Option([], "--source", "-s", help="rss, arxiv, github_releases, github_mcp (répétable)."),
+    max_age: int = typer.Option(0, help="Âge maximal des documents en jours (0 : réglage par défaut)."),
+    max_docs: int = typer.Option(0, help="Nombre maximal de candidats (0 : réglage par défaut)."),
+    run_id_file: str = typer.Option("", help="Écrit l'identifiant du run dans ce fichier (scripts)."),
 ):
     """Supervisor → collecte parallèle → research → review → editorial → validation."""
     connection = storage.connect(settings.database_path)
     context = make_context(connection, human_approval=settings.human_approval and not approve)
-    names = tuple(n for n in COLLECTORS if n in context.collectors and (mcp or n != "github_mcp"))
+    names = tuple(
+        n for n in COLLECTORS
+        if n in context.collectors and (mcp or n != "github_mcp") and (not source or n in source)
+    )
     plan = default_plan(collect=collect, collectors=names)
+    options = {"keywords": keyword, "match_all": match_all, "max_age_days": max_age, "max_documents": max_docs}
+    options = {key: value for key, value in options.items() if value}
 
     run_id = str(uuid4())
     storage.set_run_status(connection, run_id, "running")
+    if run_id_file:
+        from pathlib import Path
+
+        Path(run_id_file).write_text(run_id, encoding="utf-8")
 
     with open_graph(context) as graph:
         try:
             result = graph.invoke(
-                initial_state(run_id, plan, settings.min_relevance), config=graph_config(run_id)
+                initial_state(run_id, plan, settings.min_relevance, options), config=graph_config(run_id)
             )
         except Exception:
             storage.set_run_status(connection, run_id, "failed")
@@ -176,19 +194,23 @@ def doctor():
         mark = "[green]OK[/green]" if passed else "[red]KO[/red]"
         print(f"{mark}  {label}" + (f" — {detail}" if detail else ""))
 
-    try:
-        tags = httpx.get(f"{settings.ollama_url}/api/tags", timeout=5).json()
-        models = [model["name"] for model in tags.get("models", [])]
-        check("Ollama joignable", True, settings.ollama_url)
-        present = settings.llm_model in models or f"{settings.llm_model}:latest" in models
-        check(
-            f"Modèle {settings.llm_model}",
-            present,
-            "" if present else f"absent ; disponibles : {', '.join(models)} "
-            "→ ajuster LLM_MODEL dans .env",
-        )
-    except httpx.HTTPError as error:
-        check("Ollama joignable", False, f"{error} → lancer `ollama serve`")
+    if settings.llm_provider != "ollama":
+        target = "API Claude native" if settings.llm_provider == "anthropic" else settings.llm_base_url
+        check(f"Fournisseur LLM {settings.llm_provider}", True, f"{settings.llm_model} · {target}")
+    else:
+        try:
+            tags = httpx.get(f"{settings.ollama_url}/api/tags", timeout=5).json()
+            models = [model["name"] for model in tags.get("models", [])]
+            check("Ollama joignable", True, settings.ollama_url)
+            present = settings.llm_model in models or f"{settings.llm_model}:latest" in models
+            check(
+                f"Modèle {settings.llm_model}",
+                present,
+                "" if present else f"absent ; disponibles : {', '.join(models)} "
+                "→ ajuster LLM_MODEL dans .env",
+            )
+        except httpx.HTTPError as error:
+            check("Ollama joignable", False, f"{error} → lancer `ollama serve`")
 
     if shutil.which("nvidia-smi"):
         gpu = subprocess.run(
@@ -243,6 +265,111 @@ def doctor():
     raise typer.Exit(0 if ok else 1)
 
 
+@cli.command()
+def pending():
+    """Liste les veilles en attente de validation humaine."""
+    connection = storage.connect(settings.database_path)
+    rows = connection.execute(
+        "SELECT run_id, started_at FROM runs WHERE status = 'awaiting_approval' ORDER BY started_at DESC"
+    ).fetchall()
+    if not rows:
+        print("[green]Aucune veille en attente.[/green]")
+    for run_id, started_at in rows:
+        typer.echo(f"{run_id}\t{started_at}")
+
+
+@cli.command()
+def show(run_id: str):
+    """Affiche le digest d'une veille en attente de validation."""
+    connection = storage.connect(settings.database_path)
+    context = make_context(connection, human_approval=True, collectors={})
+    with open_graph(context) as graph:
+        snapshot = graph.get_state({"configurable": {"thread_id": run_id}})
+    if not snapshot.next or not snapshot.tasks or not snapshot.tasks[0].interrupts:
+        print(f"[red]Aucune veille en attente pour {run_id}.[/red]")
+        raise typer.Exit(1)
+    print(Markdown(snapshot.tasks[0].interrupts[0].value["markdown"]))
+
+
+@cli.command()
+def grill():
+    """Grill-me : entretien dans le terminal pour cerner ce que tu cherches en actu IA."""
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.types import Command
+
+    from app.collectors import load_sources
+    from app.grill import GrillContext, build_grill_graph, resume_payload
+    from app.llm import get_llm
+
+    connection = storage.connect(settings.database_path)
+    sources = load_sources(settings.sources_path)
+    feeds = {s["url"] for s in sources.get("rss", [])} | set(sources.get("arxiv", {}).get("feeds", []))
+    with open_store() as store:
+        graph = build_grill_graph(
+            GrillContext(llm=get_llm(connection), configured_feeds=feeds), InMemorySaver(), store
+        )
+        config = {"configurable": {"thread_id": "grill-cli"}}
+        result = graph.invoke({"queue": ["domains"]}, config)
+        while "__interrupt__" in result:
+            question = result["__interrupt__"][0].value
+            print(f"\n[bold cyan]{question['branch']}[/bold cyan] · [bold]{question['text']}[/bold]")
+            print(f"[dim]{question['why']}[/dim]")
+            ids = [o["id"] for o in question["options"]]
+            for index, option in enumerate(question["options"], start=1):
+                mark = " [green](recommandé)[/green]" if option["id"] in question["recommended"] else ""
+                print(f"  {index}. {option['label']}{mark}")
+            raw = typer.prompt(
+                "Numéros séparés par des virgules, texte libre après « / », Entrée = recommandation, « - » = passer",
+                default="", show_default=False,
+            )
+            reply = parse_grill_reply(raw, ids)
+            result = graph.invoke(Command(resume=resume_payload(reply)), config)
+        profile = result["profile"]
+        WatchMemory(store).export_markdown(settings.claude_memory_path)
+    print_grill_profile(profile)
+
+
+def parse_grill_reply(raw: str, ids: list[str]) -> dict:
+    raw = raw.strip()
+    if not raw:
+        return {"recommended": True}
+    if raw == "-":
+        return {"options": [], "text": ""}
+    numbers, _, text = raw.partition("/")
+    options = [ids[int(n) - 1] for n in re.findall(r"\d+", numbers) if 0 < int(n) <= len(ids)]
+    if not options and not text and not re.search(r"\d", numbers):
+        text = numbers  # texte libre sans numéro
+    return {"options": options, "text": text.strip()}
+
+
+def print_grill_profile(profile: dict) -> None:
+    print("\n[bold green]Profil enregistré dans la mémoire de veille[/bold green]")
+    print(profile["summary"])
+    print(f"[bold]Priorités :[/bold] {', '.join(profile['priorities'])}")
+    print(f"[bold]Mots-clés :[/bold] {', '.join(profile['keywords'])}")
+    print(f"[bold]À écarter :[/bold] {', '.join(profile['exclusions'])}")
+    for source in profile["suggested_sources"]:
+        print(f"[dim]Source suggérée : {source['name']} {source['url']} — {source['reason']}[/dim]")
+    if profile["keywords"]:
+        focus = " ".join(f"-k {json.dumps(k, ensure_ascii=False)}" for k in profile["keywords"][:5])
+        print(f"[dim]Veille ciblée : python -m app.main run {focus}[/dim]")
+
+
+@cli.command("grill-save")
+def grill_save(profile_json: str = typer.Argument(..., help="Profil JSON (ou @fichier.json).")):
+    """Enregistre un profil Grill-me produit ailleurs (ex. par le skill Claude Code grill-me)."""
+    from pathlib import Path
+
+    from app.grill import GrillProfile
+
+    raw = Path(profile_json[1:]).read_text(encoding="utf-8") if profile_json.startswith("@") else profile_json
+    profile = GrillProfile.model_validate_json(raw).model_dump()
+    with open_store() as store:
+        WatchMemory(store).set_interests(profile)
+        WatchMemory(store).export_markdown(settings.claude_memory_path)
+    print_grill_profile(profile)
+
+
 @cli.command("notion-sync")
 def notion_sync_command():
     """Publie la page Notion des dernières veilles via le serveur MCP notion-veille."""
@@ -281,6 +408,7 @@ def report(run_id: str = typer.Option("", help="Run à rendre (défaut : derniè
         collected=stats.get("collected", {}), trace=stats.get("trace", []),
     ))
     print(f"[green]Rapport : {outputs['report']}[/green]")
+    print(f"[green]HTML : {outputs['report_html']}[/green]")
 
 
 @cli.command()

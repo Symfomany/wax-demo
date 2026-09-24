@@ -22,6 +22,7 @@ from langgraph.store.base import BaseStore
 LESSONS = ("memory", "lessons")
 TAGS = ("memory", "tags")
 SOURCES = ("memory", "sources")
+INTERESTS = ("memory", "interests")
 
 # Tags purement techniques, non informatifs pour les préférences.
 IGNORED_TAGS = {"rss", "arxiv", "github", "github-mcp", "prerelease"}
@@ -83,10 +84,26 @@ class WatchMemory:
     def source_health(self) -> dict[str, dict]:
         return {item.key: item.value for item in self.store.search(SOURCES, limit=100)}
 
+    # --- Centres d'intérêt (Grill-me) ------------------------------------------------
+
+    def set_interests(self, profile: dict) -> None:
+        self.store.put(INTERESTS, "current", profile)
+        self.store.put(INTERESTS, f"history-{profile.get('answered_at', '')}", profile)
+
+    def interests(self) -> dict | None:
+        item = self.store.get(INTERESTS, "current")
+        return item.value if item else None
+
     # --- Restitution -----------------------------------------------------------
 
     def prompt_context(self) -> str:
         lines = [f"- {lesson['note']}" for lesson in self.lessons()]
+        if interests := self.interests():
+            lines.append("- Centres d'intérêt déclarés (Grill-me) : " + interests.get("summary", ""))
+            if interests.get("keywords"):
+                lines.append("- Mots-clés à privilégier : " + ", ".join(interests["keywords"][:15]))
+            if interests.get("exclusions"):
+                lines.append("- À écarter : " + ", ".join(interests["exclusions"][:10]))
         tags = ", ".join(tag for tag, _ in self.top_tags())
         if tags:
             lines.append(f"- Thèmes retenus par le passé (préférences) : {tags}")
@@ -109,6 +126,10 @@ class WatchMemory:
             "",
             *([f"- {tag} ({score})" for tag, score in tags] or ["- Aucun."]),
             "",
+            "## Centres d'intérêt (Grill-me)",
+            "",
+            *(self._interests_lines() or ["- Aucun entretien Grill-me."]),
+            "",
             "## Santé des sources",
             "",
             *(
@@ -124,3 +145,15 @@ class WatchMemory:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines), encoding="utf-8")
         return path
+
+    def _interests_lines(self) -> list[str]:
+        interests = self.interests()
+        if not interests:
+            return []
+        return [
+            f"- Résumé : {interests.get('summary', '')}",
+            f"- Priorités : {', '.join(interests.get('priorities', []))}",
+            f"- Mots-clés : {', '.join(interests.get('keywords', []))}",
+            f"- À écarter : {', '.join(interests.get('exclusions', []))}",
+            f"- Entretien du {interests.get('answered_at', '')[:10]}",
+        ]

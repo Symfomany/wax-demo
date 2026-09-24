@@ -5,8 +5,16 @@ Veille LLM / GenAI factuelle et sourcée, produite par des agents LangGraph sur 
 
 - **Démarrer :** [docs/getting-started.html](docs/getting-started.html) — Ollama, installation, quoi lancer, tests, Notion, Langfuse, LangSmith.
 - **Documentation complète :** [docs/index.html](docs/index.html).
+- **LangGraph dans le projet :** [docs/langgraph.md](docs/langgraph.md).
+- **LLM : Ollama, API Claude (native et format OpenAI) :** [docs/llm-ollama-claude.md](docs/llm-ollama-claude.md).
+- **Mise à jour et idées de fonctionnalités :** [docs/UPGRADE.md](docs/UPGRADE.md).
+- **Déploiement sur Jetson Orin 8 Go :** [docs/jetson-orin.md](docs/jetson-orin.md).
 
 ```bash
+bin/veille cycle                 # veille complète : run → digest → publier/rejeter → rapport
+bin/veille grill                 # Grill-me : préciser ce que tu cherches en actu IA
+bin/veille help                  # toutes les commandes du lanceur
+
 python -m app.main doctor        # diagnostic : Ollama, modèle, GPU, MCP, migrations
 python -m app.main web           # interface de chat : http://127.0.0.1:8000
 python -m app.main run           # veille en ligne de commande (arrêt avant publication)
@@ -14,5 +22,5 @@ python -m app.main resume <run_id> --approved --note "…"
 python -m pytest -q              # tests unitaires + E2E, hors ligne
 ```
 
-Chaque veille publiée produit un rapport daté `reports/AAAA/veille-AAAA-MM-JJ-HHMM.md` et, si
+Chaque veille publiée produit un rapport daté `reports/AAAA/veille-AAAA-MM-JJ-HHMM.md` (+ `.html`) et, si
 Notion est configuré, met à jour la page « Veille GenAI — 10 dernières veilles ».

@@ -288,3 +288,38 @@ def test_prefilter_applies_exclusion_rule_to_stored_repositories(connection, tmp
 
     urls = {doc["url"] for doc in result["candidates"]}
     assert urls == {tool["url"], paper["url"]}  # seul le dépôt « cours » est écarté
+
+
+def run_with_options(graph, options, thread="opt"):
+    config = {"configurable": {"thread_id": thread}}
+    state = initial_state(thread, default_plan(collectors=("rss",)), 6, options)
+    return graph.invoke(state, config)
+
+
+def test_targeted_watch_keeps_only_documents_matching_keywords(connection, tmp_path):
+    prompts = []
+    docs = documents(
+        make_document(1, "rss", summary="New MCP server for agents."),
+        make_document(2, "rss", summary="FP8 quantization kernels."),
+        make_document(3, "rss", summary="Agents evaluation with MCP tools."),
+    )
+    # validation humaine : rien n'est publié entre les deux runs
+    graph, _ = make_graph(connection, tmp_path, collectors={"rss": lambda: docs}, human_approval=True,
+                          invoke=fake_ollama(prompts=prompts, verdict=lambda n: "keep"))
+
+    any_result = run_with_options(graph, {"keywords": ["MCP", "fp8"]}, "any")
+    assert {d["url"] for d in any_result["candidates"]} == {str(d.url) for d in docs}
+
+    all_result = run_with_options(graph, {"keywords": ["mcp", "agents"], "match_all": True}, "all")
+    assert {d["url"] for d in all_result["candidates"]} == {str(docs[0].url), str(docs[2].url)}
+    scout = [p for schema, p in prompts if schema == "ScoutOutput"][-1]
+    assert "Focus demandé pour cette veille : mcp, agents" in scout
+
+
+def test_run_options_limit_documents_and_age(connection, tmp_path):
+    docs = documents(*(make_document(i, "rss", days_ago=i) for i in range(1, 7)))
+    graph, _ = make_graph(connection, tmp_path, collectors={"rss": lambda: docs})
+
+    result = run_with_options(graph, {"max_age_days": 4, "max_documents": 2})
+
+    assert [d["url"] for d in result["candidates"]] == [str(docs[0].url), str(docs[1].url)]
