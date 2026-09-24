@@ -256,6 +256,12 @@ def doctor():
         ".env ignoré par Git",
         gitignore.exists() and ".env" in gitignore.read_text().splitlines(),
     )
+    if settings.notion_enabled:
+        from app.notion import check_access
+
+        check("Notion", *check_access(settings.notion_token, settings.notion_parent_page_id, settings.notion_api_url))
+    else:
+        check("Notion", True, "non configuré (NOTION_TOKEN, NOTION_PARENT_PAGE_ID)")
     check(
         "Langfuse",
         True,
@@ -429,6 +435,78 @@ def instructions(
         print(f"[green]Instructions écrites : {output}[/green]")
     else:
         typer.echo(text)
+
+
+source_cli = typer.Typer(help="Sources de la veille : lister, ajouter par URL (vérifiée), retirer.")
+cli.add_typer(source_cli, name="source")
+
+
+@source_cli.command("list")
+def source_list():
+    """Sources déclarées dans sources.toml."""
+    from app import sources_admin
+
+    current = sources_admin.list_sources()
+    table = Table("Type", "Source")
+    for item in current["rss"]:
+        table.add_row("rss", f"{item['name']} — {item['url']}")
+    for kind in ("arxiv", "github", "github_mcp"):
+        for value in current[kind]:
+            table.add_row(kind, value)
+    print(table)
+
+
+@source_cli.command("add")
+def source_add(
+    url: str = typer.Argument(..., help="Blog, flux RSS/Atom, dépôt GitHub ou catégorie arXiv."),
+    name: str = typer.Option("", help="Nom affiché (flux RSS)."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Ajouter sans demander confirmation."),
+):
+    """Vérifie une source (skill ajout-source) puis l'ajoute à sources.toml après confirmation."""
+    from app import sources_admin
+
+    try:
+        candidate = sources_admin.inspect_source(url)
+    except sources_admin.SourceError as error:
+        print(f"[red]✗ {error}[/red]")
+        raise typer.Exit(1)
+    print(f"[green]✓ {candidate.label}[/green] : [bold]{candidate.name}[/bold] → {candidate.value}")
+    print(f"  {candidate.entries} entrée(s) · dernière : {candidate.sample_date or '?'} — {candidate.sample_title}")
+    for warning in candidate.warnings:
+        print(f"  [yellow]⚠ {warning}[/yellow]")
+    if candidate.already_present:
+        print("[yellow]Déjà présente dans sources.toml : rien à faire.[/yellow]")
+        return
+    if not yes and not typer.confirm("Ajouter cette source à sources.toml ?"):
+        raise typer.Exit(1)
+    try:
+        sources_admin.add_source(candidate, name or None)
+    except sources_admin.SourceError as error:
+        print(f"[red]{error}[/red]")
+        raise typer.Exit(1)
+    print("[green]Source ajoutée : elle sera collectée à la prochaine veille.[/green]")
+
+
+@source_cli.command("remove")
+def source_remove(
+    kind: str = typer.Argument(..., help="rss | arxiv | github"),
+    value: str = typer.Argument(..., help="URL du flux ou owner/repo."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Retirer sans demander confirmation."),
+):
+    """Retire une source de sources.toml (après confirmation)."""
+    from app import sources_admin
+
+    if kind not in {"rss", "arxiv", "github"}:
+        print("[red]Type attendu : rss, arxiv ou github[/red]")
+        raise typer.Exit(2)
+    if not yes and not typer.confirm(f"Retirer {value} de sources.toml ?"):
+        raise typer.Exit(1)
+    try:
+        sources_admin.remove_source(kind, value)
+    except sources_admin.SourceError as error:
+        print(f"[red]{error}[/red]")
+        raise typer.Exit(1)
+    print(f"[green]Source retirée : {value}[/green]")
 
 
 @cli.command()

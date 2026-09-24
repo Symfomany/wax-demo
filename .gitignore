@@ -21,3 +21,6 @@ output/
 # Réglages Claude Code personnels et mémoire générée
 .claude/settings.local.json
 .claude/memory/
+
+# TUI (dépendances installées par « bin/veille tui »)
+tui/node_modules/

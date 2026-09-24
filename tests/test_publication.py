@@ -86,30 +86,45 @@ def test_keywords_skip_source_tags_repos_and_stopwords():
 # --- Notion ------------------------------------------------------------------------
 
 
-def test_notion_blocks_contain_title_summary_description_resources_keywords():
-    blocks = digest_blocks({"id": 1, "digest": DIGEST})
+def text(block):
+    return "".join(t["text"]["content"] for t in block[block["type"]]["rich_text"])
+
+
+def test_latest_digest_has_title_summary_description_keywords_and_resource_cards():
+    image = "https://img.example.org/vllm.png"
+    blocks = digest_blocks({"id": 1, "digest": DIGEST}, images={DIGEST["items"][0]["url"]: image})
     types = [block["type"] for block in blocks]
 
-    assert types == ["heading_2", "callout", "paragraph", "heading_3",
-                     "bulleted_list_item", "bulleted_list_item", "paragraph", "divider"]
-    text = lambda block: "".join(t["text"]["content"] for t in block[block["type"]]["rich_text"])
+    assert types[:5] == ["heading_1", "callout", "paragraph", "paragraph", "heading_2"]
     assert text(blocks[0]).startswith("🛰️ Veille du 24/09/2026 — vllm-project/vllm")
-    assert text(blocks[1]) == DIGEST["executive_summary"]
-    assert "2 signal(aux) retenu(s), 1 écarté(s)" in text(blocks[2])
-    link = blocks[4]["bulleted_list_item"]["rich_text"][0]
-    assert link["text"]["link"]["url"] == DIGEST["items"][0]["url"]
-    assert text(blocks[6]).startswith("Mots-clés : gpu")
+    assert text(blocks[1]) == "Résumé — " + DIGEST["executive_summary"]
+    assert "✅ 2 signal(aux) retenu(s) · 🗑️ 1 écarté(s)" in text(blocks[2])
+    assert text(blocks[3]).startswith("🏷️ Mots-clés : gpu")
+    # Fiche de la 1re ressource : titre lié, image, résumé, pourquoi, métadonnées
+    card = blocks[5:10]
+    assert [b["type"] for b in card] == ["heading_3", "image", "paragraph", "callout", "paragraph"]
+    assert card[0]["heading_3"]["rich_text"][1]["text"]["link"]["url"] == DIGEST["items"][0]["url"]
+    assert card[1]["image"]["external"]["url"] == image
+    assert text(card[3]).startswith("Pourquoi c'est important : ")
+    assert types[-1] == "divider"
+    assert "image" not in types[10:]  # ressource sans image : fiche texte
 
 
-def test_notion_page_has_intro_and_table_of_contents_and_respects_text_limit():
+def test_page_folds_previous_digests_and_respects_text_limit():
     long_digest = DIGEST | {"executive_summary": "x" * 5000}
     blocks = page_blocks([{"id": 1, "digest": long_digest}] * 10, now=NOW)
 
-    assert [b["type"] for b in blocks[:2]] == ["callout", "table_of_contents"]
-    assert sum(b["type"] == "heading_2" for b in blocks) == 10
-    for block in blocks:
-        for segment in block.get(block["type"], {}).get("rich_text", []):
-            assert len(segment["text"]["content"]) <= 2000
+    assert [b["type"] for b in blocks[:3]] == ["callout", "table_of_contents", "divider"]
+    assert sum(b["type"] == "heading_1" for b in blocks) == 2  # dernière veille + « Veilles précédentes »
+    toggles = [b for b in blocks if b["type"] == "heading_2" and b["heading_2"].get("is_toggleable")]
+    assert len(toggles) == 9 and toggles[0]["heading_2"]["children"][0]["type"] == "callout"
+
+    def segments(block):
+        yield from block.get(block["type"], {}).get("rich_text", [])
+        for child in block.get(block["type"], {}).get("children", []):
+            yield from segments(child)
+
+    assert all(len(s["text"]["content"]) <= 2000 for block in blocks for s in segments(block))
 
 
 def test_notion_policy_restricts_writes():

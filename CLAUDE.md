@@ -34,11 +34,14 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Grill-me (profil de centres d'intérêt) : `python -m app.main grill`, skill `grill-me`, `grill-save`
 - Review d'une actu par URL : `python -m app.main review <URL> [--json]`, skill `review-actu`, onglet 🔬 Review
 - Base de connaissances : `python -m app.main knowledge [TERME] [--index] [--add fichier.md]`, onglet 📚 Knowledge
+- Sources par URL (vérifiées) : `python -m app.main source add <URL>` · `source list` · `source remove <type> <valeur>`
+- TUI (OpenTUI + React, Bun local) : `bin/veille tui [écran]` ; tests `cd tui && ./node_modules/.bin/bun test`
 - Inspection SQLite : `sqlite3 data/watch.db`
 - Vérification style : `python -m compileall app`
 
 ## Architecture
-- Sources autorisées : `sources.toml` (skill `ajout-source` pour toute modification).
+- Sources autorisées : `sources.toml` (skill `ajout-source` pour toute modification ; `app/sources_admin.py`
+  l'automatise : détection, vérification, écriture relue par tomllib).
 - Supervisor + Task Graph : `app/workflow/graph.py`, `app/workflow/tasks.py`.
   Sous-agents (sous-graphes) : `app/workflow/subagents.py` ; prompts : `app/prompts/*.md`.
   Le LLM ne renvoie que des identifiants ; URL, titre et date sont recopiés par
@@ -50,6 +53,9 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Mémoire : SQLite (`app/storage.py`, migrations `MIGRATIONS`), Store LangGraph
   (`app/memory.py`), export Claude Code importé ci-dessous.
 - Publication : `app/publishers.py` (fichiers → rapport `templates/report.md.j2` → Notion).
+  Page Notion : `app/notion.py` (dernière veille développée avec images og:image, précédentes repliées).
+- TUI : `tui/` (écrans `tui/src/screens/`, client de l'API web `tui/src/lib/api.ts`) ;
+  captures du README : `tui/scripts/snapshot.tsx` + `tui/scripts/png.sh` → `docs/screenshots/`.
 - MCP Notion : serveur `app/mcp_servers/notion_server.py`, client `app/notion.py`.
 - Chat : agent `app/chat/` (route → act → respond → guard), serveur `app/web/`.
 - Instructions templatées : `templates/claude/` (profil TOML + templates Jinja2).

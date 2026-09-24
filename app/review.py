@@ -237,8 +237,14 @@ def check_url(url: str, resolve: Callable[[str], list[str]] = system_resolve,
     return url.strip()
 
 
-def fetch_page(url: str, client: httpx.Client | None = None,
-               resolve: Callable[[str], list[str]] = system_resolve) -> Page:
+def download(url: str, client: httpx.Client | None = None,
+             resolve: Callable[[str], list[str]] = system_resolve,
+             allowed_types: tuple[str, ...] | None = ALLOWED_TYPES) -> tuple[str, str, str]:
+    """(URL finale, type de contenu, texte) d'une ressource http(s) publique.
+
+    Chaque redirection est revérifiée (SSRF) ; la taille est bornée. `allowed_types=None`
+    accepte tout type (flux RSS/Atom servis en application/xml, etc.).
+    """
     own_client = client is None
     client = client or httpx.Client(timeout=settings.review_timeout, headers={"User-Agent": USER_AGENT})
     try:
@@ -252,7 +258,7 @@ def fetch_page(url: str, client: httpx.Client | None = None,
                 if response.status_code >= 400:
                     raise FetchError(f"La page a répondu HTTP {response.status_code}.")
                 content_type = response.headers.get("content-type", "text/html").split(";")[0].strip().lower()
-                if content_type not in ALLOWED_TYPES:
+                if allowed_types is not None and content_type not in allowed_types:
                     raise FetchError(f"Type de contenu non pris en charge : {content_type} (HTML ou texte attendu).")
                 body = bytearray()
                 for chunk in response.iter_bytes():
@@ -260,19 +266,24 @@ def fetch_page(url: str, client: httpx.Client | None = None,
                     if len(body) >= settings.review_max_bytes:
                         break
                 encoding = response.charset_encoding or "utf-8"
-                raw = bytes(body[: settings.review_max_bytes]).decode(encoding, errors="replace")
-            if content_type == "text/plain":
-                raw = "".join(f"<p>{escape(p)}</p>" for p in raw.split("\n\n") if p.strip())
-            page = extract_page(raw, url, current)
-            if page.word_count < 30:
-                raise FetchError("Texte extrait trop court : page vide, protégée ou rendue en JavaScript.")
-            return page
+                return current, content_type, bytes(body[: settings.review_max_bytes]).decode(encoding, errors="replace")
         raise FetchError("Trop de redirections.")
     except httpx.HTTPError as error:
         raise FetchError(f"Téléchargement impossible : {type(error).__name__} {error}") from error
     finally:
         if own_client:
             client.close()
+
+
+def fetch_page(url: str, client: httpx.Client | None = None,
+               resolve: Callable[[str], list[str]] = system_resolve) -> Page:
+    final_url, content_type, raw = download(url, client, resolve)
+    if content_type == "text/plain":
+        raw = "".join(f"<p>{escape(p)}</p>" for p in raw.split("\n\n") if p.strip())
+    page = extract_page(raw, url, final_url)
+    if page.word_count < 30:
+        raise FetchError("Texte extrait trop court : page vide, protégée ou rendue en JavaScript.")
+    return page
 
 
 # --- Sortie LLM et record validé -------------------------------------------------------

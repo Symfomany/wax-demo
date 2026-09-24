@@ -40,6 +40,17 @@ def fetch_article(url: str):
     return extract_page(ARTICLE_HTML, url)
 
 
+def fake_inspect(url: str):
+    from app.sources_admin import SourceCandidate, SourceError, is_present
+
+    if "techcrunch" in url:
+        raise SourceError("techcrunch.com est un site de presse ou un agrégateur")
+    candidate = SourceCandidate(kind="rss", name="vLLM Blog", value="https://vllm.ai/blog/rss.xml", input_url=url,
+                                entries=50, sample_title="Post", sample_link="https://vllm.ai/blog/p", sample_date="2026-09-22")
+    candidate.already_present = is_present("rss", candidate.value)
+    return candidate
+
+
 @pytest.fixture
 def notion_calls():
     return []
@@ -76,6 +87,7 @@ def client(isolated_settings, notion_calls):
         notion_sync=notion_sync,
         github_search=lambda query: [],
         fetch_page=fetch_article,
+        inspect_source=fake_inspect,
         review_llm=lambda connection: StructuredLLM(fake_review_llm(), model="fake-review", connection=connection),
     )
     with TestClient(create_app(deps)) as test_client:
@@ -354,3 +366,26 @@ def test_review_errors_are_reported(client):
     assert client.get("/api/reviews").json() == []
     assert client.post("/api/chat", json={"message": "x", "review_id": "absent"}).status_code == 404
     assert client.get("/api/reviews/absent").status_code == 404
+
+
+# --- Sources par URL ---------------------------------------------------------------------------
+
+
+def test_sources_can_be_inspected_added_and_removed(client, isolated_settings):
+    listed = client.get("/api/sources").json()
+    assert [r["name"] for r in listed["rss"]] == ["Blog test"] and "health" in listed
+
+    preview = client.post("/api/sources/inspect", json={"url": "https://blog.vllm.ai"}).json()
+    assert (preview["label"], preview["already_present"]) == ("flux RSS/Atom", False)
+    assert "vllm.ai" not in (isolated_settings / "sources.toml").read_text()  # l'inspection n'écrit rien
+
+    added = client.post("/api/sources", json={"url": "https://blog.vllm.ai", "name": "vLLM"})
+    assert added.status_code == 201
+    assert {"name": "vLLM", "url": "https://vllm.ai/blog/rss.xml"} in added.json()["sources"]["rss"]
+    assert client.post("/api/sources", json={"url": "https://blog.vllm.ai"}).status_code == 409
+    assert client.post("/api/sources/inspect", json={"url": "https://techcrunch.com/ai"}).status_code == 400
+
+    removed = client.delete("/api/sources", params={"kind": "rss", "value": "https://vllm.ai/blog/rss.xml"})
+    assert removed.status_code == 200 and all(r["name"] != "vLLM" for r in removed.json()["rss"])
+    assert client.delete("/api/sources", params={"kind": "rss", "value": "https://absent"}).status_code == 404
+    assert client.delete("/api/sources", params={"kind": "x", "value": "y"}).status_code == 400

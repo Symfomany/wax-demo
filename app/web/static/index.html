@@ -336,6 +336,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
       <button role="tab" data-view="search" aria-selected="false">🔎 Recherche</button>
       <button role="tab" data-view="review" aria-selected="false">🔬 Review</button>
       <button role="tab" data-view="runs" aria-selected="false">🛰️ Veille <span class="badge" id="run-badge" hidden>1</span></button>
+      <button role="tab" data-view="sources" aria-selected="false">🧭 Sources</button>
       <button role="tab" data-view="reports" aria-selected="false">📰 Rapports</button>
       <button role="tab" data-view="knowledge" aria-selected="false">📚 Knowledge</button>
       <button role="tab" data-view="grill" aria-selected="false">🎯 Grill-me</button>
@@ -494,6 +495,24 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
           </div>
           <div id="published" hidden></div>
         </div>
+      </div>
+    </section>
+
+    <!-- Sources -->
+    <section class="view" id="sources" hidden>
+      <div class="wrap">
+        <h2 class="title">🧭 Sources de la veille</h2>
+        <p class="subtitle">Collez l'URL d'un blog, d'un flux RSS/Atom, d'un dépôt GitHub ou d'une catégorie arXiv : la source est
+        identifiée et <b>vérifiée</b> (réponse, entrées datées, source primaire) avant tout ajout à <code>sources.toml</code>
+        (procédure du skill <code>ajout-source</code>). Presse et agrégateurs sont refusés.</p>
+        <div class="card">
+          <form class="url-form" id="source-form">
+            <input id="source-url" inputmode="url" placeholder="https://blog.vllm.ai · https://github.com/ggml-org/llama.cpp · https://arxiv.org/list/cs.LG" aria-label="URL de la source" required>
+            <button class="btn primary" id="source-check" type="submit">🔍 Vérifier</button>
+          </form>
+          <div id="source-preview"></div>
+        </div>
+        <div id="source-lists"></div>
       </div>
     </section>
 
@@ -708,6 +727,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     if (view === "prompts") loadPrompts();
     if (view === "grill") loadGrillProfile();
     if (view === "review") loadReviews();
+    if (view === "sources") loadSources();
     if (view === "knowledge") loadKnowledge().catch((error) => toast(error.message));
     $("#sidebar").classList.remove("open");
   }
@@ -1522,6 +1542,57 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   $("#review-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#review-composer").requestSubmit(); } });
   $("#review-revise").addEventListener("click", () => review.current && runReview(`/api/reviews/${encodeURIComponent(review.current.id)}/revise`, null));
 
+  // --- Sources ------------------------------------------------------------------------
+  const SOURCE_KINDS = { rss: ["📰", "Flux RSS / Atom"], arxiv: ["📄", "arXiv"], github: ["🐙", "Releases GitHub"], github_mcp: ["🔌", "Découverte GitHub (MCP)"] };
+  async function loadSources() {
+    let s;
+    try { s = await api("/api/sources"); } catch (error) { toast(error.message); return; }
+    const health = s.health || {};
+    const collector = { rss: "rss", arxiv: "arxiv", github: "github_releases", github_mcp: "github_mcp" };
+    const row = (kind, value, label) => `<tr><td>${label}</td><td style="text-align:right">${kind === "github_mcp" ? "" :
+      `<button class="btn small bad" data-remove-kind="${esc(kind)}" data-remove-value="${esc(value)}">Retirer</button>`}</td></tr>`;
+    $("#source-lists").innerHTML = Object.entries(SOURCE_KINDS).map(([kind, [icon, title]]) => {
+      const h = health[collector[kind]];
+      const items = kind === "rss" ? s.rss.map((r) => row(kind, r.url, `<b>${esc(r.name)}</b><br><a href="${safeUrl(r.url)}" target="_blank" rel="noopener" class="muted" style="font-size:.8rem">${esc(r.url)}</a>`))
+        : s[kind].map((v) => row(kind, v, kind === "github" ? `<a href="${safeUrl("https://github.com/" + v)}" target="_blank" rel="noopener">${esc(v)}</a>` : kind === "arxiv" ? `<a href="${safeUrl(v)}" target="_blank" rel="noopener">${esc(v)}</a>` : `<code>${esc(v)}</code>`));
+      return `<div class="card"><div class="row"><h3 style="margin:0">${icon} ${title} <span class="muted">(${items.length})</span></h3><span style="flex:1"></span>
+        ${h ? `<span class="state ${h.failures ? "error" : "published"}">${h.ok} OK · ${h.failures} échec(s)</span>` : ""}</div>
+        ${kind === "github_mcp" ? '<p class="muted" style="font-size:.84rem">Requêtes de découverte : à modifier dans <code>sources.toml</code> ([github_mcp].queries).</p>' : ""}
+        <table class="plain">${items.join("") || '<tr><td class="muted">Aucune source.</td></tr>'}</table></div>`;
+    }).join("");
+    $("#source-lists").querySelectorAll("[data-remove-kind]").forEach((b) => b.addEventListener("click", async () => {
+      if (!b.dataset.confirm) { b.dataset.confirm = "1"; b.textContent = "Confirmer ?"; return; }
+      try { await api(`/api/sources?kind=${encodeURIComponent(b.dataset.removeKind)}&value=${encodeURIComponent(b.dataset.removeValue)}`, { method: "DELETE" });
+        toast("Source retirée"); loadSources(); } catch (error) { toast(error.message); }
+    }));
+  }
+  $("#source-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const url = $("#source-url").value.trim(); if (!url) return;
+    const preview = $("#source-preview");
+    $("#source-check").disabled = true;
+    preview.innerHTML = `<ol class="timeline"><li data-icon="⏳">Vérification de ${esc(url)}…</li></ol>`;
+    try {
+      const c = await api("/api/sources/inspect", { method: "POST", body: JSON.stringify({ url }) });
+      preview.innerHTML = `<div class="card" style="margin:12px 0 0;border-color:var(--${c.already_present ? "warn" : "ok"})">
+        <div class="row"><span class="state published">✓ ${esc(c.label)}</span><b>${esc(c.name)}</b></div>
+        <p style="margin:8px 0 4px"><code>${esc(c.value)}</code></p>
+        <p class="muted" style="margin:0;font-size:.88rem">${c.entries} entrée(s) · dernière : ${esc(c.sample_date || "?")} —
+          <a href="${safeUrl(c.sample_link)}" target="_blank" rel="noopener">${esc(c.sample_title)}</a></p>
+        ${c.warnings.map((w) => `<div class="warning">⚠ ${esc(w)}</div>`).join("")}
+        ${c.already_present ? '<div class="warning">Déjà présente dans sources.toml.</div>' : `<div class="row" style="margin-top:10px">
+          ${c.kind === "rss" ? `<input id="source-name" value="${esc(c.name)}" aria-label="Nom" style="flex:1;min-width:180px;border:1px solid var(--line);background:var(--panel-2);border-radius:9px;padding:7px 9px">` : ""}
+          <button class="btn ok" id="source-add">➕ Ajouter à la veille</button></div>`}</div>`;
+      $("#source-add")?.addEventListener("click", async () => {
+        try {
+          await api("/api/sources", { method: "POST", body: JSON.stringify({ url, name: $("#source-name")?.value || null }) });
+          toast("Source ajoutée : collectée à la prochaine veille"); preview.innerHTML = ""; $("#source-url").value = ""; loadSources();
+        } catch (error) { toast(error.message); }
+      });
+    } catch (error) { preview.innerHTML = `<div class="error-box">✗ ${esc(error.message)}</div>`; }
+    $("#source-check").disabled = false;
+  });
+
   // --- Démarrage ---------------------------------------------------------------------
   loadHealth(); loadConversations(); setInterval(loadHealth, 30000);
   api("/api/runs").then((runs) => { const active = runs.find((r) => ["running", "awaiting_approval"].includes(r.status)); if (active) followRun(active.id); }).catch(() => {});
@@ -1530,7 +1601,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   else if (location.hash === "#grill-start") { show("grill"); startGrill(); }  // lien direct : démarre l'entretien
   else if (location.hash.startsWith("#r=")) { openReview(decodeURIComponent(location.hash.slice(3))); show("review"); }
   else if (location.hash.startsWith("#k=")) openKnowledge(decodeURIComponent(location.hash.slice(3)));
-  else if (["#search", "#runs", "#reports", "#prompts", "#memory", "#grill", "#review", "#knowledge"].includes(location.hash)) show(location.hash.slice(1));
+  else if (["#search", "#runs", "#reports", "#prompts", "#memory", "#grill", "#review", "#knowledge", "#sources"].includes(location.hash)) show(location.hash.slice(1));
   input.focus();
 })();
 </script>

@@ -47,4 +47,6 @@ def tool_payload(result) -> dict:
     try:
         return json.loads(result)
     except (TypeError, json.JSONDecodeError):
+        if isinstance(result, str) and result.startswith("Error executing tool"):
+            raise RuntimeError(f"Outil MCP en échec : {result[:600]}")  # erreur remontée par le serveur
         raise RuntimeError(f"Réponse MCP illisible : {str(result)[:200]}")

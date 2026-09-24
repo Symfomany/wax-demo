@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import BaseModel, Field
 
-from app import knowledge, observability, storage
+from app import knowledge, observability, sources_admin, storage
 from app.chat.agent import ChatContext, build_chat_graph, intent_text, stream_chat
 from app.chat.tools import ChatServices
 from app.config import settings
@@ -44,6 +44,7 @@ class WebDeps:
     github_search: Callable[[str], list] | None
     fetch_page: Callable[[str], Page] | None = None  # défaut : app.review.fetch_page
     review_llm: Callable | None = None  # connection -> StructuredLLM ; défaut : router_llm
+    inspect_source: Callable[[str], sources_admin.SourceCandidate] | None = None  # défaut : vérification réseau
 
 
 def production_deps() -> WebDeps:
@@ -86,6 +87,11 @@ class KnowledgeUpload(BaseModel):
 
 class ReviewRequest(BaseModel):
     url: str = Field(min_length=8, max_length=2000)
+
+
+class SourceRequest(BaseModel):
+    url: str = Field(min_length=4, max_length=2000)
+    name: str | None = Field(None, max_length=80)
 
 
 class RunRequest(BaseModel):
@@ -386,6 +392,40 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         except knowledge.KnowledgeError as error:
             raise HTTPException(404, str(error))
         return {"deleted": name}
+
+    # --- Sources de la veille (ajout par URL, skill ajout-source) ---------------------------------
+
+    def inspect(url: str) -> sources_admin.SourceCandidate:
+        try:
+            return (deps.inspect_source or sources_admin.inspect_source)(url)
+        except sources_admin.SourceError as error:
+            raise HTTPException(400, str(error))
+
+    @app.get("/api/sources")
+    def sources():
+        return sources_admin.list_sources() | {"health": WatchMemory(app.state.store).source_health()}
+
+    @app.post("/api/sources/inspect")
+    def inspect_source(request: SourceRequest):
+        candidate = inspect(request.url)
+        return candidate.model_dump() | {"label": candidate.label}
+
+    @app.post("/api/sources", status_code=201)
+    def add_source(request: SourceRequest):
+        candidate = inspect(request.url)  # revérifiée côté serveur : jamais de source non vérifiée
+        try:
+            return {"added": candidate.model_dump(), "sources": sources_admin.add_source(candidate, request.name)}
+        except sources_admin.SourceError as error:
+            raise HTTPException(409 if "Déjà présente" in str(error) else 400, str(error))
+
+    @app.delete("/api/sources")
+    def remove_source(kind: str, value: str):
+        if kind not in {"rss", "arxiv", "github"}:
+            raise HTTPException(400, "kind attendu : rss, arxiv ou github")
+        try:
+            return sources_admin.remove_source(kind, value)
+        except sources_admin.SourceError as error:
+            raise HTTPException(404, str(error))
 
     # --- Review d'une actualité par URL --------------------------------------------------------
 

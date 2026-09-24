@@ -11,7 +11,7 @@ from app.collectors import default_collectors, load_sources
 from app.config import settings
 from app.harness.skills import load_skill
 from app.llm import get_llm
-from app.notion import sync_notion
+from app.notion import fetch_og_images, sync_notion
 from app.workflow.graph import build_graph
 from app.workflow.state import HarnessContext
 
@@ -50,6 +50,7 @@ def notion_sync():
         parent_page_id=settings.notion_parent_page_id,
         api_url=settings.notion_api_url,
         limit=settings.notion_digests,
+        image_lookup=fetch_og_images,
     )
 
 

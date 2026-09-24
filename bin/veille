@@ -38,6 +38,8 @@ Profil, review et connaissances
   grill                        Entretien Grill-me : cerner ce que tu cherches en actu IA
   review <url> [--json]        Review sourcée d'une actualité (scraping, règles métiers, citations vérifiées)
   knowledge [terme] [--index]  Base de connaissances (glossaire, règles métiers) ; --add fichier.md pour l'enrichir
+  source add <url> | list | remove <type> <valeur>
+                               Sources de la veille : ajout par URL (blog, flux, dépôt GitHub, arXiv) vérifié
 
 Serveur web
   start [--port N] [--host H]  Démarre l'interface web en arrière-plan (défaut http://127.0.0.1:8000)
@@ -46,6 +48,8 @@ Serveur web
   status                       État du serveur : PID, URL, santé (LLM, Notion)
   logs [-f]                    Journal du serveur (data/web.log) ; -f pour le suivre
   web [--port N]               Interface web au premier plan (Ctrl+C pour arrêter)
+  tui [écran]                  Interface terminal (OpenTUI) ; démarre le serveur au besoin
+                               écrans : home chat search review watch knowledge sources reports memory grill
 
 Outils
   doctor                       Diagnostic (Ollama, modèle, GPU, MCP, migrations)
@@ -172,6 +176,16 @@ restart_server() {
   start_server "$@"
 }
 
+run_tui() {
+  local bun="$ROOT/tui/node_modules/.bin/bun"
+  if [[ ! -x "$bun" ]]; then
+    command -v npm >/dev/null || die "npm introuvable : installer Node.js, puis relancer « veille tui »"
+    echo "Installation de la TUI (npm install dans tui/, une seule fois)…"
+    (cd "$ROOT/tui" && npm install --no-audit --no-fund) || die "échec de l'installation de la TUI"
+  fi
+  cd "$ROOT/tui" && VEILLE_SCREEN="${1:-home}" exec "$bun" run src/index.tsx
+}
+
 show_logs() {
   [[ -f "$LOG_FILE" ]] || { echo "Aucun journal ($LOG_FILE)."; return 0; }
   if [[ "${1:-}" == "-f" ]]; then
@@ -242,11 +256,13 @@ main() {
       [[ $# -ge 1 ]] || die "usage : veille review <url> [--json]"
       app review "$@" ;;
     knowledge) app knowledge "$@" ;;
+    source)  app source "$@" ;;
     web)     app web "$@" ;;
     start)   start_server "$@" ;;
     stop)    stop_server ;;
     restart) restart_server "$@" ;;
     status)  server_status ;;
+    tui)     run_tui "$@" ;;
     logs)    show_logs "$@" ;;
     doctor)  app doctor ;;
     report)  app report "$@" ;;

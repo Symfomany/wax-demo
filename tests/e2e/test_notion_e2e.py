@@ -33,7 +33,7 @@ class FakeNotion(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _handle(self, method):
-        length = int(self.headers.get("Content-Length", 0))
+        length = int(self.headers.get("Content-Length", 0) or 0)
         body = json.loads(self.rfile.read(length) or b"{}")
         FakeNotion.calls.append({
             "method": method, "path": self.path, "body": body,
@@ -41,6 +41,13 @@ class FakeNotion(BaseHTTPRequestHandler):
         })
         if self.headers.get("Authorization") != "Bearer ntn_test":
             return self._reply({"message": "unauthorized"}, status=401)
+        if method == "GET" and self.path == "/v1/users/me":
+            return self._reply({"object": "user", "name": "harness-test", "bot": {"workspace_name": "Test"}})
+        if method == "GET" and self.path == f"/v1/pages/{PARENT}":
+            return self._reply({"object": "page", "id": PARENT, "archived": False})
+        if method == "POST" and self.path == "/v1/pages" and body["parent"]["page_id"] != PARENT:
+            return self._reply({"object": "error", "status": 404, "code": "object_not_found",
+                                "message": "Could not find page with ID"}, status=404)
         if method == "POST" and self.path == "/v1/pages":
             if len(body["children"]) > 100:
                 return self._reply({"message": "children > 100"}, status=400)
@@ -51,6 +58,9 @@ class FakeNotion(BaseHTTPRequestHandler):
         if method == "PATCH" and self.path.startswith("/v1/pages/"):
             return self._reply({"id": self.path.rsplit("/", 1)[1], "archived": body.get("archived")})
         return self._reply({"message": "not found"}, status=404)
+
+    def do_GET(self):
+        self._handle("GET")
 
     def do_POST(self):
         self._handle("POST")
@@ -88,13 +98,15 @@ def test_sync_publishes_ten_latest_digests_and_archives_previous_page(connection
     assert create["body"]["parent"] == {"page_id": PARENT}
     title = create["body"]["properties"]["title"]["title"][0]["text"]["content"]
     assert title == "Veille GenAI — 10 dernières veilles (24/09/2026)"
-    headings = [b for b in create["body"]["children"] if b["type"] == "heading_2"]
-    assert headings[0]["heading_2"]["rich_text"][0]["text"]["content"].startswith("🛰️ Veille du 12/09/2026")
-    # 2 + 10 × (6 + 12 ressources) blocs → 1 création + 1 ajout par tranche de 100
-    appended = [c for c in FakeNotion.calls if c["method"] == "PATCH" and "/children" in c["path"]]
-    assert first["blocks"] == 2 + 10 * 18 and len(appended) == 1
+    children = create["body"]["children"]
+    assert children[3]["type"] == "heading_1"
+    assert children[3]["heading_1"]["rich_text"][0]["text"]["content"].startswith("🛰️ Veille du 12/09/2026")
+    assert sum(bool(b.get("heading_2", {}).get("is_toggleable")) for b in children) == 9
+    assert "cover" not in create["body"]  # aucune image fournie
+    # 3 (en-tête) + dernière veille 5 + 12 × 4 + 1 + « précédentes » 1 + 9 sections repliées = 67 blocs
+    assert first["blocks"] == 67 and not any(c["method"] == "PATCH" and "/children" in c["path"] for c in FakeNotion.calls)
     assert first["digests"] == 10 and first["archived"] is None
-    assert audit[0].startswith("notion.create_page({'parent_page_id'") and "<182 éléments>" in audit[0]
+    assert audit[0].startswith("notion.create_page({'parent_page_id'") and "<67 éléments>" in audit[0]
 
     second = sync_notion(connection, "ntn_test", PARENT, api_url=fake_notion, now=NOW)
 
@@ -127,3 +139,40 @@ def test_cli_notion_sync(isolated_settings, fake_notion, monkeypatch, tmp_path):
     assert result.exit_code == 0, result.output
     assert "https://www.notion.so/page-" in result.output
     assert "2 veille(s)" in result.output
+
+
+def test_unshared_parent_page_gives_an_actionable_error(connection, tmp_path, fake_notion):
+    seed_digests(connection, tmp_path, 1)
+    with pytest.raises(RuntimeError) as error:
+        sync_notion(connection, "ntn_test", "3e5cd9c3-8df7-80d6-b4ad-c76d8ad72a99", api_url=fake_notion)
+    message = str(error.value)
+    assert "Réponse MCP illisible" not in message
+    assert "object_not_found" in message and "Connexions" in message
+
+
+def test_access_check_explains_what_is_wrong(fake_notion):
+    from app.notion import check_access
+
+    assert check_access("ntn_test", PARENT, fake_notion) == (
+        True, "intégration « harness-test » (Test), page parente accessible")
+    ok, detail = check_access("ntn_test", "3e5cd9c3-8df7-80d6-b4ad-c76d8ad72a99", fake_notion)
+    assert not ok and "Connexions" in detail and "harness-test" in detail
+    ok, detail = check_access("ntn_bad", PARENT, fake_notion)
+    assert not ok and "NOTION_TOKEN" in detail
+    assert not any(call["method"] in {"POST", "PATCH"} for call in FakeNotion.calls)  # diagnostic en lecture seule
+
+
+def test_sync_illustrates_the_latest_digest_with_page_images(connection, tmp_path, fake_notion):
+    seed_digests(connection, tmp_path, 2)
+    seen = []
+
+    def images(urls):
+        seen.extend(urls)
+        return {urls[0]: "https://img.example.org/cover.png"}
+
+    sync_notion(connection, "ntn_test", PARENT, api_url=fake_notion, now=NOW, image_lookup=images)
+
+    body = FakeNotion.calls[0]["body"]
+    assert set(seen) == {"https://example.org/2"}  # seules les ressources de la dernière veille
+    assert body["cover"] == {"type": "external", "external": {"url": "https://img.example.org/cover.png"}}
+    assert any(b["type"] == "image" for b in body["children"])

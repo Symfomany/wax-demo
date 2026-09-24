@@ -35,9 +35,16 @@ def _client() -> httpx.Client:
     )
 
 
+NOT_SHARED_HINT = (
+    "Page introuvable pour l'intégration : dans Notion, ouvrez la page parente → ••• → "
+    "Connexions → ajoutez votre intégration (sinon, vérifiez NOTION_PARENT_PAGE_ID et l'espace de travail)."
+)
+
+
 def _check(response: httpx.Response) -> dict:
     if response.status_code >= 400:
-        raise RuntimeError(f"Notion {response.status_code} : {response.text[:300]}")
+        hint = f" → {NOT_SHARED_HINT}" if response.status_code == 404 and "object_not_found" in response.text else ""
+        raise RuntimeError(f"Notion {response.status_code} : {response.text[:300]}{hint}")
     return response.json()
 
 
@@ -51,15 +58,19 @@ def _append(client: httpx.Client, block_id: str, children: list[dict]) -> int:
 
 
 @mcp.tool()
-def create_page(parent_page_id: str, title: str, children: list[dict], icon: str = "🛰️") -> dict:
-    """Crée une sous-page (blocs au format de l'API Notion, découpés par 100)."""
+def create_page(parent_page_id: str, title: str, children: list[dict], icon: str = "🛰️",
+                cover_url: str = "") -> dict:
+    """Crée une sous-page (blocs au format de l'API Notion, découpés par 100), avec couverture facultative."""
+    payload = {
+        "parent": {"page_id": parent_page_id},
+        "icon": {"type": "emoji", "emoji": icon},
+        "properties": {"title": {"title": [{"type": "text", "text": {"content": title[:2000]}}]}},
+        "children": children[:MAX_CHILDREN],
+    }
+    if cover_url.startswith("https://"):
+        payload["cover"] = {"type": "external", "external": {"url": cover_url}}
     with _client() as client:
-        page = _check(client.post("/v1/pages", json={
-            "parent": {"page_id": parent_page_id},
-            "icon": {"type": "emoji", "emoji": icon},
-            "properties": {"title": {"title": [{"type": "text", "text": {"content": title[:2000]}}]}},
-            "children": children[:MAX_CHILDREN],
-        }))
+        page = _check(client.post("/v1/pages", json=payload))
         _append(client, page["id"], children[MAX_CHILDREN:])
     return {"id": page["id"], "url": page.get("url", ""), "blocks": len(children)}
 
