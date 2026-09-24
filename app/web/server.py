@@ -27,6 +27,8 @@ from app.config import settings
 from app.memory import WatchMemory
 from app.harness.prompts import PromptError, load_prompt, prompt_names, reset_prompt, save_prompt
 from app.reports import list_reports
+from app.assistant import AssistantMessage
+from app.news import CrawlReport, NewsError, SearchReport
 from app.review import FetchError, Page, ReviewContext, build_review_graph, stream_review, transcript_objections
 from app.web.runs import RunManager
 
@@ -45,6 +47,11 @@ class WebDeps:
     fetch_page: Callable[[str], Page] | None = None  # défaut : app.review.fetch_page
     review_llm: Callable | None = None  # connection -> StructuredLLM ; défaut : router_llm
     inspect_source: Callable[[str], sources_admin.SourceCandidate] | None = None  # défaut : vérification réseau
+    news_crawl: Callable[[dict], "CrawlReport"] | None = None  # défaut : app.news.crawl_all
+    news_search: Callable[..., "SearchReport"] | None = None  # défaut : app.news.search_news (API Claude)
+    news_older: Callable[[dict, int, set], "CrawlReport"] | None = None  # défaut : app.news.crawl_older
+    review_publisher: Callable | None = None  # (connection, review_id) -> dict ; None : Notion non configuré
+    assistant_stream: Callable | None = None  # défaut : app.assistant.stream_assistant (API Claude)
 
 
 def production_deps() -> WebDeps:
@@ -64,12 +71,21 @@ def production_deps() -> WebDeps:
         return run_mcp(discover([query], stdio_connection(settings.github_token, settings.github_api_url),
                                 max_repos=5, per_query=5, readme_chars=500))
 
+    review_publisher = None
+    if settings.notion_enabled:
+        from app.notion import publish_review
+
+        def review_publisher(connection, review_id: str) -> dict:
+            return publish_review(connection, review_id, settings.notion_token, settings.notion_parent_page_id,
+                                  settings.notion_api_url)
+
     return WebDeps(
         router_llm=get_llm,
         chat_model=get_chat_model,
         graph_factory=graph_factory,
         notion_sync=notion_sync(),
         github_search=github_search,
+        review_publisher=review_publisher,
     )
 
 
@@ -92,6 +108,20 @@ class ReviewRequest(BaseModel):
 class SourceRequest(BaseModel):
     url: str = Field(min_length=4, max_length=2000)
     name: str | None = Field(None, max_length=80)
+
+
+class NewsSearchRequest(BaseModel):
+    topics: str = Field("", max_length=500)  # vide : centres d'intérêt du profil Grill-me
+    days: int | None = Field(None, ge=1, le=60)
+
+
+class OlderNewsRequest(BaseModel):
+    page: int = Field(2, ge=2, le=60)
+
+
+class AssistantRequest(BaseModel):
+    messages: list[AssistantMessage] = Field(min_length=1, max_length=40)
+    web: bool = False
 
 
 class RunRequest(BaseModel):
@@ -181,6 +211,8 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             "model_available": settings.llm_model in models or f"{settings.llm_model}:latest" in models,
             "tracing": observability.status(),
             "notion": deps.notion_sync is not None,
+            "claude_search": bool(settings.claude_search_key) or deps.news_search is not None,
+            "assistant_model": settings.assistant_model,
             "memory": storage.memory_stats(app.state.connection),
         }
 
@@ -427,6 +459,67 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         except sources_admin.SourceError as error:
             raise HTTPException(404, str(error))
 
+    # --- Actus en cartes ------------------------------------------------------------------------
+
+    @app.get("/api/news")
+    def news(source: str | None = None, origin: str | None = None, q: str | None = None, limit: int = 60,
+             offset: int = 0):
+        return {"items": storage.list_news(app.state.connection, source, origin, (q or "").strip() or None,
+                                           min(max(limit, 1), 500), max(offset, 0)),
+                "sources": storage.news_sources(app.state.connection),
+                "claude_search": bool(settings.claude_search_key) or deps.news_search is not None,
+                "model": settings.news_model}
+
+    @app.post("/api/news/crawl")
+    def news_crawl():
+        from app.collectors import load_sources
+        from app.news import crawl_all
+
+        report = (deps.news_crawl or crawl_all)(load_sources(settings.sources_path))
+        storage.save_news(app.state.connection, [item.record() for item in report.items])
+        return {"counts": report.counts, "errors": report.errors, "saved": len(report.items)}
+
+    @app.post("/api/news/older")
+    def news_older(request: OlderNewsRequest):
+        """Défilement infini : actus plus anciennes (page N des blogs, suite des flux)."""
+        from app.collectors import load_sources
+        from app.news import crawl_older
+
+        known = storage.news_urls(app.state.connection)
+        report = (deps.news_older or crawl_older)(load_sources(settings.sources_path), request.page, known)
+        fresh = [item.record() for item in report.items if str(item.url) not in known]
+        storage.save_news(app.state.connection, fresh)
+        return {"counts": report.counts, "errors": report.errors, "saved": len(fresh), "page": request.page}
+
+    @app.get("/api/document")
+    def document(url: str):
+        detail = storage.document_detail(app.state.connection, url)
+        if detail is None:
+            raise HTTPException(404, "Document inconnu de la veille")
+        return detail
+
+    @app.post("/api/news/search")
+    def news_search(request: NewsSearchRequest):
+        from app.news import interest_topics, search_news
+
+        memory = WatchMemory(app.state.store)
+        topics, exclusions = interest_topics(memory.interests())
+        if request.topics.strip():
+            topics = "\n".join(f"- {t.strip()}" for t in request.topics.split(",") if t.strip())
+        try:
+            report = (deps.news_search or search_news)(topics=topics, exclusions=exclusions,
+                                                       memory=memory.prompt_context(), days=request.days)
+        except NewsError as error:
+            raise HTTPException(400, str(error))
+        except Exception as error:  # noqa: BLE001 — erreur API (clé refusée, quota…) affichée telle quelle
+            from app.news import explain_api_error
+
+            raise HTTPException(502, explain_api_error(error))
+        storage.save_news(app.state.connection, [item.record() for item in report.items])
+        return {"saved": len(report.items), "items": [item.record() for item in report.items],
+                "results_seen": report.results_seen, "rejected": report.rejected,
+                "searches": report.searches, "model": report.model, "topics": report.topics}
+
     # --- Review d'une actualité par URL --------------------------------------------------------
 
     def review_graph():
@@ -497,6 +590,45 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             raise HTTPException(409, "Aucun échange à prendre en compte : challengez d'abord la review dans le chat.")
         return review_events({"url": record["url"], "previous": record, "objections": transcript_objections(messages)},
                              str(uuid4()))
+
+    @app.post("/api/reviews/{review_id}/notion")
+    def publish_review_to_notion(review_id: str):
+        if deps.review_publisher is None:
+            raise HTTPException(409, "Notion non configuré (NOTION_TOKEN, NOTION_PARENT_PAGE_ID).")
+        if storage.get_review(app.state.connection, review_id) is None:
+            raise HTTPException(404, "Review inconnue")
+        try:
+            return deps.review_publisher(app.state.connection, review_id)
+        except RuntimeError as error:
+            raise HTTPException(409, str(error))
+        except Exception as error:  # noqa: BLE001 — erreur MCP / API Notion affichée
+            raise HTTPException(502, f"{type(error).__name__} : {error}")
+
+    # --- Assistant rapide (API Claude directe) ------------------------------------------------
+
+    @app.post("/api/assistant")
+    def assistant(request: AssistantRequest):
+        from app.assistant import build_context, stream_assistant
+
+        if deps.assistant_stream is None and not settings.claude_search_key:
+            raise HTTPException(400, "Clé API Claude absente : renseigner CLAUDE_API dans .env puis redémarrer.")
+        context = build_context(storage.list_news(app.state.connection, limit=12),
+                                storage.recent_digests(app.state.connection, limit=1))
+
+        def events():
+            try:
+                for event in (deps.assistant_stream or stream_assistant)(request.messages, context=context,
+                                                                          web=request.web):
+                    yield _sse(event)
+            except NewsError as error:
+                yield _sse({"type": "error", "text": str(error)})
+            except Exception as error:  # noqa: BLE001 — erreur API (quota, clé refusée…) affichée
+                from app.news import explain_api_error
+
+                yield _sse({"type": "error", "text": explain_api_error(error)})
+
+        return StreamingResponse(events(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     # --- Grill-me ----------------------------------------------------------------------
 

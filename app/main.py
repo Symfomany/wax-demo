@@ -262,6 +262,11 @@ def doctor():
         check("Notion", *check_access(settings.notion_token, settings.notion_parent_page_id, settings.notion_api_url))
     else:
         check("Notion", True, "non configuré (NOTION_TOKEN, NOTION_PARENT_PAGE_ID)")
+    check("Actus : recherche web Claude", True,
+          f"{settings.news_model} + {settings.news_search_tool}"
+          + (f" · workspace {settings.claude_workspace_id}" if settings.claude_workspace_id else "")
+          if settings.claude_search_key
+          else "clé absente (CLAUDE_API dans .env) — le crawl des blogs fonctionne sans")
     check(
         "Langfuse",
         True,
@@ -453,6 +458,8 @@ def source_list():
     for kind in ("arxiv", "github", "github_mcp"):
         for value in current[kind]:
             table.add_row(kind, value)
+    for item in current["blog"]:
+        table.add_row("blog (HTML)", f"{item['name']} — {item['url']}")
     print(table)
 
 
@@ -507,6 +514,75 @@ def source_remove(
         print(f"[red]{error}[/red]")
         raise typer.Exit(1)
     print(f"[green]Source retirée : {value}[/green]")
+
+
+news_cli = typer.Typer(help="Actus en cartes : crawl des blogs (claude.com/blog, OpenAI News…) et recherche web Claude.")
+cli.add_typer(news_cli, name="news")
+
+
+def _news_table(items: list[dict]) -> Table:
+    table = Table("Date", "Source", "Titre", "URL")
+    for item in items:
+        table.add_row(item.get("published_at") or "?", item["source"], item["title"][:70], item["url"])
+    return table
+
+
+@news_cli.command("crawl")
+def news_crawl():
+    """Crawle les pages de blog et les flux d'actus déclarés dans sources.toml, puis enregistre les actus."""
+    from app.news import crawl_all
+
+    report = crawl_all(load_sources(settings.sources_path))
+    connection = storage.connect(settings.database_path)
+    storage.save_news(connection, [item.record() for item in report.items])
+    for name, count in report.counts.items():
+        print(f"[green]✓ {name}[/green] : {count} actu(s)")
+    for name, error in report.errors.items():
+        print(f"[red]✗ {name}[/red] : {error}")
+    if not report.items:
+        raise typer.Exit(1)
+
+
+@news_cli.command("search")
+def news_search(
+    topics: str = typer.Argument("", help="Sujets séparés par des virgules (vide : profil Grill-me)."),
+    days: int = typer.Option(settings.news_search_days, help="Fenêtre de recherche en jours."),
+):
+    """Recherche web par l'API Claude (outil web_search, clé CLAUDE_API) ; seules les URL trouvées sont gardées."""
+    from app.news import NewsError, interest_topics, search_news
+
+    with open_store() as store:
+        memory = WatchMemory(store)
+        wanted, exclusions = interest_topics(memory.interests())
+        context = memory.prompt_context()
+    if topics.strip():
+        wanted = "\n".join(f"- {t.strip()}" for t in topics.split(",") if t.strip())
+    print(f"[cyan]🌐 {settings.news_model} + web_search ({days} j)…[/cyan]")
+    try:
+        report = search_news(wanted, exclusions, context, days=days)
+    except NewsError as error:
+        print(f"[red]✗ {error}[/red]")
+        raise typer.Exit(1)
+    except Exception as error:  # noqa: BLE001 — erreur de l'API Claude, message actionnable
+        from app.news import explain_api_error
+
+        print(f"[red]✗ {explain_api_error(error)}[/red]")
+        raise typer.Exit(1)
+    connection = storage.connect(settings.database_path)
+    storage.save_news(connection, [item.record() for item in report.items])
+    print(_news_table([item.record() for item in report.items]))
+    print(f"{len(report.items)} actu(s) · {report.searches} recherche(s) · {report.results_seen} résultats lus"
+          + (f" · {len(report.rejected)} écartée(s)" if report.rejected else ""))
+
+
+@news_cli.command("list")
+def news_list(
+    source: str = typer.Option("", "--source", "-s", help="Claude Blog, OpenAI News, Web (Claude)…"),
+    limit: int = typer.Option(20, help="Nombre d'actus."),
+):
+    """Dernières actus enregistrées."""
+    connection = storage.connect(settings.database_path)
+    print(_news_table(storage.list_news(connection, source=source or None, limit=limit)))
 
 
 @cli.command()

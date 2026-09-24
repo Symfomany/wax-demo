@@ -34,6 +34,7 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Grill-me (profil de centres d'intérêt) : `python -m app.main grill`, skill `grill-me`, `grill-save`
 - Review d'une actu par URL : `python -m app.main review <URL> [--json]`, skill `review-actu`, onglet 🔬 Review
 - Base de connaissances : `python -m app.main knowledge [TERME] [--index] [--add fichier.md]`, onglet 📚 Knowledge
+- Actus en cartes : `python -m app.main news crawl|search ["sujets"]|list`, onglet 🗞️ Actus, bouton 🌐 (clé `CLAUDE_API`)
 - Sources par URL (vérifiées) : `python -m app.main source add <URL>` · `source list` · `source remove <type> <valeur>`
 - TUI (OpenTUI + React, Bun local) : `bin/veille tui [écran]` ; tests `cd tui && ./node_modules/.bin/bun test`
 - Inspection SQLite : `sqlite3 data/watch.db`
@@ -69,6 +70,11 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
   chargés par `app/knowledge.py` ; téléversements validés dans `data/knowledge/` (hors Git), jamais dans `knowledge/`.
 - Review : `app/review.py` (agent Reviewer fetch → analyze → guard → save ; SSRF bloquée, citations vérifiées
   dans la page), table `reviews` (v5), prompt `app/prompts/review.md` ; challenge = outil de chat `challenge_review`.
+- Actus : `app/news.py` (crawl `[[blog]]` HTML + flux `[news].rss` ; recherche web API Claude `web_search`, URL
+  gardées seulement si présentes dans les résultats), table `news` (v6), prompt `app/prompts/news_search.md`.
+- Assistant Claude flottant : `app/assistant.py` (API Claude directe, streaming, `/api/assistant`) ; clé `CLAUDE_API`,
+  `CLAUDE_WORKSPACE_ID` si la clé n'est rattachée à aucun workspace. Publication d'une review dans Notion :
+  `app/notion.py` (`publish_review`, append sur la page de veille active, après confirmation dans l'interface).
 - Documentation : `docs/getting-started.html`, `docs/index.html`, `docs/langgraph.md`,
   `docs/llm-ollama-claude.md`, `docs/UPGRADE.md`, `docs/jetson-orin.md`.
 

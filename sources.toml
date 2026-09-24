@@ -25,6 +25,45 @@ url = "https://developer.nvidia.com/blog/feed"
 name = "Ollama Blog"
 url = "https://ollama.com/blog/rss.xml"
 
+[[rss]]
+name = "llm-d Blog"
+url = "https://llm-d.ai/blog/rss.xml"
+
+[[rss]]
+name = "Blog IA"
+url = "https://blog-ia.com/feed/"
+
+[[rss]]
+name = "Contents.com"
+url = "https://www.contents.com/fr/feed/"
+
+[[rss]]
+name = "NVIDIA Blog"
+url = "https://blogs.nvidia.com/feed/"
+
+[[rss]]
+name = "vLLM Blog"
+url = "https://vllm.ai/blog/rss.xml"
+
+[[rss]]
+name = "The GitHub Blog"
+url = "https://github.blog/feed/"
+
+[[rss]]
+name = "Sebastian Raschka, PhD"
+url = "https://sebastianraschka.com/rss_feed.xml"
+
+# Pages de blog sans flux RSS : cartes de la page de liste crawlées en HTML (app/news.py),
+# collectées par la veille (tâche collect:rss) et affichées dans l'onglet 📰 Actus.
+[[blog]]
+name = "Claude Blog"
+url = "https://claude.com/blog"
+
+# Onglet 📰 Actus : pages [[blog]] ci-dessus + ces flux [[rss]] (par nom).
+# openai.com/fr-FR/news/ refuse les robots (HTTP 403) : on lit son flux officiel.
+[news]
+rss = ["OpenAI News"]
+
 # Flux d'annonces quotidiennes arXiv (moins sujet au rate-limit que l'API).
 [arxiv]
 feeds = [

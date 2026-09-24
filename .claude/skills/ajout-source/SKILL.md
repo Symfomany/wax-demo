@@ -9,6 +9,9 @@ description: Ajouter ou retirer une source de veille (flux RSS, flux arXiv, dép
   catégorie arXiv) : identifie la source, la vérifie, affiche un aperçu, puis écrit
   `sources.toml` après confirmation. `source list`, `source remove <type> <valeur>`.
 - Web : onglet **🧭 Sources** ; TUI : écran Sources.
+- Page de blog **sans flux RSS** (ex. `claude.com/blog`) : section `[[blog]]` de `sources.toml`, crawlée en
+  HTML par `app/news.py` (vérifier d'abord que `news crawl` y trouve des cartes datées). Pour qu'un flux
+  `[[rss]]` apparaisse dans l'onglet 🗞️ Actus, ajouter son nom à `[news].rss`.
 - Refus automatiques : presse/agrégateurs, flux sans entrée datée, dépôt sans release,
   adresse non publique. L'écriture est relue par tomllib avant d'être validée.
 

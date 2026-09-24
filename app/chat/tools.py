@@ -59,7 +59,7 @@ def build_tools(services: ChatServices) -> dict[str, StructuredTool]:
         hits = storage.search_documents(services.connection, query, limit=6)
         sources = _numbered([
             {"title": h["title"], "url": h["url"], "source": h["source"],
-             "date": (h["published_at"] or "")[:10], "published": h["published"]}
+             "date": (h["published_at"] or "")[:10], "published": h["published"], "summary": h["summary"][:400]}
             for h in hits
         ])
         context = "\n\n".join(
@@ -82,7 +82,8 @@ def build_tools(services: ChatServices) -> dict[str, StructuredTool]:
             lines = [f"Veille du {digest['generated_at'][:10]} — synthèse : {digest['executive_summary']}"]
             for item in digest["items"]:
                 sources.append({"title": item["title"], "url": item["url"], "source": item["source"],
-                                "date": (item.get("date") or "")[:10]})
+                                "date": (item.get("date") or "")[:10], "summary": item["summary"][:400],
+                                "why": item["why_it_matters"][:300]})
                 lines.append(f"[{len(sources)}] {item['title']} — {item['summary']} "
                              f"Pourquoi : {item['why_it_matters']}")
             blocks.append("\n".join(lines))
@@ -123,7 +124,7 @@ def build_tools(services: ChatServices) -> dict[str, StructuredTool]:
         documents = services.github_search(query)
         sources = _numbered([
             {"title": d.title, "url": str(d.url), "source": "github",
-             "date": d.published_at.strftime("%Y-%m-%d") if d.published_at else ""}
+             "date": d.published_at.strftime("%Y-%m-%d") if d.published_at else "", "summary": d.summary[:400]}
             for d in documents
         ])
         context = "\n\n".join(f"[{s['n']}] {d.title}\n{d.summary[:500]}" for s, d in zip(sources, documents))

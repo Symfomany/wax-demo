@@ -84,6 +84,8 @@ def list_sources(path: Path | None = None) -> dict:
         "arxiv": list(sources.get("arxiv", {}).get("feeds", [])),
         "github": list(sources.get("github", {}).get("repositories", [])),
         "github_mcp": list(sources.get("github_mcp", {}).get("queries", [])),
+        "blog": [{"name": s["name"], "url": s["url"]} for s in sources.get("blog", [])],
+        "news_rss": list(sources.get("news", {}).get("rss", [])),
     }
 
 

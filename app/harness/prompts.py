@@ -24,6 +24,8 @@ EDITABLE: dict[str, tuple[Path, str, set[str], set[str]]] = {
     "grill": (PROMPTS_DIR / "grill.md", "template", {"answers"}, set()),
     "review": (PROMPTS_DIR / "review.md", "template", {"article"},
                {"skill", "criteria", "rules", "glossary", "memory", "objections", "meta"}),
+    "news-search": (PROMPTS_DIR / "news_search.md", "template", {"topics"},
+                    {"days", "today", "exclusions", "memory"}),
     "chat-system": (
         settings.templates_dir / "claude" / "chat-system.md.j2",
         "jinja",
@@ -38,6 +40,7 @@ DESCRIPTIONS = {
     "router": "Routeur du chat : choix de l'outil",
     "grill": "Grill-me : synthèse de l'entretien sur tes centres d'intérêt",
     "review": "Agent Reviewer : review d'une actualité à partir de son URL",
+    "news-search": "Scout web : recherche d'actus par l'API Claude (outil web_search)",
     "chat-system": "Prompt système de l'assistant de chat (Jinja2)",
 }
 

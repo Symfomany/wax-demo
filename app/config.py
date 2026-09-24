@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -85,12 +86,27 @@ class Settings(BaseSettings):
     review_max_bytes: int = 3_000_000  # taille maximale d'une page téléchargée
     review_timeout: int = 20
     review_allow_private: bool = False  # URLs vers le réseau local (déconseillé)
+    # Actus en cartes : pages de blog crawlées + recherche web par l'API Claude (outil web_search)
+    # clé API Claude (CLAUDE_API ou CLAUDE_API_KEY), sinon ANTHROPIC_API_KEY
+    claude_api: str | None = Field(None, validation_alias=AliasChoices("CLAUDE_API", "CLAUDE_API_KEY"))
+    # Clé non rattachée à un workspace : l'API exige l'en-tête anthropic-workspace-id
+    claude_workspace_id: str | None = Field(None, validation_alias=AliasChoices("CLAUDE_WORKSPACE_ID", "ANTHROPIC_WORKSPACE_ID"))
+    news_model: str = "claude-sonnet-5"
+    assistant_model: str = "claude-sonnet-5"  # assistant rapide (panneau flottant) : API Claude directe
+    news_search_tool: str = "web_search_20250305"
+    news_search_max_uses: int = 5  # recherches web par appel (borne le coût)
+    news_search_days: int = 7
+    news_per_source: int = 24
     web_host: str = "127.0.0.1"
     web_port: int = 8000
 
     @property
     def notion_enabled(self) -> bool:
         return bool(self.notion_token and self.notion_parent_page_id)
+
+    @property
+    def claude_search_key(self) -> str | None:
+        return self.claude_api or self.anthropic_api_key
 
     @property
     def ollama_url(self) -> str:

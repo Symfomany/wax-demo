@@ -4,6 +4,7 @@ Réels : FastAPI, LangGraph + checkpoints SQLite, Store SQLite, publishers, rend
 des rapports. Simulés : Ollama (routeur + modèle de chat), collecteurs, Notion.
 """
 
+from datetime import date
 import json
 import threading
 import time
@@ -51,6 +52,57 @@ def fake_inspect(url: str):
     return candidate
 
 
+def fake_news_crawl(sources):
+    from app.news import CrawlReport, make_item
+
+    items = [make_item(url="https://claude.com/blog/opus", title="Opus is out", source="Claude Blog", origin="blog",
+                       published_at=date(2026, 9, 24), category="Claude Code", accent="#6a9bcc"),
+             make_item(url="https://openai.com/index/x", title="OpenAI X", source="OpenAI News", origin="rss",
+                       published_at=date(2026, 9, 23))]
+    return CrawlReport(items=items, counts={"Claude Blog": 1, "OpenAI News": 1}, errors={})
+
+
+NEWS_SEARCHES = []
+
+
+def fake_news_search(topics, exclusions, memory, days):
+    from app.news import SearchReport, make_item
+
+    NEWS_SEARCHES.append({"topics": topics, "days": days})
+    item = make_item(url="https://qwen.ai/blog/qwen4", title="Qwen4", source="Web (Claude)", origin="web_search",
+                     summary="Poids ouverts.", why="Licence", query=topics)
+    return SearchReport(items=[item], topics=topics, results_seen=5, rejected=["https://fake.example.org"],
+                        searches=2, model="claude-test")
+
+
+def fake_news_older(sources, page, known):
+    from app.news import CrawlReport, make_item
+
+    items = [make_item(url=f"https://claude.com/blog/old-{page}", title=f"Ancienne {page}", source="Claude Blog",
+                       origin="blog", published_at=date(2026, 1, page)),
+             make_item(url="https://claude.com/blog/opus", title="déjà connue", source="Claude Blog", origin="blog")]
+    return CrawlReport(items=items if page < 4 else [], counts={"Claude Blog": 2 if page < 4 else 0}, errors={})
+
+
+PUBLISHED_REVIEWS = []
+
+
+def fake_review_publisher(connection, review_id):
+    PUBLISHED_REVIEWS.append(review_id)
+    return {"url": "https://www.notion.so/veille-e2e", "blocks": 1, "title": "Review"}
+
+
+ASSISTANT_CALLS = []
+
+
+def fake_assistant(messages, context, web):
+    ASSISTANT_CALLS.append({"messages": [m.content for m in messages], "context": context, "web": web})
+    yield {"type": "token", "text": "Bonjour "}
+    yield {"type": "token", "text": "!"}
+    yield {"type": "final", "text": "Bonjour !", "sources": [{"url": "https://c.org", "title": "C"}],
+           "model": "claude-test", "searches": 0}
+
+
 @pytest.fixture
 def notion_calls():
     return []
@@ -88,6 +140,11 @@ def client(isolated_settings, notion_calls):
         github_search=lambda query: [],
         fetch_page=fetch_article,
         inspect_source=fake_inspect,
+        news_crawl=fake_news_crawl,
+        news_search=fake_news_search,
+        news_older=fake_news_older,
+        review_publisher=fake_review_publisher,
+        assistant_stream=fake_assistant,
         review_llm=lambda connection: StructuredLLM(fake_review_llm(), model="fake-review", connection=connection),
     )
     with TestClient(create_app(deps)) as test_client:
@@ -254,7 +311,7 @@ def test_targeted_run_from_api(client):
 
 def test_prompt_editing_api(client):
     prompts = {p["name"] for p in client.get("/api/prompts").json()}
-    assert prompts == {"scout", "critic", "editor", "router", "chat-system", "grill", "review"}
+    assert prompts == {"scout", "critic", "editor", "router", "chat-system", "grill", "review", "news-search"}
     original = client.get("/api/prompts/critic").json()
     assert original["overridden"] is False and original["required"] == ["signals"]
 
@@ -389,3 +446,64 @@ def test_sources_can_be_inspected_added_and_removed(client, isolated_settings):
     assert removed.status_code == 200 and all(r["name"] != "vLLM" for r in removed.json()["rss"])
     assert client.delete("/api/sources", params={"kind": "rss", "value": "https://absent"}).status_code == 404
     assert client.delete("/api/sources", params={"kind": "x", "value": "y"}).status_code == 400
+
+
+def test_news_crawl_search_and_filters(client):
+    assert client.get("/api/news").json()["items"] == []
+    assert client.get("/api/health").json()["claude_search"] is True
+
+    crawl = client.post("/api/news/crawl").json()
+    assert crawl == {"counts": {"Claude Blog": 1, "OpenAI News": 1}, "errors": {}, "saved": 2}
+
+    found = client.post("/api/news/search", json={"topics": "Qwen, vLLM", "days": 3}).json()
+    assert (found["saved"], found["searches"], found["rejected"]) == (1, 2, ["https://fake.example.org"])
+    assert NEWS_SEARCHES[-1] == {"topics": "- Qwen\n- vLLM", "days": 3}
+
+    listed = client.get("/api/news").json()
+    assert {n["source"] for n in listed["items"]} == {"Claude Blog", "OpenAI News", "Web (Claude)"}
+    assert {s["source"] for s in listed["sources"]} == {"Claude Blog", "OpenAI News", "Web (Claude)"}
+    assert [n["title"] for n in client.get("/api/news?source=Claude Blog").json()["items"]] == ["Opus is out"]
+    assert [n["title"] for n in client.get("/api/news?origin=web_search").json()["items"]] == ["Qwen4"]
+    assert [n["title"] for n in client.get("/api/news?q=openai").json()["items"]] == ["OpenAI X"]
+    assert client.post("/api/news/search", json={"days": 99}).status_code == 422
+
+    page = client.get("/").text
+    assert 'id="claude-search"' in page and 'data-view="news"' in page
+
+
+def test_news_infinite_scroll_crawls_older_pages_and_documents_open(client):
+    client.post("/api/news/crawl")
+    first = client.get("/api/news?limit=1&offset=0").json()["items"]
+    second = client.get("/api/news?limit=1&offset=1").json()["items"]
+    assert [first[0]["title"], second[0]["title"]] == ["Opus is out", "OpenAI X"]
+
+    older = client.post("/api/news/older", json={"page": 2}).json()
+    assert older["saved"] == 1 and older["page"] == 2  # l'URL déjà connue n'est pas réenregistrée
+    assert client.get("/api/news?offset=2").json()["items"][0]["title"] == "Ancienne 2"
+    assert client.post("/api/news/older", json={"page": 1}).status_code == 422
+
+    detail = client.get("/api/document", params={"url": "https://claude.com/blog/opus"}).json()
+    assert detail["title"] == "Opus is out" and detail["news"]["accent"] == "#6a9bcc"
+    assert client.get("/api/document", params={"url": "https://nulle.part/x"}).status_code == 404
+
+
+def test_review_can_be_published_to_notion(client):
+    assert client.post("/api/reviews/inconnue/notion").status_code == 404
+    events = sse(client.post("/api/reviews", json={"url": "https://blog.example.org/fp8-article"}))
+    review_id = next(e for e in events if e["type"] == "review")["review"]["id"]
+
+    published = client.post(f"/api/reviews/{review_id}/notion").json()
+
+    assert published["url"] == "https://www.notion.so/veille-e2e" and PUBLISHED_REVIEWS[-1] == review_id
+
+
+def test_assistant_streams_claude_answer_with_news_context(client):
+    client.post("/api/news/crawl")
+    events = sse(client.post("/api/assistant", json={"messages": [{"role": "user", "content": "Quoi de neuf ?"}], "web": True}))
+
+    assert [e["type"] for e in events] == ["token", "token", "final"]
+    assert events[-1]["sources"] == [{"url": "https://c.org", "title": "C"}]
+    call = ASSISTANT_CALLS[-1]
+    assert call["messages"] == ["Quoi de neuf ?"] and call["web"] is True and "Opus is out" in call["context"]
+    assert client.post("/api/assistant", json={"messages": []}).status_code == 422
+    assert client.get("/api/health").json()["assistant_model"]

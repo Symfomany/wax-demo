@@ -26,8 +26,14 @@ def default_collectors(sources: dict | None = None) -> dict[str, Collector]:
     github = sources.get("github", {})
     github_mcp = sources.get("github_mcp", {})
 
+    def collect_blogs_and_feeds() -> list[Document]:
+        from app.news import blog_documents  # pages de blog sans flux RSS ([[blog]])
+
+        documents = collect_rss(sources.get("rss", []), limit_per_feed=settings.rss_max_items)
+        return documents + blog_documents(sources.get("blog", []), limit=settings.rss_max_items)
+
     collectors: dict[str, Collector] = {
-        "rss": partial(collect_rss, sources.get("rss", []), limit_per_feed=settings.rss_max_items),
+        "rss": collect_blogs_and_feeds,
         "arxiv": partial(
             collect_arxiv,
             arxiv.get("feeds", []),

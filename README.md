@@ -32,6 +32,9 @@ mise en forme.
 | | Fonctionnalité | Où |
 |---|---|---|
 | 🛰️ | **Veille multi-agents** : collecte parallèle (RSS, arXiv, releases GitHub, découverte GitHub via MCP) → Scout → Critic → Editor → **validation humaine** → rapport daté + Notion | Web · TUI · CLI |
+| 🗞️ | **Actus en cartes** (façon blog Anthropic) : crawl de `claude.com/blog` et d'OpenAI News, plus bouton **🌐 Mes actus via Claude** (API Claude + outil `web_search` sur ton profil) ; seules les URL réellement trouvées sont gardées | Web · CLI |
+| ✳ | **Assistant Claude** flottant (repliable) : conversation directe avec l'API Claude (pas le LLM local), actus récentes en contexte, recherche web 🌐 en option | Web |
+| 🔔 | **Notifications** : toasts animés, centre de notifications, notification du navigateur quand une recherche, un crawl, une review ou une veille se termine | Web |
 | 💬 | **Chat sourcé** en streaming : recherche plein texte, derniers digests, GitHub via MCP, glossaire ; chaque réponse cite ses sources `[n]` et montre les agents engagés | Web · TUI |
 | 🔬 | **Review d'une actu par URL** : scraping, synthèse selon les règles métiers du domaine, affirmations **vérifiées mot pour mot dans la page**, puis **challenge par chat** et révision | Web · TUI · CLI |
 | 📚 | **Base de connaissances** : glossaire IA/GenAI/LLM (78 termes sourcés), index de mots-clés, règles métiers par domaine, prompts cliquables, **téléversement de fichiers Markdown** | Web · TUI · CLI |
@@ -50,6 +53,16 @@ mise en forme.
 > `gemma-3-4b-it` en local.
 
 ### Interface web
+
+**Actus en cartes** — blogs crawlés, flux officiels et recherche web Claude
+
+![Actus](docs/screenshots/web-news.png)
+
+| Chat : sources en cartes, « Voir plus » | Modale : résumé et contenu collecté |
+|---|---|
+| ![Chat](docs/screenshots/web-chat-sources.png) | ![Modale](docs/screenshots/web-modal.png) |
+| **Recherche en cartes / liste** | **Assistant Claude flottant** |
+| ![Recherche](docs/screenshots/web-search-cards.png) | ![Assistant](docs/screenshots/web-assistant.png) |
 
 | Review d'une URL | Sources par URL |
 |---|---|
@@ -113,6 +126,7 @@ Toutes les commandes passent par le lanceur `bin/veille` (`bin/veille help`).
 | `bin/veille review <url> [--json]` | Review sourcée d'une actualité |
 | `bin/veille knowledge [terme] [--index] [--add f.md]` | Base de connaissances : recherche, index, ajout d'un fichier |
 | `bin/veille source add <url>` · `list` · `remove <type> <valeur>` | Sources de la veille (vérifiées avant ajout) |
+| `bin/veille news crawl` · `search ["sujets"]` · `list` | Actus en cartes : blogs crawlés, recherche web Claude |
 | `bin/veille start [--port N]` · `stop` · `restart` · `status` · `logs [-f]` | Serveur web en arrière-plan (PID et journal dans `data/`) |
 | `bin/veille web` | Serveur web au premier plan |
 | `bin/veille tui [écran]` | TUI (écrans : `home chat search review watch knowledge sources reports memory grill`) |
@@ -203,6 +217,47 @@ Refus automatiques : presse et agrégateurs (sources primaires uniquement), flux
 sans release, adresse non publique. Un aperçu (nom, nombre d'entrées, dernière entrée) est montré avant
 confirmation ; `sources.toml` est modifié **en préservant commentaires et mise en forme**, puis relu par
 `tomllib` avant d'être remplacé.
+
+### 🗞️ Actus en cartes
+
+Onglet **🗞️ Actus** : grille de cartes carrées (illustration et couleur d'origine pour le blog Claude,
+pictogramme par catégorie sinon), filtres par source, recherche, vue cartes ou liste.
+
+| Source | Collecte |
+|---|---|
+| `[[blog]]` de `sources.toml` (`claude.com/blog`) | page de liste crawlée en HTML (grille + bandeau « à la une »), résumé et image lus dans les balises meta de chaque article ; aussi collectée par la veille (`collect:rss`) |
+| `[news].rss` (`OpenAI News`) | flux RSS officiel (`openai.com/fr-FR/news/` répond HTTP 403 aux robots) |
+| **🌐 Mes actus via Claude** (barre latérale) | API Claude (`NEWS_MODEL`) + outil serveur `web_search` sur les mots-clés du profil Grill-me ou des sujets saisis |
+
+Pour la recherche web, Claude ne renvoie que des URL ; **titre, URL et date sont recopiés des résultats
+`web_search`**, et une URL absente des résultats (ou hors période, ou exclue par le profil) est écartée.
+Tout est validé par Pydantic (`NewsItem`) avant la table `news` (migration v6).
+
+```bash
+bin/veille news crawl                          # claude.com/blog + OpenAI News
+bin/veille news search "Qwen, vLLM" --days 7   # clé CLAUDE_API dans .env
+bin/veille news list -s "Claude Blog"
+```
+
+### ✨ Interface : Scouty, notifications, modales, assistant
+
+- **Scouty**, petite créature animée (SVG + CSS, respecte `prefers-reduced-motion`), accompagne les
+  attentes : chat, recherche, review, crawl, recherche web et défilement des actus.
+- **Notifications** : toasts empilés avec barre de vie et action (« Voir les actus », « Ouvrir la page
+  Notion »…), centre 🔔 (historique local au navigateur), notification système si l'onglet est en
+  arrière-plan (permission demandée au premier crawl ou à la première recherche).
+- **Défilement infini** des actus : pages suivantes en base, puis, au bout, pages plus anciennes des
+  blogs (`?<id>_page=N` de la liste Webflow) et suite des flux officiels (`POST /api/news/older`).
+- **Chat** : réponses en carte, longues réponses repliées (« Voir plus »), bouton copier, sources en
+  **cartes ou liste** ; un clic sur une source ou sur une citation `[n]` ouvre une **modale** avec ce que
+  la veille a collecté et résumé (résumé, pourquoi c'est important, affirmations, contenu collecté,
+  review éventuelle), le lien vers l'article et les actions citer / review. Même vue dans 🔎 Recherche.
+- **Review → Notion** : bouton « 📝 Publier dans Notion » (deux clics : confirmation) ; la review est
+  ajoutée à la page de veille active via le serveur MCP (seule page que la veille peut compléter), puis
+  reprise dans une section « 🔬 Reviews d'actualités » à chaque reconstruction de la page.
+- **Assistant Claude** (bouton ✳ en bas à droite) : panneau repliable qui appelle **directement l'API
+  Claude** (`ASSISTANT_MODEL`, clé `CLAUDE_API`) en streaming, avec les dernières actus en contexte ;
+  🌐 active l'outil `web_search` et affiche les pages citées.
 
 ### 📝 Page Notion
 
@@ -304,6 +359,8 @@ Tout se règle dans `.env` (modèle : [.env.example](.env.example)) — jamais v
 |---|---|---|
 | `LLM_PROVIDER` · `LLM_MODEL` · `LLM_BASE_URL` | `ollama` \| `openai` \| `anthropic`, modèle, URL | `ollama` · `gemma-3-4b-it` |
 | `ANTHROPIC_API_KEY` | clé API Claude (si `anthropic`) | — |
+| `CLAUDE_API` · `NEWS_MODEL` · `NEWS_SEARCH_TOOL` · `NEWS_SEARCH_MAX_USES` | recherche web des actus (clé, modèle, outil, recherches par appel) | — · `claude-sonnet-5` · `web_search_20250305` · 5 |
+| `ASSISTANT_MODEL` · `CLAUDE_WORKSPACE_ID` | assistant Claude flottant ; workspace si la clé n'y est pas rattachée | `claude-sonnet-5` · — |
 | `MAX_LLM_CALLS` · `MAX_DOCUMENTS_PER_RUN` · `MAX_AGE_DAYS` | budgets d'une veille | 20 · 24 · 14 |
 | `HUMAN_APPROVAL` | arrêt avant publication | `true` |
 | `GITHUB_TOKEN` | quota API GitHub (collecte, sources) | — |

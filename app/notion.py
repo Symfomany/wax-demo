@@ -158,7 +158,48 @@ def archive_blocks(record: dict) -> list[dict]:
                    is_toggleable=True, children=children)]
 
 
-def page_blocks(records: list[dict], now: datetime | None = None, images: dict[str, str] | None = None) -> list[dict]:
+def review_blocks(record: dict) -> list[dict]:
+    """Review d'une actualité (onglet Review) : section repliable — titre lié, synthèse, pourquoi,
+    scores, points clés, affirmations étayées (avec citation), risques, métadonnées."""
+    analysis, page = record["analysis"], record["page"]
+    supported = [c for c in analysis.get("claims", []) if c.get("status") == "etaye"]
+    meta = [_text(f"🌐 {page.get('site') or urlsplit(page['final_url']).netloc}", color="gray")]
+    if page.get("published_at"):
+        meta.append(_text(f" · 📅 {page['published_at'][:10]}", color="gray"))
+    meta += [_text(" · 🔗 ", color="gray"), _text("article", url=page["final_url"], color="gray"),
+             _text(f" · révision {record.get('revision', 1)} · {record.get('model', '')}", color="gray")]
+    children = [
+        _callout([_text("Synthèse — ", bold=True), _text(analysis["summary"])], "📝", "gray_background"),
+        _callout([_text("Pourquoi c'est important : ", bold=True), _text(analysis["why_it_matters"])],
+                 "💡", "yellow_background"),
+        _block("paragraph", [_text(
+            f"🎯 Pertinence {analysis['relevance']}/10 · 🆕 Nouveauté {analysis['novelty']}/10 · "
+            f"🔒 Confiance {analysis['confidence']}/10 · source {analysis.get('source_type', '?')}"
+            + (f" · domaines : {', '.join(page.get('domains', []))}" if page.get("domains") else ""), bold=True)]),
+        *(_block("bulleted_list_item", [_text(point)]) for point in analysis.get("key_points", [])[:8]),
+    ]
+    for claim in supported[:6]:
+        children.append(_block("bulleted_list_item", [_text("✓ ", color="green"), _text(claim["claim"])]))
+        if claim.get("quote"):
+            children.append(_block("quote", [_text(f"« {claim['quote']} »", italic=True)]))
+    children += [_block("bulleted_list_item", [_text("⚠ ", color="orange"), _text(risk)])
+                 for risk in analysis.get("risks", [])[:5]]
+    children.append(_block("paragraph", meta))
+    return [_block("heading_3", [_text("🔬 "), _text(record["title"], url=page["final_url"])],
+                   is_toggleable=True, children=children[:90])]
+
+
+def reviews_section(reviews: list[dict]) -> list[dict]:
+    if not reviews:
+        return []
+    blocks = [_block("heading_1", [_text(f"🔬 Reviews d'actualités ({len(reviews)})")])]
+    for record in reviews:
+        blocks.extend(review_blocks(record))
+    return blocks + [DIVIDER]
+
+
+def page_blocks(records: list[dict], now: datetime | None = None, images: dict[str, str] | None = None,
+                reviews: list[dict] | None = None) -> list[dict]:
     now = now or datetime.now(timezone.utc)
     total = sum(len(r["digest"]["items"]) for r in records)
     intro = _callout(
@@ -172,6 +213,8 @@ def page_blocks(records: list[dict], now: datetime | None = None, images: dict[s
     blocks = [intro, {"object": "block", "type": "table_of_contents", "table_of_contents": {}}, DIVIDER]
     if records:
         blocks.extend(digest_blocks(records[0], images))
+    blocks.extend(reviews_section(reviews or []))  # reviews publiées : conservées à chaque reconstruction
+    if records:
         if len(records) > 1:
             blocks.append(_block("heading_1", [_text("🗂️ Veilles précédentes")]))
         for record in records[1:]:
@@ -277,10 +320,45 @@ def sync_notion(
         python_stdio("notion_server.py", {"NOTION_TOKEN": token, "NOTION_API_URL": api_url}),
         parent_page_id,
         f"Veille GenAI — {len(records)} dernières veilles ({now:%d/%m/%Y})",
-        page_blocks(records, now, images),
+        page_blocks(records, now, images, storage.published_reviews(connection)),
         previous["page_id"] if previous else None,
         audit_log,
         cover=next((images[url] for url in latest if url in images), None),
     ))
     storage.record_notion_page(connection, result["page_id"], result["url"], [r["id"] for r in records])
     return result | {"digests": len(records)}
+
+
+# --- Publication d'une review (onglet Review) ----------------------------------------------------
+
+
+async def _append(connection_config: dict, parent_page_id: str, page_id: str, blocks: list[dict],
+                  audit_log: list[str] | None) -> dict:
+    guard = make_mcp_guard(audit_log, policy=notion_policy(parent_page_id, {page_id}))
+    client = MultiServerMCPClient({"notion": connection_config})
+    async with client.session("notion") as session:
+        tools = {tool.name: tool
+                 for tool in await load_mcp_tools(session, tool_interceptors=[guard], server_name="notion")}
+        return tool_payload(await tools["append_blocks"].ainvoke({"block_id": page_id, "children": blocks}))
+
+
+def publish_review(connection, review_id: str, token: str, parent_page_id: str, api_url: str | None = None,
+                   audit_log: list[str] | None = None, now: datetime | None = None) -> dict:
+    """Ajoute la review à la page de veille active (seule page que la veille peut compléter), puis la
+    marque publiée : elle est reprise dans la section « Reviews » à chaque reconstruction de la page."""
+    record = storage.get_review(connection, review_id)
+    if record is None:
+        raise RuntimeError("Review inconnue.")
+    page = storage.current_notion_page(connection)
+    if page is None:
+        raise RuntimeError("Aucune page Notion de veille : publiez d'abord la page (onglet Rapports, "
+                           "« Mets à jour la page Notion » ou `notion-sync`).")
+    blocks = review_blocks(record)
+    result = run_mcp(_append(
+        python_stdio("notion_server.py", {"NOTION_TOKEN": token, "NOTION_API_URL": api_url}),
+        parent_page_id, page["page_id"], blocks, audit_log,
+    ))
+    now = now or datetime.now(timezone.utc)
+    stored = {key: value for key, value in record.items() if key not in {"created_at", "updated_at"}}
+    storage.save_review(connection, stored | {"notion": {"page_url": page["url"], "published_at": now.isoformat()}})
+    return {"url": page["url"], "blocks": result.get("appended", len(blocks)), "title": record["title"]}

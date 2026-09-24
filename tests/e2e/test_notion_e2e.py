@@ -176,3 +176,43 @@ def test_sync_illustrates_the_latest_digest_with_page_images(connection, tmp_pat
     assert set(seen) == {"https://example.org/2"}  # seules les ressources de la dernière veille
     assert body["cover"] == {"type": "external", "external": {"url": "https://img.example.org/cover.png"}}
     assert any(b["type"] == "image" for b in body["children"])
+
+
+REVIEW = {
+    "id": "rev-1", "url": "https://example.org/a", "title": "Qwen4 sort en open weights", "conversation_id": "c-1",
+    "revision": 1, "model": "fake", "warnings": [],
+    "page": {"final_url": "https://example.org/a", "site": "example.org", "published_at": "2026-09-20", "domains": ["LLM"]},
+    "analysis": {"summary": "Synthèse.", "why_it_matters": "Licence Apache.", "relevance": 8, "novelty": 7, "confidence": 9,
+                 "source_type": "primaire", "key_points": ["Point 1"], "risks": ["Risque 1"],
+                 "claims": [{"claim": "Poids ouverts", "quote": "open weights", "status": "etaye", "kind": "fait"},
+                            {"claim": "Inventé", "quote": "", "status": "non_etaye", "kind": "fait"}]},
+}
+
+
+def test_review_is_appended_to_the_current_page_then_kept_on_rebuild(connection, tmp_path, fake_notion):
+    from app.notion import publish_review
+
+    storage.save_review(connection, REVIEW)
+    with pytest.raises(RuntimeError, match="Aucune page Notion"):
+        publish_review(connection, "rev-1", "ntn_test", PARENT, api_url=fake_notion)
+
+    seed_digests(connection, tmp_path, 1)
+    page = sync_notion(connection, "ntn_test", PARENT, api_url=fake_notion, now=NOW)
+    audit: list[str] = []
+    result = publish_review(connection, "rev-1", "ntn_test", PARENT, api_url=fake_notion, audit_log=audit, now=NOW)
+
+    append = FakeNotion.calls[-1]
+    assert append["method"] == "PATCH" and append["path"] == f"/v1/blocks/{page['page_id']}/children"
+    toggle = append["body"]["children"][0]
+    assert toggle["type"] == "heading_3" and toggle["heading_3"]["is_toggleable"]
+    assert toggle["heading_3"]["rich_text"][1]["text"]["link"] == {"url": "https://example.org/a"}
+    texts = json.dumps(toggle["heading_3"]["children"], ensure_ascii=False)
+    assert "Synthèse." in texts and "« open weights »" in texts and "Inventé" not in texts  # affirmations étayées seulement
+    assert result == {"url": page["url"], "blocks": 1, "title": "Qwen4 sort en open weights"}
+    assert audit[0].startswith("notion.append_blocks(")
+    assert storage.get_review(connection, "rev-1")["notion"]["page_url"] == page["url"]
+
+    sync_notion(connection, "ntn_test", PARENT, api_url=fake_notion, now=NOW)  # reconstruction : la review reste
+    rebuilt = [c for c in FakeNotion.calls if c["method"] == "POST" and c["path"] == "/v1/pages"][-1]["body"]["children"]
+    headings = [b["heading_1"]["rich_text"][0]["text"]["content"] for b in rebuilt if b["type"] == "heading_1"]
+    assert "🔬 Reviews d'actualités (1)" in headings

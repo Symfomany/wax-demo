@@ -133,6 +133,20 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX reviews_updated ON reviews(updated_at);
     """,
+    # v6 — actus en cartes (onglet Actus) : blogs crawlés, flux RSS et recherche web Claude
+    """
+    CREATE TABLE news (
+        id TEXT PRIMARY KEY,
+        url TEXT NOT NULL UNIQUE,
+        source TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        title TEXT NOT NULL,
+        published_at TEXT,
+        record_json TEXT NOT NULL,
+        fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX news_published ON news(published_at);
+    """,
 ]
 
 
@@ -329,7 +343,7 @@ def cache_set(connection: sqlite3.Connection, key: str, model: str, response_jso
 def memory_stats(connection: sqlite3.Connection) -> dict[str, int]:
     tables = [
         "documents", "digests", "published_items", "feedback", "llm_cache", "runs",
-        "conversations", "notion_pages", "traces", "reviews",
+        "conversations", "notion_pages", "traces", "reviews", "news",
     ]
     return {
         table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -553,6 +567,16 @@ def get_review(connection: sqlite3.Connection, review_id: str) -> dict | None:
 
 
 @locked
+def published_reviews(connection: sqlite3.Connection, limit: int = 10) -> list[dict]:
+    """Reviews publiées dans Notion (marque `notion` du record), les plus récentes d'abord."""
+    rows = connection.execute(
+        "SELECT record_json FROM reviews WHERE json_extract(record_json, '$.notion') IS NOT NULL "
+        "ORDER BY updated_at DESC, rowid DESC LIMIT ?", (limit,),
+    ).fetchall()
+    return [json.loads(row[0]) for row in rows]
+
+
+@locked
 def list_reviews(connection: sqlite3.Connection, limit: int = 30) -> list[dict]:
     rows = connection.execute(
         "SELECT id, url, title, revision, created_at, updated_at, record_json FROM reviews "
@@ -565,5 +589,107 @@ def list_reviews(connection: sqlite3.Connection, limit: int = 30) -> list[dict]:
         reviews.append({"id": row[0], "url": row[1], "title": row[2], "revision": row[3],
                         "created_at": row[4], "updated_at": row[5],
                         "site": record["page"].get("site", ""), "domains": record["page"].get("domains", []),
-                        "relevance": record["analysis"]["relevance"]})
+                        "relevance": record["analysis"]["relevance"], "notion": record.get("notion")})
     return reviews
+
+
+# --- Actus (v6) ------------------------------------------------------------------
+
+
+@locked
+def save_news(connection: sqlite3.Connection, records: Iterable[dict]) -> int:
+    """Insère ou met à jour des actus (records déjà validés par app.news.NewsItem)."""
+    count = 0
+    for record in records:
+        connection.execute(
+            """
+            INSERT INTO news (id, url, source, origin, title, published_at, record_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(url) DO UPDATE SET source = excluded.source, origin = excluded.origin,
+                                           title = excluded.title,
+                                           published_at = COALESCE(excluded.published_at, news.published_at),
+                                           record_json = excluded.record_json,
+                                           fetched_at = CURRENT_TIMESTAMP
+            """,
+            (record["id"], record["url"], record["source"], record["origin"], record["title"][:300],
+             record.get("published_at"), json.dumps(record, ensure_ascii=False)),
+        )
+        count += 1
+    connection.commit()
+    return count
+
+
+@locked
+def list_news(connection: sqlite3.Connection, source: str | None = None, origin: str | None = None,
+              query: str | None = None, limit: int = 60, offset: int = 0) -> list[dict]:
+    """Actus les plus récentes d'abord (date de publication, sinon date de collecte)."""
+    clauses, params = [], []
+    if source:
+        clauses.append("source = ?")
+        params.append(source)
+    if origin:
+        clauses.append("origin = ?")
+        params.append(origin)
+    if query:
+        clauses.append("(title LIKE ? OR record_json LIKE ?)")
+        params += [f"%{query}%", f"%{query}%"]
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = connection.execute(
+        f"SELECT record_json, fetched_at FROM news {where} "
+        "ORDER BY COALESCE(published_at, substr(fetched_at, 1, 10)) DESC, fetched_at DESC, rowid DESC LIMIT ? OFFSET ?",
+        (*params, limit, offset),
+    ).fetchall()
+    return [json.loads(row[0]) | {"fetched_at": row[1]} for row in rows]
+
+
+@locked
+def news_sources(connection: sqlite3.Connection) -> list[dict]:
+    rows = connection.execute(
+        "SELECT source, origin, COUNT(*), MAX(fetched_at) FROM news GROUP BY source, origin ORDER BY COUNT(*) DESC"
+    ).fetchall()
+    return [{"source": r[0], "origin": r[1], "count": r[2], "fetched_at": r[3]} for r in rows]
+
+
+@locked
+def news_urls(connection: sqlite3.Connection) -> set[str]:
+    return {row[0] for row in connection.execute("SELECT url FROM news")}
+
+
+@locked
+def document_detail(connection: sqlite3.Connection, url: str) -> dict | None:
+    """Tout ce que la veille sait d'une URL : document collecté, actu, fiche de digest publiée, review."""
+    detail: dict = {"url": url}
+    row = connection.execute(
+        "SELECT source, title, published_at, summary, content, tags_json, collected_at FROM documents WHERE url = ?",
+        (url,),
+    ).fetchone()
+    if row:
+        detail |= {"source": row[0], "title": row[1], "published_at": row[2], "summary": row[3],
+                   "content": row[4][:4000], "tags": json.loads(row[5]), "collected_at": row[6]}
+    news = connection.execute("SELECT record_json, fetched_at FROM news WHERE url = ?", (url,)).fetchone()
+    if news:
+        record = json.loads(news[0])
+        detail.setdefault("title", record["title"])
+        detail.setdefault("published_at", record.get("published_at"))
+        if not detail.get("summary"):
+            detail["summary"] = record.get("summary", "")
+        detail["news"] = {key: record.get(key) for key in ("source", "origin", "category", "image", "accent", "why")}
+        detail.setdefault("collected_at", news[1])
+    published = connection.execute(
+        "SELECT p.digest_id, d.generated_at, d.payload_json FROM published_items p "
+        "JOIN digests d ON d.id = p.digest_id WHERE p.url = ?", (url,),
+    ).fetchone()
+    if published:
+        item = next((i for i in json.loads(published[2]).get("items", []) if i.get("url") == url), None)
+        if item:
+            detail.setdefault("title", item["title"])
+            detail["digest"] = {"id": published[0], "generated_at": published[1], "summary": item.get("summary", ""),
+                                "why_it_matters": item.get("why_it_matters", ""), "claims": item.get("claims", [])}
+    review = connection.execute(
+        "SELECT id, record_json FROM reviews WHERE url = ? OR json_extract(record_json, '$.page.final_url') = ? "
+        "ORDER BY updated_at DESC LIMIT 1", (url, url),
+    ).fetchone()
+    if review:
+        analysis = json.loads(review[1])["analysis"]
+        detail["review"] = {"id": review[0], "relevance": analysis["relevance"], "summary": analysis["summary"]}
+    return detail if len(detail) > 1 else None

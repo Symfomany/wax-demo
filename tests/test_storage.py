@@ -158,7 +158,7 @@ def test_v5_adds_reviews_to_a_v4_database(tmp_path):
 
     connection = storage.connect(path)
 
-    assert storage.schema_version(connection) == 5
+    assert storage.schema_version(connection) == len(storage.MIGRATIONS)
     assert storage.memory_stats(connection)["traces"] == 1
     assert storage.memory_stats(connection)["reviews"] == 0
     columns = {row[1] for row in connection.execute("PRAGMA table_info(reviews)")}
@@ -176,8 +176,82 @@ def test_review_round_trip_and_revision(connection):
     assert storage.list_reviews(connection) == [{
         "id": "r1", "url": "https://example.org/a", "title": "A", "revision": 2,
         "created_at": saved["created_at"], "updated_at": saved["updated_at"],
-        "site": "example.org", "domains": ["LLM"], "relevance": 4,
+        "site": "example.org", "domains": ["LLM"], "relevance": 4, "notion": None,
     }]
     assert storage.get_review(connection, "absent") is None
     with pytest.raises(sqlite3.IntegrityError):  # une conversation de challenge par review
         storage.save_review(connection, record | {"id": "r2"})
+
+
+def test_v6_adds_news_to_a_v5_database(tmp_path):
+    path = tmp_path / "v5.db"
+    legacy = sqlite3.connect(path)
+    legacy.executescript("".join(storage.MIGRATIONS[:5]) + "PRAGMA user_version = 5;")
+    legacy.execute("INSERT INTO reviews (id, url, title, conversation_id, record_json) VALUES ('r', 'u', 'T', 'c', '{}')")
+    legacy.commit()
+    legacy.close()
+
+    connection = storage.connect(path)
+
+    assert storage.schema_version(connection) == 6
+    assert storage.memory_stats(connection)["reviews"] == 1
+    assert storage.memory_stats(connection)["news"] == 0
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(news)")}
+    assert columns >= {"id", "url", "source", "origin", "title", "published_at", "record_json", "fetched_at"}
+
+
+def test_news_upsert_order_and_filters(connection):
+    def item(n, date, source="Claude Blog", origin="blog"):
+        return {"id": f"n{n}", "url": f"https://example.org/{n}", "title": f"Actu {n}", "source": source,
+                "origin": origin, "published_at": date, "summary": f"résumé {n}"}
+
+    storage.save_news(connection, [item(1, "2026-09-20"), item(2, "2026-09-24"),
+                                   item(3, None, "Web (Claude)", "web_search")])
+    storage.save_news(connection, [item(1, None) | {"title": "Actu 1 bis"}])  # date conservée
+
+    news = storage.list_news(connection)
+    assert [n["id"] for n in news][1:] == ["n2", "n1"]  # sans date : date de collecte (aujourd'hui) d'abord
+    assert storage.list_news(connection, source="Claude Blog")[1]["title"] == "Actu 1 bis"
+    assert connection.execute("SELECT published_at FROM news WHERE id = 'n1'").fetchone()[0] == "2026-09-20"
+    assert [n["id"] for n in storage.list_news(connection, origin="web_search")] == ["n3"]
+    assert [n["id"] for n in storage.list_news(connection, query="résumé 2")] == ["n2"]
+    assert {(s["source"], s["count"]) for s in storage.news_sources(connection)} == {("Claude Blog", 2), ("Web (Claude)", 1)}
+
+
+def test_news_offset_and_known_urls(connection):
+    storage.save_news(connection, [{"id": f"n{i}", "url": f"https://e.org/{i}", "title": f"T{i}", "source": "S",
+                                    "origin": "rss", "published_at": f"2026-09-{i:02d}"} for i in range(1, 6)])
+    assert [n["id"] for n in storage.list_news(connection, limit=2, offset=2)] == ["n3", "n2"]
+    assert storage.news_urls(connection) == {f"https://e.org/{i}" for i in range(1, 6)}
+
+
+def test_document_detail_merges_document_news_digest_and_review(connection, tmp_path):
+    from app.schemas import Document
+
+    url = "https://blog.example.org/fp8"
+    storage.save_documents(connection, [Document(source="rss", title="FP8", url=url, summary="Résumé collecté",
+                                                 content="Texte collecté", tags=["rss", "vllm"])])
+    storage.save_news(connection, [{"id": "n", "url": url, "title": "FP8", "source": "Blog", "origin": "blog",
+                                    "image": "https://img/x.svg", "accent": "#6a9bcc"}])
+    digest = {"generated_at": "2026-09-24T08:00:00Z", "executive_summary": "E", "items": [
+        {"title": "FP8", "url": url, "source": "rss", "summary": "Résumé digest", "why_it_matters": "Important",
+         "claims": ["2x"], "tags": []}]}
+    storage.record_digest(connection, "run", digest, tmp_path / "d.md", tmp_path / "d.json")
+    storage.save_review(connection, {"id": "r", "url": url, "title": "FP8", "conversation_id": "c", "revision": 1,
+                                     "page": {"final_url": url}, "analysis": {"relevance": 8, "summary": "Revue"}})
+
+    detail = storage.document_detail(connection, url)
+
+    assert (detail["title"], detail["summary"], detail["content"]) == ("FP8", "Résumé collecté", "Texte collecté")
+    assert detail["news"]["image"] == "https://img/x.svg"
+    assert detail["digest"]["why_it_matters"] == "Important" and detail["digest"]["claims"] == ["2x"]
+    assert detail["review"] == {"id": "r", "relevance": 8, "summary": "Revue"}
+    assert storage.document_detail(connection, "https://inconnue.org") is None
+
+
+def test_published_reviews_are_those_marked_notion(connection):
+    base = {"url": "https://e.org", "title": "T", "conversation_id": "c", "revision": 1, "page": {}, "analysis": {"relevance": 1}}
+    storage.save_review(connection, base | {"id": "a", "conversation_id": "c1"})
+    storage.save_review(connection, base | {"id": "b", "conversation_id": "c2", "notion": {"page_url": "u", "published_at": "t"}})
+    assert [r["id"] for r in storage.published_reviews(connection)] == ["b"]
+    assert {r["id"]: r["notion"] for r in storage.list_reviews(connection)}["a"] is None
