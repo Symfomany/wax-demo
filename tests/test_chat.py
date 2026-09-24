@@ -229,3 +229,64 @@ def test_guard_normalizes_citation_lists():
     text, warnings = guard_answer("Vu dans [1, 2] et [2, 9].", sources)
     assert text == "Vu dans [1][2] et [2]."
     assert warnings == ["Citation [9] sans source retirée"]
+
+
+# --- Base de connaissances et challenge d'une review ----------------------------------------
+
+
+@pytest.mark.parametrize("message", [
+    "C'est quoi le KV cache ?",
+    "Qu'est-ce que le RAG ?",
+    "Définition de la quantification",
+    "Quelles sont les règles métiers pour les agents ?",
+])
+def test_knowledge_questions_are_routed_to_the_knowledge_base(message):
+    assert rule_route(message).tool == "knowledge_search"
+
+
+def test_knowledge_answer_cites_glossary_entries(services):
+    seen = []
+
+    class SpyModel(GenericFakeChatModel):
+        def _generate(self, messages, *args, **kwargs):
+            seen.append(messages[0].content)
+            return super()._generate(messages, *args, **kwargs)
+
+    graph = make_chat(services, model=SpyModel(messages=iter([AIMessage("Le KV cache mémorise les clés [1].")])))
+    _, final = run(graph, "C'est quoi le KV cache ?")
+
+    assert final["tool"] == "knowledge_search"
+    assert final["sources"][0]["title"] == "KV cache"
+    assert final["sources"][0]["url"] == "#k=glossaire/kv-cache"  # entrée sans source externe
+    assert "[1] KV cache (glossaire, Inférence)" in seen[0]
+    assert final["engaged"]["data"] == ["knowledge/ (glossaire, règles métiers, notes)"]
+
+
+def test_review_conversation_challenges_the_review(services):
+    from app.review import ReviewContext, build_review_graph, extract_page
+    from tests.conftest import ARTICLE_HTML, ARTICLE_URL, fake_review_llm
+
+    context = ReviewContext(llm=StructuredLLM(fake_review_llm(), model="fake-review"), connection=services.connection,
+                            fetch=lambda url: extract_page(ARTICLE_HTML, url))
+    record = build_review_graph(context).invoke({"url": ARTICLE_URL})["record"]
+    seen = []
+
+    class SpyModel(GenericFakeChatModel):
+        def _generate(self, messages, *args, **kwargs):
+            seen.append(messages[0].content)
+            return super()._generate(messages, *args, **kwargs)
+
+    graph = make_chat(services, model=SpyModel(messages=iter([
+        AIMessage("L'article parle d'un benchmark interne [1]."), AIMessage("Oui [1]."),
+    ])))
+    events = list(stream_chat(graph, record["conversation_id"], "Le gain de 1.8x est-il mesuré avec un protocole ?",
+                              {}, review_id=record["id"]))
+    final = events[-1]
+
+    assert final["tool"] == "challenge_review"
+    assert final["sources"][0]["url"] == ARTICLE_URL
+    assert "MODE CHALLENGE" in seen[0] and "batch size 64" in seen[0]
+    assert "NON étayée" in seen[0]  # la review transmise signale l'affirmation non étayée
+    # Le fil reste en mode challenge sans renvoyer review_id (état conservé par le checkpointer).
+    _, second = run(graph, "Et la date ?", conversation=record["conversation_id"])
+    assert second["tool"] == "challenge_review"

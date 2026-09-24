@@ -106,3 +106,88 @@ def test_cycle_with_nothing_pending_stops_cleanly(veille):
     result, calls = veille("cycle", "--approve")
     assert result.returncode == 0 and "sans validation en attente" in result.stdout
     assert calls[-1] == "pending"
+
+
+# --- Serveur web en arrière-plan : start / status / restart / stop / logs --------------------
+
+# Faux serveur : répond 200 à /api/health ; « app.main web » reste visible dans `ps`.
+SERVER = """
+import json, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+port = int(sys.argv[sys.argv.index("--port") + 1])
+class Health(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = json.dumps({"ollama": True, "model": "fake", "model_available": True, "notion": False,
+                           "memory": {"documents": 3}}).encode()
+        self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *args):
+        print("requête", self.path, flush=True)
+HTTPServer(("127.0.0.1", port), Health).serve_forever()
+"""
+WEB_STUB = f"""#!/usr/bin/env bash
+shift 2   # -m app.main
+if [[ "$1" == web ]]; then exec python3 -c '{SERVER}' app.main "$@"; fi
+if [[ "$1" == crash ]]; then echo "ImportError: boom"; exit 1; fi
+"""
+
+
+def free_port() -> int:
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@pytest.fixture
+def server(tmp_path):
+    stub = tmp_path / "python"
+    stub.write_text(WEB_STUB)
+    stub.chmod(0o755)
+    env = os.environ | {"VEILLE_PYTHON": str(stub), "VEILLE_RUN_DIR": str(tmp_path / "run"),
+                        "VEILLE_START_TIMEOUT": "10"}
+
+    def call(*args):
+        return subprocess.run([str(SCRIPT), *args], capture_output=True, text=True, env=env, timeout=60)
+
+    yield call, tmp_path / "run"
+    call("stop")
+
+
+def test_start_status_restart_stop_and_logs(server):
+    call, run_dir = server
+    port = str(free_port())
+
+    assert call("status").returncode == 3
+    started = call("start", "--port", port)
+    assert started.returncode == 0, started.stderr
+    assert f"http://127.0.0.1:{port}" in started.stdout
+    first_pid = (run_dir / "web.pid").read_text().strip()
+
+    again = call("start", "--port", port)
+    assert "déjà démarré" in again.stdout
+
+    status = call("status")
+    assert status.returncode == 0 and f"PID {first_pid}" in status.stdout
+    assert "LLM : fake disponible" in status.stdout
+
+    restarted = call("restart")  # même port, sans le repréciser
+    assert restarted.returncode == 0 and f":{port}" in restarted.stdout
+    assert (run_dir / "web.pid").read_text().strip() != first_pid
+
+    assert "requête /api/health" in call("logs").stdout
+    stopped = call("stop")
+    assert "Serveur arrêté" in stopped.stdout and not (run_dir / "web.pid").exists()
+    assert "Aucun serveur" in call("stop").stdout
+
+
+def test_start_refuses_a_busy_port_and_stale_pid_files(server):
+    call, run_dir = server
+    port = str(free_port())
+    assert call("start", "--port", port).returncode == 0
+    (run_dir / "web.pid").write_text("999999")  # PID périmé : le serveur actif n'est plus suivi
+    busy = call("start", "--port", port)
+    assert busy.returncode == 2 and "répond déjà" in busy.stderr
+    assert call("start", "--port", "abc").returncode == 2
+    assert call("start", "--bogus").returncode == 2

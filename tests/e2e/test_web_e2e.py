@@ -22,7 +22,8 @@ from app.runtime import open_graph
 from app.web.runs import RunManager
 from app.web.server import WebDeps, create_app
 from app.workflow.state import HarnessContext
-from tests.conftest import NOW, documents, fake_ollama, make_document
+from app.review import FetchError, extract_page
+from tests.conftest import ARTICLE_HTML, ARTICLE_URL, NOW, documents, fake_ollama, fake_review_llm, make_document
 
 DOCS = documents(*(make_document(i, "rss") for i in range(4)))
 
@@ -31,6 +32,12 @@ def chat_router(tool="search_watch", query="quantization"):
     return lambda connection: StructuredLLM(
         lambda messages, schema: json.dumps({"tool": tool, "query": query}), model="fake-router"
     )
+
+
+def fetch_article(url: str):
+    if "broken" in url:
+        raise FetchError("La page a répondu HTTP 404.")
+    return extract_page(ARTICLE_HTML, url)
 
 
 @pytest.fixture
@@ -68,6 +75,8 @@ def client(isolated_settings, notion_calls):
         graph_factory=graph_factory,
         notion_sync=notion_sync,
         github_search=lambda query: [],
+        fetch_page=fetch_article,
+        review_llm=lambda connection: StructuredLLM(fake_review_llm(), model="fake-review", connection=connection),
     )
     with TestClient(create_app(deps)) as test_client:
         yield test_client
@@ -233,7 +242,7 @@ def test_targeted_run_from_api(client):
 
 def test_prompt_editing_api(client):
     prompts = {p["name"] for p in client.get("/api/prompts").json()}
-    assert prompts == {"scout", "critic", "editor", "router", "chat-system", "grill"}
+    assert prompts == {"scout", "critic", "editor", "router", "chat-system", "grill", "review"}
     original = client.get("/api/prompts/critic").json()
     assert original["overridden"] is False and original["required"] == ["signals"]
 
@@ -279,3 +288,69 @@ def test_chat_opens_grill_me(client):
 def test_chat_answer_has_no_langfuse_link_when_disabled(client):
     final = sse(client.post("/api/chat", json={"message": "quoi de neuf ?"}))[-1]
     assert final["langfuse"] is None
+
+
+# --- Base de connaissances ---------------------------------------------------------------------
+
+NOTE = "---\ntitle: Notes\ntype: glossaire\n---\n\n## Late chunking\nDomaine : RAG\n\nDécouper après l'encodage."
+
+
+def test_knowledge_base_api(client, isolated_settings):
+    base = client.get("/api/knowledge").json()
+    assert {f["name"] for f in base["files"]} >= {"glossaire.md", "regles-metiers.md", "prompts-veille.md"}
+    assert "Inférence" in base["domains"] and base["errors"] == []
+    assert any(item["term"] == "RAG" for item in client.get("/api/knowledge/index").json())
+    assert client.get("/api/knowledge/search", params={"q": "kv cache"}).json()[0]["title"] == "KV cache"
+
+    assert client.post("/api/knowledge", json={"filename": "Mes notes.md", "content": NOTE}).status_code == 201
+    assert (isolated_settings / "knowledge" / "mes-notes.md").exists()
+    assert client.post("/api/knowledge", json={"filename": "mes-notes.md", "content": NOTE}).status_code == 409
+    assert client.post("/api/knowledge", json={"filename": "mes-notes.md", "content": NOTE, "replace": True}).status_code == 201
+    assert client.post("/api/knowledge", json={"filename": "x.md", "content": "## A\nSource : nope\n\nt"}).status_code == 400
+    entries = client.get("/api/knowledge").json()["entries"]
+    assert any(e["id"] == "mes-notes/late-chunking" and e["origin"] == "upload" for e in entries)
+    assert client.get("/api/knowledge/files/mes-notes.md").json()["origin"] == "upload"
+
+    assert client.delete("/api/knowledge/mes-notes.md").status_code == 200
+    assert client.delete("/api/knowledge/glossaire.md").status_code == 404  # fichier du dépôt : protégé
+    assert client.get("/api/knowledge/files/..%2F.env").status_code == 404
+
+
+# --- Review d'une actualité --------------------------------------------------------------------
+
+
+def test_review_from_url_then_challenge_and_revise(client):
+    events = sse(client.post("/api/reviews", json={"url": ARTICLE_URL}))
+    assert [e["node"] for e in events if e["type"] == "step"] == ["fetch", "analyze", "guard", "save"]
+    final = events[-1]
+    review = final["review"]
+    assert review["title"] == "vLLM 0.9 adds an FP8 KV cache"
+    assert [c["status"] for c in review["analysis"]["claims"]] == ["etaye", "non_etaye"]
+    assert any("Citation introuvable" in w for w in review["warnings"])
+
+    trace = client.get(final["trace_url"].replace("/trace/", "/api/traces/")).json()
+    assert trace["kind"] == "article" and trace["diagrams"][0]["graph"] == "review"
+    assert client.get("/api/reviews").json()[0]["id"] == review["id"]
+    assert client.get(f"/api/reviews/{review['id']}").json()["trace_url"] == final["trace_url"]
+
+    # Pas de révision sans débat
+    assert client.post(f"/api/reviews/{review['id']}/revise").status_code == 409
+
+    chat = sse(client.post("/api/chat", json={"message": "Le 1.8x est-il mesuré ?", "review_id": review["id"]}))
+    assert chat[0] == {"type": "conversation", "id": review["conversation_id"]}
+    assert chat[-1]["tool"] == "challenge_review"
+    assert chat[-1]["sources"][0]["url"] == ARTICLE_URL
+    assert client.get("/api/conversations").json()[0]["title"].startswith("🔬 vLLM 0.9")
+
+    revised = sse(client.post(f"/api/reviews/{review['id']}/revise"))
+    assert [e["node"] for e in revised if e["type"] == "step"][0] == "fetch"
+    assert revised[-1]["review"]["revision"] == 2
+    assert revised[-1]["review"]["objections"].startswith("Utilisateur : Le 1.8x est-il mesuré ?")
+
+
+def test_review_errors_are_reported(client):
+    events = sse(client.post("/api/reviews", json={"url": "https://news.example.org/broken"}))
+    assert events[-1] == {"type": "error", "text": "La page a répondu HTTP 404."}
+    assert client.get("/api/reviews").json() == []
+    assert client.post("/api/chat", json={"message": "x", "review_id": "absent"}).status_code == 404
+    assert client.get("/api/reviews/absent").status_code == 404

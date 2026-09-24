@@ -432,6 +432,92 @@ def instructions(
 
 
 @cli.command()
+def knowledge(
+    query: str = typer.Argument("", help="Recherche dans la base (terme, domaine…)."),
+    index: bool = typer.Option(False, "--index", help="Afficher l'index des mots-clés."),
+    add: str = typer.Option("", "--add", help="Téléverser un fichier Markdown (validé) dans data/knowledge/."),
+    replace: bool = typer.Option(False, help="Avec --add : remplacer un fichier existant."),
+):
+    """Base de connaissances : glossaire, règles métiers, prompts, notes téléversées."""
+    from pathlib import Path
+
+    from app import knowledge as kb
+
+    if add:
+        try:
+            info = kb.save_upload(Path(add).name, Path(add).read_text(encoding="utf-8"), replace=replace)
+        except kb.KnowledgeError as error:
+            print(f"[red]{error}[/red]")
+            raise typer.Exit(1)
+        print(f"[green]{info.name} : {info.entries} entrée(s) ({info.kind}) → {settings.knowledge_uploads_dir}[/green]")
+        return
+    base = kb.load_knowledge()
+    for error in base.errors:
+        print(f"[yellow]⚠ {error}[/yellow]")
+    if index:
+        for item in base.keyword_index():
+            print(f"[bold]{item['term']}[/bold] → " + ", ".join(ref["title"] for ref in item["entries"]))
+        return
+    if query:
+        for entry in base.search(query, limit=5):
+            print(f"[bold]{entry.title}[/bold] [dim]({entry.kind}{', ' + entry.domain if entry.domain else ''})[/dim]")
+            print("  " + ("\n  ".join(f"- {r}" for r in entry.rules) if entry.rules else entry.body[:400]))
+            if entry.sources:
+                print(f"  [dim]{entry.sources[0]}[/dim]")
+        return
+    table = Table("Fichier", "Origine", "Type", "Entrées")
+    for info in base.files:
+        table.add_row(info.name, info.origin, info.kind, str(info.entries))
+    print(table)
+
+
+@cli.command()
+def review(
+    url: str = typer.Argument(..., help="URL de l'actualité à analyser."),
+    as_json: bool = typer.Option(False, "--json", help="Sortie JSON brute (record validé)."),
+):
+    """Review d'une actualité : scraping, synthèse selon les règles métiers, affirmations citées."""
+    from app.llm import get_llm
+    from app.review import FetchError, ReviewContext, build_review_graph, dumps, stream_review
+
+    connection = storage.connect(settings.database_path)
+    with open_store() as store:
+        context = ReviewContext(llm=get_llm(connection), connection=connection,
+                                memory=lambda: WatchMemory(store).prompt_context())
+        record = None
+        try:
+            for event in stream_review(build_review_graph(context), {"url": url},
+                                       observability.trace_config(url, "review")):
+                if event["type"] == "step":
+                    print(f"[cyan]reviewer[/cyan] {event['node']} : {event['detail']}")
+                else:
+                    record = event["review"]
+        except FetchError as error:
+            print(f"[red]{error}[/red]")
+            raise typer.Exit(1)
+        finally:
+            observability.flush()
+    if as_json:
+        typer.echo(dumps(record))
+        return
+    analysis, page = record["analysis"], record["page"]
+    labels = {"ok": "✓", "ko": "✗", "na": "–"}
+    print(f"\n[bold]{record['title']}[/bold]\n{page['final_url']} · {page['site']} · "
+          f"{page.get('published_at') or 'date non précisée'} · domaines : {', '.join(page['domains']) or '—'}")
+    print(f"Source {analysis['source_type']} · pertinence {analysis['relevance']}/10 · "
+          f"nouveauté {analysis['novelty']}/10 · confiance {analysis['confidence']}/10\n")
+    print(Markdown(analysis["summary"] + "\n\n**Pourquoi c'est important** : " + analysis["why_it_matters"]))
+    for claim in analysis["claims"]:
+        mark = "[green]étayée[/green]" if claim["status"] == "etaye" else "[yellow]non étayée[/yellow]"
+        print(f"- {claim['claim']} ({mark})" + (f"\n    [dim]« {claim['quote']} »[/dim]" if claim["quote"] else ""))
+    for check in analysis["rule_checks"]:
+        print(f"  {labels[check['verdict']]} R{check['rule_id']} {check['rule']} [dim]{check['note']}[/dim]")
+    for warning in record["warnings"]:
+        print(f"[yellow]🛡 {warning}[/yellow]")
+    print(f"[dim]Review {record['id']} — challenge dans l'onglet 🔬 Review de `python -m app.main web`.[/dim]")
+
+
+@cli.command()
 def web(
     host: str = typer.Option(settings.web_host, help="Interface d'écoute."),
     port: int = typer.Option(settings.web_port, help="Port HTTP."),

@@ -70,23 +70,25 @@ function chips(values) {
   return list.length ? list.map((v) => `<span class="chip">${esc(v)}</span>`).join("") : `<span class="chip none">aucun</span>`;
 }
 
+const KINDS = { chat: ["Trace d'une réponse du chat", "conversation"], article: ["Trace d'une review d'actualité", "review"] };
+
 async function main() {
   const response = await fetch(`/api/traces/${encodeURIComponent(id)}`);
   if (!response.ok) { document.querySelector("#title").textContent = "Trace introuvable"; return; }
   const trace = await response.json();
   document.title = `Trace · ${trace.title}`;
-  document.querySelector("#kind").textContent = trace.kind === "chat" ? "Trace d'une réponse du chat" : "Trace d'une veille";
+  document.querySelector("#kind").textContent = KINDS[trace.kind]?.[0] || "Trace d'une veille";
   document.querySelector("#title").textContent = trace.title;
   const engaged = trace.engaged || {};
   document.querySelector("#meta").textContent =
-    `${trace.created_at} UTC · ${trace.kind === "chat" ? "conversation" : "run"} ${trace.session_id}` +
+    `${trace.created_at} UTC · ${KINDS[trace.kind]?.[1] || "run"} ${trace.session_id}` +
     (engaged.routed_by ? ` · routage : ${engaged.routed_by === "rule" ? "règle déterministe" : "LLM"}` : "") +
     (engaged.options?.keywords?.length ? ` · focus : ${engaged.options.keywords.join(", ")}` : "");
 
   if (trace.langfuse) {
     document.querySelector("#external").innerHTML =
       `<a class="chip" href="${esc(trace.langfuse.trace)}" target="_blank" rel="noopener">🔭 Trace Langfuse ↗</a>` +
-      `<a class="chip" href="${esc(trace.langfuse.session)}" target="_blank" rel="noopener">🗂 Session Langfuse (${trace.kind === "chat" ? "conversation" : "run"}) ↗</a>`;
+      `<a class="chip" href="${esc(trace.langfuse.session)}" target="_blank" rel="noopener">🗂 Session Langfuse (${KINDS[trace.kind]?.[1] || "run"}) ↗</a>`;
   }
   document.querySelector("#engaged").innerHTML = Object.entries(LABELS)
     .filter(([key]) => key in engaged)

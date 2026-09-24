@@ -22,6 +22,8 @@ EDITABLE: dict[str, tuple[Path, str, set[str], set[str]]] = {
     "editor": (PROMPTS_DIR / "editor.md", "template", {"signals"}, {"memory", "corrections"}),
     "router": (PROMPTS_DIR / "router.md", "template", {"message"}, {"history"}),
     "grill": (PROMPTS_DIR / "grill.md", "template", {"answers"}, set()),
+    "review": (PROMPTS_DIR / "review.md", "template", {"article"},
+               {"skill", "criteria", "rules", "glossary", "memory", "objections", "meta"}),
     "chat-system": (
         settings.templates_dir / "claude" / "chat-system.md.j2",
         "jinja",
@@ -35,6 +37,7 @@ DESCRIPTIONS = {
     "editor": "Agent Editor (editorial) : rédaction du digest",
     "router": "Routeur du chat : choix de l'outil",
     "grill": "Grill-me : synthèse de l'entretien sur tes centres d'intérêt",
+    "review": "Agent Reviewer : review d'une actualité à partir de son URL",
     "chat-system": "Prompt système de l'assistant de chat (Jinja2)",
 }
 

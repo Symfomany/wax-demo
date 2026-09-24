@@ -6,12 +6,18 @@
 #   bin/veille resume <run_id> --approved --note "…"
 #   bin/veille approve <run_id> ["note"]  # raccourci : resume --approved
 #   bin/veille reject <run_id> "motif"    # raccourci : resume --rejected
+#   bin/veille start | stop | restart | status | logs   # serveur web en arrière-plan
 #
-# Variables : VEILLE_PYTHON (défaut .venv/bin/python), LLM_MODEL, LLM_PROVIDER… (priment sur .env).
+# Variables : VEILLE_PYTHON (défaut .venv/bin/python), VEILLE_RUN_DIR (défaut data/ : web.pid, web.log),
+# VEILLE_HOST / VEILLE_PORT (défaut 127.0.0.1:8000), LLM_MODEL, LLM_PROVIDER… (priment sur .env).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="${VEILLE_PYTHON:-$ROOT/.venv/bin/python}"
+RUN_DIR="${VEILLE_RUN_DIR:-$ROOT/data}"
+PID_FILE="$RUN_DIR/web.pid"
+URL_FILE="$RUN_DIR/web.url"
+LOG_FILE="$RUN_DIR/web.log"
 export COLUMNS="${COLUMNS:-160}"   # sortie Rich lisible (lignes non coupées)
 
 usage() {
@@ -28,9 +34,20 @@ Veille
   pending                      Liste les runs en attente de validation
   show <run_id>                Affiche le digest d'un run en attente
 
-Profil et outils
+Profil, review et connaissances
   grill                        Entretien Grill-me : cerner ce que tu cherches en actu IA
-  web [--port N]               Interface de chat (http://127.0.0.1:8000)
+  review <url> [--json]        Review sourcée d'une actualité (scraping, règles métiers, citations vérifiées)
+  knowledge [terme] [--index]  Base de connaissances (glossaire, règles métiers) ; --add fichier.md pour l'enrichir
+
+Serveur web
+  start [--port N] [--host H]  Démarre l'interface web en arrière-plan (défaut http://127.0.0.1:8000)
+  stop                         Arrête le serveur démarré par « start »
+  restart [--port N]           Redémarre (même hôte et port par défaut), ex. après une modif du code ou de .env
+  status                       État du serveur : PID, URL, santé (LLM, Notion)
+  logs [-f]                    Journal du serveur (data/web.log) ; -f pour le suivre
+  web [--port N]               Interface web au premier plan (Ctrl+C pour arrêter)
+
+Outils
   doctor                       Diagnostic (Ollama, modèle, GPU, MCP, migrations)
   report                       Régénère le rapport daté (Markdown + HTML) de la dernière veille
   notion                       Publie la page Notion des 10 dernières veilles
@@ -47,6 +64,121 @@ app() { cd "$ROOT" && "$PYTHON" -m app.main "$@"; }
 
 require_python() {
   [[ -x "$PYTHON" ]] || die "interpréteur introuvable : $PYTHON (créer le venv : python3 -m venv .venv && .venv/bin/pip install -e '.[dev]')"
+}
+
+# --- Serveur web en arrière-plan ------------------------------------------------------
+
+# PID du serveur s'il tourne (et s'il s'agit bien de notre serveur), sinon rien.
+server_pid() {
+  [[ -f "$PID_FILE" ]] || return 1
+  local pid
+  pid="$(cat "$PID_FILE")"
+  if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && ps -ww -p "$pid" -o args= | grep -q "app.main web"; then
+    echo "$pid"
+    return 0
+  fi
+  rm -f -- "$PID_FILE" "$URL_FILE"   # PID périmé (serveur arrêté ou machine redémarrée)
+  return 1
+}
+
+healthy() { curl -fsS --max-time 2 "$1/api/health" >/dev/null 2>&1; }
+
+start_server() {
+  local host="${VEILLE_HOST:-127.0.0.1}" port="${VEILLE_PORT:-8000}" pid url
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --port) [[ $# -ge 2 ]] || die "usage : veille start [--port N] [--host H]"; port="$2"; shift 2 ;;
+      --host) [[ $# -ge 2 ]] || die "usage : veille start [--port N] [--host H]"; host="$2"; shift 2 ;;
+      *) die "option inconnue : $1 (usage : veille start [--port N] [--host H])" ;;
+    esac
+  done
+  [[ "$port" =~ ^[0-9]+$ ]] || die "port invalide : $port"
+  if pid="$(server_pid)"; then
+    echo "Serveur déjà démarré (PID $pid) : $(cat "$URL_FILE" 2>/dev/null)"
+    return 0
+  fi
+  url="http://$host:$port"
+  healthy "$url" && die "le port $port répond déjà (autre serveur ?) : choisir --port N"
+  mkdir -p "$RUN_DIR"
+  echo "--- $(date '+%F %T') démarrage $url" >> "$LOG_FILE"
+  (cd "$ROOT" && exec nohup "$PYTHON" -m app.main web --host "$host" --port "$port" >> "$LOG_FILE" 2>&1 < /dev/null) &
+  pid=$!
+  echo "$pid" > "$PID_FILE"
+  echo "$url" > "$URL_FILE"
+  for ((i = 0; i < ${VEILLE_START_TIMEOUT:-30} * 2; i++)); do
+    if healthy "$url"; then
+      echo "Serveur démarré (PID $pid) : $url"
+      echo "Arrêt : veille stop · journal : veille logs -f"
+      return 0
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      rm -f -- "$PID_FILE" "$URL_FILE"
+      echo "Le serveur s'est arrêté au démarrage. Fin du journal ($LOG_FILE) :" >&2
+      tail -n 20 "$LOG_FILE" >&2
+      exit 1
+    fi
+    sleep 0.5
+  done
+  echo "Serveur lancé (PID $pid) mais $url ne répond pas encore : veille status / veille logs" >&2
+}
+
+stop_server() {
+  local pid
+  if ! pid="$(server_pid)"; then
+    echo "Aucun serveur démarré par « veille start »."
+    return 0
+  fi
+  kill "$pid"
+  for ((i = 0; i < 20; i++)); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.5
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "Arrêt forcé du serveur (PID $pid)."
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  rm -f -- "$PID_FILE" "$URL_FILE"
+  echo "Serveur arrêté (PID $pid)."
+}
+
+server_status() {
+  local pid url
+  if ! pid="$(server_pid)"; then
+    echo "Serveur arrêté. Démarrer : veille start"
+    return 3
+  fi
+  url="$(cat "$URL_FILE" 2>/dev/null)"
+  if healthy "$url"; then
+    echo "Serveur actif (PID $pid) : $url"
+    curl -fsS --max-time 3 "$url/api/health" | python3 -c '
+import json, sys
+h = json.load(sys.stdin)
+llm = h["model"] + (" disponible" if h["model_available"] else " ABSENT") if h["ollama"] else "LLM injoignable"
+notion = "oui" if h["notion"] else "non"
+print("  LLM : %s · Notion : %s · documents : %s" % (llm, notion, h["memory"]["documents"]))' 2>/dev/null || true
+  else
+    echo "Serveur lancé (PID $pid) mais $url ne répond pas : veille logs"
+    return 1
+  fi
+}
+
+# Sans option, redémarre sur l'hôte et le port précédents.
+restart_server() {
+  local previous
+  if [[ $# -eq 0 ]] && previous="$(cat "$URL_FILE" 2>/dev/null)" && [[ "$previous" =~ ^http://(.+):([0-9]+)$ ]]; then
+    set -- --host "${BASH_REMATCH[1]}" --port "${BASH_REMATCH[2]}"
+  fi
+  stop_server
+  start_server "$@"
+}
+
+show_logs() {
+  [[ -f "$LOG_FILE" ]] || { echo "Aucun journal ($LOG_FILE)."; return 0; }
+  if [[ "${1:-}" == "-f" ]]; then
+    tail -n 50 -f "$LOG_FILE"
+  else
+    tail -n 50 "$LOG_FILE"
+  fi
 }
 
 cycle() {
@@ -106,7 +238,16 @@ main() {
       [[ $# -ge 1 ]] || die "usage : veille show <run_id>"
       app show "$1" ;;
     grill)   app grill ;;
+    review)
+      [[ $# -ge 1 ]] || die "usage : veille review <url> [--json]"
+      app review "$@" ;;
+    knowledge) app knowledge "$@" ;;
     web)     app web "$@" ;;
+    start)   start_server "$@" ;;
+    stop)    stop_server ;;
+    restart) restart_server "$@" ;;
+    status)  server_status ;;
+    logs)    show_logs "$@" ;;
     doctor)  app doctor ;;
     report)  app report "$@" ;;
     notion)  app notion-sync ;;

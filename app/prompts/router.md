@@ -9,6 +9,7 @@ Outils :
 - `notion_sync` : publier ou mettre à jour la page Notion
 - `list_reports` : lister les rapports de veille
 - `grill_me` : l'utilisateur veut être interrogé pour préciser ce qu'il cherche
+- `knowledge_search` : définition d'un terme IA, glossaire, règles métiers d'un domaine (query = le terme ou le domaine)
 - `none` : salutation, remerciement ou question sur l'assistant lui-même
 
 Derniers échanges :

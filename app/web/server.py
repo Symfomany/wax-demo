@@ -1,4 +1,5 @@
-"""Interface web de la veille : chat (SSE), veilles en direct, rapports, mémoire, Notion.
+"""Interface web de la veille : chat (SSE), veilles en direct, rapports, mémoire, Notion,
+base de connaissances et review d'actualités par URL.
 
     python -m app.main web      →  http://127.0.0.1:8000
 """
@@ -19,13 +20,14 @@ from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import BaseModel, Field
 
-from app import observability, storage
+from app import knowledge, observability, storage
 from app.chat.agent import ChatContext, build_chat_graph, intent_text, stream_chat
 from app.chat.tools import ChatServices
 from app.config import settings
 from app.memory import WatchMemory
 from app.harness.prompts import PromptError, load_prompt, prompt_names, reset_prompt, save_prompt
 from app.reports import list_reports
+from app.review import FetchError, Page, ReviewContext, build_review_graph, stream_review, transcript_objections
 from app.web.runs import RunManager
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -40,6 +42,8 @@ class WebDeps:
     graph_factory: Callable  # () -> contextmanager[(graph, context)]
     notion_sync: Callable | None
     github_search: Callable[[str], list] | None
+    fetch_page: Callable[[str], Page] | None = None  # défaut : app.review.fetch_page
+    review_llm: Callable | None = None  # connection -> StructuredLLM ; défaut : router_llm
 
 
 def production_deps() -> WebDeps:
@@ -71,6 +75,17 @@ def production_deps() -> WebDeps:
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     conversation_id: str | None = None
+    review_id: str | None = Field(None, max_length=64)  # chat de challenge d'une review
+
+
+class KnowledgeUpload(BaseModel):
+    filename: str = Field(min_length=4, max_length=120)
+    content: str = Field(min_length=1, max_length=knowledge.MAX_UPLOAD_BYTES)
+    replace: bool = False
+
+
+class ReviewRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
 
 
 class RunRequest(BaseModel):
@@ -190,7 +205,13 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
     @app.post("/api/chat")
     def chat(request: ChatRequest):
         conversation_id = request.conversation_id or str(uuid4())
-        storage.upsert_conversation(app.state.connection, conversation_id, request.message)
+        title = request.message
+        if request.review_id:
+            review = storage.get_review(app.state.connection, request.review_id)
+            if review is None:
+                raise HTTPException(404, "Review inconnue")
+            conversation_id, title = review["conversation_id"], f"🔬 {review['title']}"
+        storage.upsert_conversation(app.state.connection, conversation_id, title)
         graph = build_chat_graph(
             ChatContext(services(), deps.router_llm(app.state.connection), deps.chat_model()), app.state.saver
         )
@@ -200,7 +221,7 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         def events():
             yield _sse({"type": "conversation", "id": conversation_id})
             try:
-                for event in stream_chat(graph, conversation_id, request.message, config):
+                for event in stream_chat(graph, conversation_id, request.message, config, request.review_id):
                     if event["type"] == "final":
                         # Parcours du graphe de ce tour : consultable dans un nouvel onglet.
                         title = intent_text(request.message) or request.message
@@ -324,6 +345,119 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         except PromptError as error:
             raise HTTPException(404, str(error))
 
+    # --- Base de connaissances -------------------------------------------------------------
+
+    @app.get("/api/knowledge")
+    def knowledge_base():
+        base = knowledge.load_knowledge()
+        return {"files": [f.model_dump() for f in base.files],
+                "entries": [e.model_dump(mode="json") | {"url": e.url} for e in base.entries],
+                "domains": base.domains(), "errors": base.errors}
+
+    @app.get("/api/knowledge/index")
+    def knowledge_index():
+        return knowledge.load_knowledge().keyword_index()
+
+    @app.get("/api/knowledge/search")
+    def knowledge_search(q: str = "", limit: int = 8):
+        entries = knowledge.load_knowledge().search(q[:200], limit=max(1, min(limit, 30)))
+        return [e.model_dump(mode="json") | {"url": e.url} for e in entries]
+
+    @app.get("/api/knowledge/files/{name}")
+    def knowledge_file(name: str):
+        try:
+            return knowledge.read_file(name)
+        except knowledge.KnowledgeError as error:
+            raise HTTPException(404, str(error))
+
+    @app.post("/api/knowledge", status_code=201)
+    def knowledge_upload(upload: KnowledgeUpload):
+        try:
+            return knowledge.save_upload(upload.filename, upload.content, replace=upload.replace).model_dump()
+        except knowledge.KnowledgeExists as error:
+            raise HTTPException(409, str(error))
+        except knowledge.KnowledgeError as error:
+            raise HTTPException(400, str(error))
+
+    @app.delete("/api/knowledge/{name}")
+    def knowledge_delete(name: str):
+        try:
+            knowledge.delete_upload(name)
+        except knowledge.KnowledgeError as error:
+            raise HTTPException(404, str(error))
+        return {"deleted": name}
+
+    # --- Review d'une actualité par URL --------------------------------------------------------
+
+    def review_graph():
+        from app.review import fetch_page
+
+        context = ReviewContext(
+            llm=(deps.review_llm or deps.router_llm)(app.state.connection),
+            connection=app.state.connection,
+            fetch=deps.fetch_page or fetch_page,
+            memory=lambda: WatchMemory(app.state.store).prompt_context(),
+        )
+        return build_review_graph(context)
+
+    def review_events(inputs: dict, trace_seed: str):
+        def events():
+            try:
+                session = (inputs.get("previous") or {}).get("id") or trace_seed
+                config = observability.trace_config(session, "review", trace_seed=trace_seed)
+                for event in stream_review(review_graph(), inputs, config):
+                    if event["type"] == "review" and event["review"]:
+                        record = event["review"]
+                        storage.save_trace(
+                            app.state.connection, trace_seed, "article", record["id"], f"Review : {record['title']}",
+                            event["steps"], {"nodes": [s["node"] for s in event["steps"]], "agents": ["reviewer"],
+                                             "skills": ["review-actu", "veille-tech"], "prompts": ["review.md"],
+                                             "data": ["knowledge/", "reviews (SQLite)"]},
+                        )
+                        event |= {"trace_url": f"/trace/{trace_seed}",
+                                  "langfuse": observability.langfuse_links(trace_seed, session)}
+                    yield _sse(event)
+            except FetchError as error:
+                yield _sse({"type": "error", "text": str(error)})
+            except Exception as error:  # noqa: BLE001 — affiché dans l'interface
+                yield _sse({"type": "error", "text": f"{type(error).__name__} : {error}"})
+            finally:
+                observability.flush()
+
+        return StreamingResponse(events(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @app.post("/api/reviews")
+    def create_review(request: ReviewRequest):
+        return review_events({"url": request.url.strip()}, str(uuid4()))
+
+    @app.get("/api/reviews")
+    def reviews():
+        return storage.list_reviews(app.state.connection)
+
+    @app.get("/api/reviews/{review_id}")
+    def get_review(review_id: str):
+        record = storage.get_review(app.state.connection, review_id)
+        if record is None:
+            raise HTTPException(404, "Review inconnue")
+        traces = [t for t in storage.list_traces(app.state.connection, review_id) if t["kind"] == "article"]
+        record["trace_url"] = f"/trace/{traces[-1]['id']}" if traces else None
+        return record
+
+    @app.post("/api/reviews/{review_id}/revise")
+    def revise_review(review_id: str):
+        record = storage.get_review(app.state.connection, review_id)
+        if record is None:
+            raise HTTPException(404, "Review inconnue")
+        graph = build_chat_graph(
+            ChatContext(services(), deps.router_llm(app.state.connection), deps.chat_model()), app.state.saver
+        )
+        messages = graph.get_state({"configurable": {"thread_id": f"chat-{record['conversation_id']}"}}).values.get("messages", [])
+        if not messages:
+            raise HTTPException(409, "Aucun échange à prendre en compte : challengez d'abord la review dans le chat.")
+        return review_events({"url": record["url"], "previous": record, "objections": transcript_objections(messages)},
+                             str(uuid4()))
+
     # --- Grill-me ----------------------------------------------------------------------
 
     def grill_graph():
@@ -418,6 +552,12 @@ def build_diagrams(kind: str, services: ChatServices, connection) -> dict[str, s
     """Mermaid des graphes compilés (graphe principal + sous-agents pour une veille)."""
     if kind == "chat":
         return {"chat": build_chat_graph(ChatContext(services, None, None)).get_graph().draw_mermaid()}
+    if kind == "article":
+        from app.llm import StructuredLLM
+
+        context = ReviewContext(llm=StructuredLLM(lambda messages, schema: "{}", model="diagramme"),
+                                connection=connection)
+        return {"review": build_review_graph(context).get_graph().draw_mermaid()}
     from app.harness.skills import load_skill
     from app.llm import StructuredLLM
     from app.workflow.graph import build_graph

@@ -74,6 +74,17 @@ class Settings(BaseSettings):
     reports_dir: Path = Path("reports")
     templates_dir: Path = PROJECT_ROOT / "templates"
     prompt_overrides_dir: Path = Path("data/prompts")  # prompts édités depuis l'interface
+
+    # Base de connaissances : fichiers du dépôt + fichiers Markdown téléversés
+    knowledge_dir: Path = PROJECT_ROOT / "knowledge"
+    knowledge_uploads_dir: Path = Path("data/knowledge")
+
+    # Review d'une actualité par URL
+    review_skill_path: Path = PROJECT_ROOT / ".claude/skills/review-actu/SKILL.md"
+    review_max_chars: int = 12000  # texte d'article transmis au Reviewer
+    review_max_bytes: int = 3_000_000  # taille maximale d'une page téléchargée
+    review_timeout: int = 20
+    review_allow_private: bool = False  # URLs vers le réseau local (déconseillé)
     web_host: str = "127.0.0.1"
     web_port: int = 8000
 

@@ -119,6 +119,20 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX traces_session ON traces(session_id);
     """,
+    # v5 — reviews d'actualités par URL (onglet Review) et conversation de challenge associée
+    """
+    CREATE TABLE reviews (
+        id TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        title TEXT NOT NULL,
+        conversation_id TEXT NOT NULL UNIQUE,
+        revision INTEGER NOT NULL DEFAULT 1,
+        record_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX reviews_updated ON reviews(updated_at);
+    """,
 ]
 
 
@@ -315,7 +329,7 @@ def cache_set(connection: sqlite3.Connection, key: str, model: str, response_jso
 def memory_stats(connection: sqlite3.Connection) -> dict[str, int]:
     tables = [
         "documents", "digests", "published_items", "feedback", "llm_cache", "runs",
-        "conversations", "notion_pages", "traces",
+        "conversations", "notion_pages", "traces", "reviews",
     ]
     return {
         table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -508,3 +522,48 @@ def list_traces(connection: sqlite3.Connection, session_id: str) -> list[dict]:
     ).fetchall()
     return [{"id": r[0], "kind": r[1], "title": r[2], "created_at": r[3], "engaged": json.loads(r[4])}
             for r in rows]
+
+
+# --- Reviews (v5) ----------------------------------------------------------------
+
+
+@locked
+def save_review(connection: sqlite3.Connection, record: dict) -> None:
+    """Insère une review ou remplace sa révision (le record est validé par app.review avant)."""
+    connection.execute(
+        """
+        INSERT INTO reviews (id, url, title, conversation_id, revision, record_json)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET revision = excluded.revision,
+                                      record_json = excluded.record_json,
+                                      updated_at = CURRENT_TIMESTAMP
+        """,
+        (record["id"], record["url"], record["title"][:300], record["conversation_id"],
+         record["revision"], json.dumps(record, ensure_ascii=False)),
+    )
+    connection.commit()
+
+
+@locked
+def get_review(connection: sqlite3.Connection, review_id: str) -> dict | None:
+    row = connection.execute(
+        "SELECT record_json, created_at, updated_at FROM reviews WHERE id = ?", (review_id,)
+    ).fetchone()
+    return json.loads(row[0]) | {"created_at": row[1], "updated_at": row[2]} if row else None
+
+
+@locked
+def list_reviews(connection: sqlite3.Connection, limit: int = 30) -> list[dict]:
+    rows = connection.execute(
+        "SELECT id, url, title, revision, created_at, updated_at, record_json FROM reviews "
+        "ORDER BY updated_at DESC, rowid DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    reviews = []
+    for row in rows:
+        record = json.loads(row[6])
+        reviews.append({"id": row[0], "url": row[1], "title": row[2], "revision": row[3],
+                        "created_at": row[4], "updated_at": row[5],
+                        "site": record["page"].get("site", ""), "domains": record["page"].get("domains", []),
+                        "relevance": record["analysis"]["relevance"]})
+    return reviews

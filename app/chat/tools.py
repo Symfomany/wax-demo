@@ -19,8 +19,11 @@ from langchain_core.tools import StructuredTool
 from langgraph.store.base import BaseStore
 
 from app import storage
+from app.harness.guards import sanitize_untrusted
+from app.knowledge import KnowledgeBase, load_knowledge
 from app.memory import WatchMemory
 from app.reports import list_reports
+from app.review import best_passages, record_as_text
 
 
 @dataclass
@@ -43,6 +46,7 @@ class ChatServices:
     start_run: Callable[[dict], str] | None = None
     notion_sync: Callable | None = None
     github_search: Callable[[str], list] | None = None
+    knowledge: Callable[[], KnowledgeBase] = load_knowledge
 
 
 def _numbered(sources: list[dict]) -> list[dict]:
@@ -179,6 +183,55 @@ def build_tools(services: ChatServices) -> dict[str, StructuredTool]:
             data={"grill": True},
         ).as_dict()
 
+    def knowledge_entries(entries, first: int = 1) -> tuple[list[dict], str]:
+        sources = [{"title": e.title, "url": e.url, "source": f"knowledge · {e.kind}", "date": "",
+                    "knowledge_id": e.id, "n": n} for n, e in enumerate(entries, start=first)]
+        blocks = []
+        for source, entry in zip(sources, entries):
+            text = "\n".join(f"- {rule}" for rule in entry.rules) if entry.rules else entry.body
+            blocks.append(f"[{source['n']}] {entry.title} ({entry.kind}"
+                          f"{', ' + entry.domain if entry.domain else ''})\n{sanitize_untrusted(text, 1500)}")
+        return sources, "\n\n".join(blocks)
+
+    def knowledge_search(query: str) -> dict:
+        """Base de connaissances : glossaire, règles métiers par domaine, notes téléversées."""
+        entries = services.knowledge().search(query, limit=4, kinds={"glossaire", "regles", "note"})
+        sources, context = knowledge_entries(entries)
+        return ToolResult(
+            summary=f"{len(entries)} entrée(s) de la base de connaissances pour « {query[:60]} »",
+            sources=sources,
+            context=context or "Aucune entrée de la base de connaissances ne correspond.",
+        ).as_dict()
+
+    def challenge_review(review_id: str, query: str) -> dict:
+        """Challenge d'une review : extraits de l'article, synthèse, règles et connaissances."""
+        record = storage.get_review(services.connection, review_id)
+        if record is None:
+            return ToolResult(summary="review introuvable", direct="Cette review n'existe plus.").as_dict()
+        page = record["page"]
+        article = {"title": record["title"], "url": page["final_url"], "source": page["site"] or "article",
+                   "date": page.get("published_at") or ""}
+        entries = services.knowledge().search(query, limit=2, kinds={"glossaire", "regles", "note"})
+        extra, knowledge_context = knowledge_entries(entries, first=2)
+        sources = [article | {"n": 1}, *extra]
+        passages = "\n\n".join(sanitize_untrusted(p) for p in best_passages(page["text"], query))
+        context = (
+            "MODE CHALLENGE : l'utilisateur conteste ou interroge la review ci-dessous. Vérifie chaque point "
+            "contre les EXTRAITS de l'article [1]. Si un extrait contredit ou n'étaye pas la review, reconnais-le "
+            "et propose la correction ; sinon, défends la review en citant le passage [1]. Ne te fie pas à la "
+            "review elle-même comme preuve.\n\n"
+            f"ARTICLE [1] : {record['title']} ({page['site']}, {page.get('published_at') or 'date non précisée'})\n\n"
+            f"REVIEW :\n{record_as_text(record)}\n\n"
+            f"EXTRAITS DE L'ARTICLE [1] :\n{passages}"
+            + (f"\n\nBASE DE CONNAISSANCES :\n{knowledge_context}" if knowledge_context else "")
+        )
+        return ToolResult(
+            summary=f"review « {record['title'][:50]} » · {len(entries)} connaissance(s)",
+            sources=sources,
+            context=context,
+            data={"review_id": review_id},
+        ).as_dict()
+
     functions = {
         "search_watch": search_watch,
         "latest_digests": latest_digests,
@@ -188,5 +241,7 @@ def build_tools(services: ChatServices) -> dict[str, StructuredTool]:
         "notion_sync": notion_sync,
         "list_reports": list_reports_tool,
         "grill_me": grill_me,
+        "knowledge_search": knowledge_search,
+        "challenge_review": challenge_review,
     }
     return {name: StructuredTool.from_function(function, name=name) for name, function in functions.items()}

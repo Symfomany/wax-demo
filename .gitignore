@@ -12,6 +12,10 @@ __pycache__/
 # Données locales (mémoire SQLite, checkpoints, digests générés)
 data/*.db
 data/*.db-*
+data/knowledge/
+data/web.pid
+data/web.url
+data/web.log
 output/
 
 # Réglages Claude Code personnels et mémoire générée

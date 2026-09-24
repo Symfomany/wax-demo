@@ -236,6 +236,60 @@ h2.title { font-size: 1.35rem; margin: 0 0 4px; }
 .grill-log li b { color: var(--text); }
 .chip.bad { background: var(--bad-soft); color: var(--bad); }
 
+/* --- Knowledge ----------------------------------------------------------------------- */
+.kb-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.kb-toolbar input[type=search] { flex: 1; min-width: 220px; border: 1px solid var(--line); background: var(--panel-2); border-radius: 10px; padding: 8px 11px; }
+.kb-toolbar .segmented { flex-wrap: wrap; }
+.kb-domains { margin-top: 10px; }
+.kb-domains button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 2px 10px; cursor: pointer; font-size: .8rem; color: var(--muted); }
+.kb-domains button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.letters { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 12px; }
+.letters a { font: 700 .8rem var(--mono); text-decoration: none; padding: 2px 7px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); }
+.kb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.kb-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; scroll-margin-top: 16px; min-width: 0; }
+.kb-card.focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.kb-card h4 { margin: 0 0 4px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 1rem; }
+.kb-card .answer { font-size: .9rem; line-height: 1.55; }
+.kb-meta { font-size: .78rem; color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
+.kb-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.kb-letter { font: 700 1.05rem var(--mono); color: var(--accent); margin: 18px 0 8px; }
+.index-row { display: flex; gap: 6px 10px; align-items: baseline; flex-wrap: wrap; padding: 5px 0; border-bottom: 1px dashed var(--line); font-size: .9rem; }
+.index-row > b { min-width: 170px; }
+.index-row button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; color: var(--accent); cursor: pointer; padding: 1px 9px; font-size: .8rem; }
+.index-row .role { color: var(--muted); font-size: .7rem; }
+.rules-list { margin: 0; padding-left: 1.3em; } .rules-list li { margin: 5px 0; font-size: .92rem; }
+.prompt-card { cursor: pointer; } .prompt-card:hover { border-color: var(--accent); }
+.prompt-card p { margin: 4px 0 0; font-size: .88rem; color: var(--muted); }
+.dropzone { border: 2px dashed var(--line); border-radius: 12px; padding: 20px; text-align: center; color: var(--muted); cursor: pointer; }
+.dropzone.over { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+pre.template { white-space: pre-wrap; font: 12px/1.55 var(--mono); background: var(--panel-2); border-radius: 10px; padding: 10px 12px; margin: 8px 0 0; overflow-x: auto; }
+
+/* --- Review --------------------------------------------------------------------------- */
+.url-form { display: flex; gap: 10px; flex-wrap: wrap; }
+.url-form input { flex: 1; min-width: 220px; border: 1px solid var(--line); background: var(--panel-2); border-radius: 10px; padding: 9px 12px; }
+.reviews { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; }
+.report-list button small { display: block; color: var(--muted); font-size: .74rem; font-weight: 400; }
+.review-head h3 { font-size: 1.15rem; margin: 0 0 4px; overflow-wrap: anywhere; }
+.review-head h3 a { color: var(--text); text-decoration: none; } .review-head h3 a:hover { color: var(--accent); }
+.scores { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0 6px; }
+.score .label { margin: 0; }
+.meter { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; margin-top: 5px; }
+.meter div { height: 100%; background: linear-gradient(90deg, var(--accent), #c05bd6); }
+.claim { border-left: 3px solid var(--ok); padding: 3px 10px; margin: 10px 0; }
+.claim.non_etaye { border-left-color: var(--warn); }
+.claim .top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .75rem; }
+.claim blockquote { margin: 4px 0; font-size: .86rem; color: var(--muted); border-left: 0; padding: 0; }
+.claim .btn.small { margin-top: 2px; }
+.badge-ok { color: var(--ok); font-weight: 800; } .badge-warn { color: var(--warn); font-weight: 800; }
+.v-ok { color: var(--ok); font-weight: 800; } .v-ko { color: var(--bad); font-weight: 800; } .v-na { color: var(--muted); }
+.review-q { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 7px 11px; cursor: pointer; font-size: .88rem; }
+.review-q:hover { border-color: var(--accent); color: var(--accent); }
+.stack { display: grid; gap: 6px; }
+#review-messages .msg { margin: 14px 0; }
+.inline-composer { display: flex; gap: 8px; align-items: flex-end; border: 1px solid var(--line); border-radius: 14px; padding: 6px 6px 6px 12px; background: var(--panel-2); margin-top: 10px; }
+.inline-composer:focus-within { border-color: var(--accent); }
+.inline-composer textarea { flex: 1; border: 0; outline: 0; resize: vertical; background: none; padding: 7px 0; min-height: 42px; }
+
 table.plain { width: 100%; border-collapse: collapse; font-size: .88rem; }
 table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -248,7 +302,9 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   aside { position: fixed; inset: 0 25% 0 0; z-index: 10; transform: translateX(-105%); transition: transform .2s; box-shadow: var(--shadow); }
   aside.open { transform: none; }
   .menu-btn { display: inline-block; }
-  .reports, .prompts { grid-template-columns: minmax(0, 1fr); }
+  .reports, .prompts, .reviews { grid-template-columns: minmax(0, 1fr); }
+  .scores { grid-template-columns: minmax(0, 1fr); }
+  .index-row > b { min-width: 0; width: 100%; }
   .msg.user .bubble { max-width: 90%; }
   .tabs { padding-inline: 12px; }
   .wrap { padding-inline: 16px; }
@@ -278,8 +334,10 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
       <button class="menu-btn" id="menu" aria-label="Menu">☰</button>
       <button role="tab" data-view="chat" aria-selected="true">💬 Chat</button>
       <button role="tab" data-view="search" aria-selected="false">🔎 Recherche</button>
+      <button role="tab" data-view="review" aria-selected="false">🔬 Review</button>
       <button role="tab" data-view="runs" aria-selected="false">🛰️ Veille <span class="badge" id="run-badge" hidden>1</span></button>
       <button role="tab" data-view="reports" aria-selected="false">📰 Rapports</button>
+      <button role="tab" data-view="knowledge" aria-selected="false">📚 Knowledge</button>
       <button role="tab" data-view="grill" aria-selected="false">🎯 Grill-me</button>
       <button role="tab" data-view="prompts" aria-selected="false">✏️ Prompts</button>
       <button role="tab" data-view="memory" aria-selected="false">🧠 Mémoire</button>
@@ -301,6 +359,8 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
               <div class="suggestion" data-prompt="Relance la veille sur MCP, agents"><b>Veille ciblée</b><span>« relance la veille sur MCP, agents »</span></div>
               <div class="suggestion" data-prompt="Qu'as-tu en mémoire ?"><b>Mémoire</b><span>Leçons, préférences, sources</span></div>
               <div class="suggestion" data-prompt="Mets à jour la page Notion"><b>Publier dans Notion</b><span>Les 10 dernières veilles</span></div>
+              <div class="suggestion" data-prompt="C'est quoi le KV cache ?"><b>Glossaire</b><span>« c'est quoi le KV cache ? »</span></div>
+              <div class="suggestion" data-open-view="review"><b>Review d'une URL</b><span>Synthèse sourcée, puis challenge</span></div>
             </div>
           </div>
         </div>
@@ -351,6 +411,46 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
           </div>
         </div>
         <div class="results" id="results"></div>
+      </div>
+    </section>
+
+    <!-- Review -->
+    <section class="view" id="review" hidden>
+      <div class="wrap wide">
+        <h2 class="title">🔬 Review d'une actualité</h2>
+        <p class="subtitle">Collez l'URL d'une actu : l'agent <b>Reviewer</b> télécharge la page, en extrait le texte, la synthétise selon le skill
+        <code>review-actu</code> et les règles métiers du domaine détecté, puis le guard vérifie que chaque affirmation cite réellement la page.
+        Challengez ensuite la synthèse dans le chat, et faites-la réviser.</p>
+        <div class="card">
+          <form class="url-form" id="review-form">
+            <input id="review-url" type="url" inputmode="url" placeholder="https://… (article, release notes, billet de blog, page arXiv)" aria-label="URL de l'actualité" required>
+            <button class="btn primary" id="review-go" type="submit">🔬 Analyser</button>
+          </form>
+          <ol class="timeline" id="review-steps"></ol>
+        </div>
+        <div class="reviews">
+          <div class="report-list" id="review-list"></div>
+          <div>
+            <p class="muted" id="review-empty">Aucune review pour l'instant : collez une URL ci-dessus.</p>
+            <div class="card" id="review-card" hidden></div>
+            <div class="card" id="review-chat" hidden>
+              <h3>💬 Challenger la review</h3>
+              <p class="muted" style="margin:-4px 0 8px;font-size:.86rem">Réponses fondées sur les extraits de l'article [1] et la base de connaissances. Prompts de challenge :</p>
+              <div class="chips" id="review-prompts"></div>
+              <div id="review-messages"></div>
+              <form class="inline-composer" id="review-composer">
+                <textarea id="review-input" rows="2" placeholder="Ex. « Le gain annoncé est-il mesuré avec un protocole ? »" aria-label="Question de challenge"></textarea>
+                <button class="send" id="review-send" type="submit" aria-label="Envoyer">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </button>
+              </form>
+              <div class="row" style="margin-top:10px">
+                <button class="btn" id="review-revise">♻️ Réviser la synthèse avec ce débat</button>
+                <span class="muted" style="font-size:.8rem">Relance le Reviewer avec vos objections (sans retélécharger la page).</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -416,6 +516,24 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
             <p class="muted" id="report-empty">Sélectionnez un rapport.</p>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- Knowledge -->
+    <section class="view" id="knowledge" hidden>
+      <div class="wrap wide">
+        <h2 class="title">📚 Base de connaissances</h2>
+        <p class="subtitle">Glossaire IA · GenAI · LLM, index des mots-clés, règles métiers par domaine, prompts de veille cliquables et vos notes
+        Markdown. Le chat (« c'est quoi… », « règles métiers… ») et l'agent Review s'en servent.</p>
+        <div class="card">
+          <div class="kb-toolbar">
+            <input type="search" id="kb-search" placeholder="Filtrer : terme, alias, domaine, règle…" aria-label="Filtrer la base de connaissances">
+            <span class="segmented" role="group" aria-label="Vue" id="kb-tabs"></span>
+          </div>
+          <div class="chips kb-domains" id="kb-domains"></div>
+        </div>
+        <div id="kb-errors"></div>
+        <div id="kb-content"></div>
       </div>
     </section>
 
@@ -499,7 +617,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
 
   // --- Utilitaires -------------------------------------------------------------
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const safeUrl = (u) => /^https?:\/\//i.test(u) || /^\/(trace|reports)\//.test(u) ? u : "#";
+  const safeUrl = (u) => /^https?:\/\//i.test(u) || /^\/(trace|reports)\//.test(u) || /^#k=[\w\/-]+$/.test(u) ? u : "#";
   const toast = (text) => {
     const el = document.createElement("div"); el.className = "toast"; el.textContent = text;
     document.body.appendChild(el); setTimeout(() => el.remove(), 3200);
@@ -589,6 +707,8 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     if (view === "memory") loadMemory();
     if (view === "prompts") loadPrompts();
     if (view === "grill") loadGrillProfile();
+    if (view === "review") loadReviews();
+    if (view === "knowledge") loadKnowledge().catch((error) => toast(error.message));
     $("#sidebar").classList.remove("open");
   }
   document.querySelectorAll("[role=tab][data-view]").forEach((t) => t.addEventListener("click", () => show(t.dataset.view)));
@@ -693,24 +813,62 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   // --- Messages ------------------------------------------------------------------
   const emptyState = $("#empty");
   const scrollDown = () => { const s = $("#scroll"); s.scrollTop = s.scrollHeight; };
-  function addUser(text) {
+  function addUser(text, container = $("#messages")) {
     emptyState.remove();
     const el = document.createElement("div"); el.className = "msg user";
     const lines = String(text).split("\n");
     const quotes = lines.filter((l) => l.startsWith(">")).map((l) => `<div class="quote">${esc(l.replace(/^>\s?/, ""))}</div>`).join("");
     el.innerHTML = `<div class="bubble">${quotes}${esc(lines.filter((l) => !l.startsWith(">")).join("\n"))}</div>`;
-    $("#messages").appendChild(el);
+    container.appendChild(el);
   }
-  function addAssistant() {
+  function addAssistant(container = $("#messages")) {
     emptyState.remove();
     const el = document.createElement("div"); el.className = "msg assistant";
     el.innerHTML = `<div class="avatar">✦</div><div class="body"><div class="tools"></div><div class="answer"></div><div class="extra"></div></div>`;
-    $("#messages").appendChild(el);
+    container.appendChild(el);
     return { el, tools: el.querySelector(".tools"), answer: el.querySelector(".answer"), extra: el.querySelector(".extra") };
   }
   const TOOL_LABELS = { search_watch: "🔎 Recherche dans la veille", latest_digests: "🗞️ Dernières veilles",
     run_watch: "🛰️ Lancement de veille", github_search: "🐙 GitHub via MCP", memory_status: "🧠 Mémoire",
-    notion_sync: "📝 Notion via MCP", list_reports: "📰 Rapports" };
+    notion_sync: "📝 Notion via MCP", list_reports: "📰 Rapports", knowledge_search: "📚 Base de connaissances",
+    challenge_review: "🔬 Challenge de la review" };
+
+  // Lecture d'un flux SSE (POST) : chaque événement « data: {…} » est passé à onEvent.
+  async function streamSSE(path, body, onEvent) {
+    const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || response.statusText);
+    const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read(); if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let index;
+      while ((index = buffer.indexOf("\n\n")) >= 0) {
+        const chunk = buffer.slice(0, index); buffer = buffer.slice(index + 2);
+        if (chunk.startsWith("data: ")) onEvent(JSON.parse(chunk.slice(6)));
+      }
+    }
+  }
+  // Affichage d'une réponse du chat en cours (outil, tokens, réponse finale contrôlée).
+  function chatHandler(view, scroll) {
+    let streamed = "";
+    return (event) => {
+      if (event.type === "tool_start") {
+        view.tools.innerHTML = `<span class="tool"><span class="spin"></span>${esc(TOOL_LABELS[event.tool] || event.tool)}${event.args?.query && event.tool !== "challenge_review" ? ` · « ${esc(event.args.query)} »` : ""}</span>`;
+      } else if (event.type === "tool_end") {
+        const chip = view.tools.querySelector(".tool"); if (chip) { chip.classList.add("done"); chip.insertAdjacentHTML("beforeend", ` · ${esc(event.summary)}`); }
+      } else if (event.type === "token") {
+        streamed += event.text; view.answer.innerHTML = markdown(streamed); scroll();
+      } else if (event.type === "final") {
+        view.answer.classList.remove("cursor");
+        view.answer.innerHTML = markdown(event.text, event.sources);
+        renderExtra(view.extra, event);
+      } else if (event.type === "error") {
+        view.answer.classList.remove("cursor");
+        view.answer.innerHTML = `<p class="warning">⚠ ${esc(event.text)}</p>`;
+      }
+    };
+  }
 
   async function send(text) {
     if ((!text.trim() && !state.quotes.length) || state.busy) return;
@@ -719,38 +877,13 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     state.busy = true; $("#send").disabled = true;
     addUser(message);
     const view = addAssistant(); view.answer.classList.add("cursor");
-    let streamed = "";
     scrollDown();
     try {
-      const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, conversation_id: state.conversation }) });
-      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || response.statusText);
-      const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
-      while (true) {
-        const { value, done } = await reader.read(); if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let index;
-        while ((index = buffer.indexOf("\n\n")) >= 0) {
-          const chunk = buffer.slice(0, index); buffer = buffer.slice(index + 2);
-          if (!chunk.startsWith("data: ")) continue;
-          const event = JSON.parse(chunk.slice(6));
-          if (event.type === "conversation") { state.conversation = event.id; history.replaceState(null, "", `#c=${encodeURIComponent(event.id)}`); }
-          else if (event.type === "tool_start") {
-            view.tools.innerHTML = `<span class="tool"><span class="spin"></span>${esc(TOOL_LABELS[event.tool] || event.tool)}${event.args?.query ? ` · « ${esc(event.args.query)} »` : ""}</span>`;
-          } else if (event.type === "tool_end") {
-            const chip = view.tools.querySelector(".tool"); if (chip) { chip.classList.add("done"); chip.insertAdjacentHTML("beforeend", ` · ${esc(event.summary)}`); }
-          } else if (event.type === "token") {
-            streamed += event.text; view.answer.innerHTML = markdown(streamed); scrollDown();
-          } else if (event.type === "final") {
-            view.answer.classList.remove("cursor");
-            view.answer.innerHTML = markdown(event.text, event.sources);
-            renderExtra(view.extra, event);
-          } else if (event.type === "error") {
-            view.answer.classList.remove("cursor");
-            view.answer.innerHTML = `<p class="warning">⚠ ${esc(event.text)}</p>`;
-          }
-        }
-      }
+      const handle = chatHandler(view, scrollDown);
+      await streamSSE("/api/chat", { message, conversation_id: state.conversation }, (event) => {
+        if (event.type === "conversation") { state.conversation = event.id; history.replaceState(null, "", `#c=${encodeURIComponent(event.id)}`); }
+        else handle(event);
+      });
     } catch (error) {
       view.answer.classList.remove("cursor");
       view.answer.innerHTML = `<p class="warning">⚠ ${esc(error.message)}</p>`;
@@ -798,7 +931,13 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 180) + "px"; });
   input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#composer").requestSubmit(); } });
   $("#composer").addEventListener("submit", (e) => { e.preventDefault(); const text = input.value; input.value = ""; input.style.height = "auto"; send(text); });
-  document.querySelectorAll(".suggestion").forEach((s) => s.addEventListener("click", () => send(s.dataset.prompt)));
+  document.querySelectorAll(".suggestion").forEach((s) => s.addEventListener("click", () =>
+    s.dataset.openView ? (show(s.dataset.openView), $("#review-url").focus()) : send(s.dataset.prompt)));
+  // Liens internes vers une entrée de la base de connaissances (#k=fichier/entree).
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest?.('a[href^="#k="]');
+    if (link) { e.preventDefault(); openKnowledge(decodeURIComponent(link.getAttribute("href").slice(3))); }
+  });
 
   // --- Recherche --------------------------------------------------------------------
   const searchTags = tagInput($("#search-tags"));
@@ -1089,13 +1228,309 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     catch (error) { toast(error.message); }
   });
 
+  // --- Knowledge ---------------------------------------------------------------------
+  const kb = { data: null, index: null, view: "glossaire", domain: "", focus: null };
+  const KB_VIEWS = { glossaire: "📖 Glossaire", index: "🔤 Index", regles: "📏 Règles métiers", prompts: "⚡ Prompts", notes: "📝 Notes", fichiers: "📁 Fichiers" };
+  const KB_KIND_VIEW = { glossaire: "glossaire", regles: "regles", prompts: "prompts", note: "notes" };
+  const foldText = (s) => String(s ?? "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const letterOf = (s) => { const c = foldText(s).charAt(0).toUpperCase(); return /[A-Z]/.test(c) ? c : "#"; };
+  const KB_TEMPLATE = `---\ntitle: Mes notes RAG\ntype: glossaire   # glossaire | regles | prompts | note\n---\n\n## Terme\nDomaine : RAG\nAlias : autre nom, sigle\nMots-clés : mot, autre mot\nSource : https://url-primaire\n\nDéfinition en Markdown.`;
+
+  async function loadKnowledge(force = false) {
+    if (!kb.data || force) kb.data = await api("/api/knowledge");
+    if (kb.view === "index" && (!kb.index || force)) kb.index = await api("/api/knowledge/index");
+    renderKnowledge();
+  }
+  const kbEntries = (kind) => (kb.data?.entries || []).filter((e) => e.kind === kind);
+  function kbMatches(e, q) {
+    return !q || foldText([e.title, e.domain, ...e.aliases, ...e.keywords, e.body, ...e.rules].join(" ")).includes(q);
+  }
+  // Retours à la ligne « souples » d'un fichier Markdown : même paragraphe (hors listes, titres, citations).
+  const unwrap = (text) => String(text).replace(/([^\n])\n(?![\n\-*#>]|\s*\d+[.)]\s)/g, "$1 ");
+  function kbCard(e, actions) {
+    const sources = e.sources.map((u) => `<a href="${safeUrl(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\//, "").slice(0, 60))} ↗</a>`).join(" · ");
+    return `<article class="kb-card" data-entry="${esc(e.id)}">
+      <h4>${esc(e.title)}${e.domain ? `<span class="chip">${esc(e.domain)}</span>` : ""}${e.origin === "upload" ? '<span class="chip" title="Fichier téléversé">↥ ' + esc(e.file) + "</span>" : ""}</h4>
+      ${e.rules.length ? `<ol class="rules-list">${e.rules.map((r) => `<li>${inline(r)}</li>`).join("")}</ol>` : `<div class="answer">${markdown(unwrap(e.body))}</div>`}
+      ${e.aliases.length ? `<div class="kb-meta">Alias : ${e.aliases.map(esc).join(", ")}</div>` : ""}
+      ${e.keywords.length ? `<div class="kb-meta">Mots-clés : ${e.keywords.map(esc).join(", ")}</div>` : ""}
+      ${sources ? `<div class="kb-meta">Source : ${sources}</div>` : ""}
+      <div class="kb-actions">${actions}</div></article>`;
+  }
+  const askButton = (e) => `<button class="btn small" data-ask="${esc(e.kind === "regles" ? `Quelles sont les règles métiers pour le domaine ${e.domain || e.title} ?` : `C'est quoi ${e.title} ?`)}">💬 Demander au chat</button>`;
+  const veilleButton = (term) => `<button class="btn small" data-veille="${esc(term)}">🔎 Dans la veille</button>`;
+  function renderKnowledge() {
+    const d = kb.data; if (!d) return;
+    $("#kb-tabs").innerHTML = Object.entries(KB_VIEWS).map(([k, l]) => `<button data-kb="${k}" aria-pressed="${k === kb.view}">${l}</button>`).join("");
+    $("#kb-errors").innerHTML = d.errors.map((e) => `<div class="error-box">⚠ ${esc(e)}</div>`).join("");
+    const kind = { glossaire: "glossaire", regles: "regles", prompts: "prompts", notes: "note" }[kb.view];
+    const domains = kind ? [...new Set(kbEntries(kind).map((e) => e.domain).filter(Boolean))].sort((a, b) => foldText(a).localeCompare(foldText(b))) : [];
+    if (!domains.includes(kb.domain)) kb.domain = "";
+    $("#kb-domains").innerHTML = domains.length > 1 ? [`<button data-domain="" aria-pressed="${!kb.domain}">Tous</button>`,
+      ...domains.map((x) => `<button data-domain="${esc(x)}" aria-pressed="${x === kb.domain}">${esc(x)}</button>`)].join("") : "";
+    const q = foldText($("#kb-search").value.trim());
+    const list = kind ? kbEntries(kind).filter((e) => (!kb.domain || e.domain === kb.domain) && kbMatches(e, q)) : [];
+    let html = "";
+    if (kb.view === "glossaire") {
+      const sorted = [...list].sort((a, b) => foldText(a.title).localeCompare(foldText(b.title)));
+      const letters = [...new Set(sorted.map((e) => letterOf(e.title)))];
+      html = `<p class="muted">${sorted.length} terme(s)</p><nav class="letters">${letters.map((l) => `<a href="#" data-letter="${l}">${l}</a>`).join("")}</nav>`
+        + letters.map((l) => `<div class="kb-letter" id="kb-letter-${l}">${l}</div><div class="kb-grid">${sorted.filter((e) => letterOf(e.title) === l)
+          .map((e) => kbCard(e, askButton(e) + veilleButton(e.title))).join("")}</div>`).join("");
+    } else if (kb.view === "index") {
+      const items = (kb.index || []).filter((i) => !q || foldText(i.term).includes(q) || i.entries.some((r) => foldText(r.title).includes(q)));
+      const letters = [...new Set(items.map((i) => letterOf(i.term)))];
+      html = `<p class="muted">${items.length} mot(s)-clé(s) : termes, alias et mots-clés du glossaire, des règles et des notes.</p>
+        <nav class="letters">${letters.map((l) => `<a href="#" data-letter="${l}">${l}</a>`).join("")}</nav>`
+        + letters.map((l) => `<div class="kb-letter" id="kb-letter-${l}">${l}</div><div class="card">${items.filter((i) => letterOf(i.term) === l).map((i) =>
+          `<div class="index-row"><b>${esc(i.term)}</b>${i.entries.map((r) => `<button data-open="${esc(r.id)}" title="${esc(r.kind)}">${esc(r.title)} <span class="role">${esc(r.role)}</span></button>`).join("")}
+           <span style="flex:1"></span>${veilleButton(i.term)}</div>`).join("")}</div>`).join("");
+    } else if (kb.view === "regles") {
+      html = `<div class="kb-grid">${list.map((e) => kbCard(e, askButton(e))).join("")}</div>`;
+    } else if (kb.view === "prompts") {
+      const group = (target, title) => {
+        const items = list.filter((e) => (e.target || "chat") === target);
+        return items.length ? `<h3>${title}</h3><div class="kb-grid">${items.map((e) => `<article class="kb-card prompt-card" data-prompt-id="${esc(e.id)}" tabindex="0">
+          <h4>${target === "review" ? "🔬" : "💬"} ${esc(e.title)}${e.domain ? `<span class="chip">${esc(e.domain)}</span>` : ""}</h4><p>${esc(e.body)}</p></article>`).join("")}</div>` : "";
+      };
+      html = group("chat", "Chat de veille") + group("review", "Challenge d'une review (onglet 🔬 Review)");
+    } else if (kb.view === "notes") {
+      html = list.length ? `<div class="kb-grid">${list.map((e) => kbCard(e, askButton(e))).join("")}</div>`
+        : `<p class="muted">Aucune note : téléversez un fichier Markdown sans <code>type</code> (ou <code>type: note</code>) dans l'onglet 📁 Fichiers.</p>`;
+    } else {
+      html = `<div class="card"><h3>Fichiers</h3><table class="plain"><tr><th>Fichier</th><th>Titre</th><th>Type</th><th>Entrées</th><th></th></tr>
+        ${d.files.map((f) => `<tr><td><code>${esc(f.name)}</code><br><span class="muted" style="font-size:.75rem">${f.origin === "base" ? "dépôt (knowledge/)" : "téléversé (data/knowledge/)"}</span></td>
+          <td>${esc(f.title)}</td><td>${esc(f.kind)}</td><td>${f.entries}</td>
+          <td><div class="kb-actions" style="margin:0"><button class="btn small" data-file="${esc(f.name)}">👁 Voir</button>
+          ${f.origin === "upload" ? `<button class="btn small bad" data-delete="${esc(f.name)}">🗑 Supprimer</button>` : ""}</div></td></tr>`).join("")}</table>
+        <pre class="report-md" id="kb-file" hidden style="margin-top:12px;max-height:50vh"></pre></div>
+        <div class="card"><h3>Ajouter des connaissances (Markdown)</h3>
+          <label class="dropzone" id="kb-drop">⬆ Déposez des fichiers <b>.md</b> ici ou cliquez pour choisir
+            <input type="file" id="kb-file-input" accept=".md,text/markdown" multiple hidden></label>
+          <div id="kb-upload-log"></div>
+          <p class="muted" style="font-size:.85rem;margin:10px 0 0">Validés avant écriture (format, URLs des sources, 200 ko max), enregistrés dans <code>data/knowledge/</code>.
+          Les fichiers du dépôt ne sont jamais modifiés. Format :</p><pre class="template">${esc(KB_TEMPLATE)}</pre></div>`;
+    }
+    $("#kb-content").innerHTML = html || `<p class="muted">Aucune entrée ne correspond.</p>`;
+    bindKnowledge();
+    if (kb.focus) {
+      const card = document.querySelector(`[data-entry="${CSS.escape(kb.focus)}"]`);
+      if (card) { card.classList.add("focus"); card.scrollIntoView({ block: "center" }); }
+      kb.focus = null;
+    }
+  }
+  function bindKnowledge() {
+    const c = $("#kb-content");
+    c.querySelectorAll("[data-letter]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); $(`#kb-letter-${a.dataset.letter}`)?.scrollIntoView(); }));
+    c.querySelectorAll("[data-ask]").forEach((b) => b.addEventListener("click", () => { show("chat"); send(b.dataset.ask); }));
+    c.querySelectorAll("[data-veille]").forEach((b) => b.addEventListener("click", () => { searchTags.set([b.dataset.veille]); show("search"); runSearch(); }));
+    c.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openKnowledge(b.dataset.open)));
+    c.querySelectorAll("[data-prompt-id]").forEach((card) => {
+      const use = () => usePrompt(kbEntries("prompts").find((e) => e.id === card.dataset.promptId));
+      card.addEventListener("click", use); card.addEventListener("keydown", (e) => e.key === "Enter" && use());
+    });
+    c.querySelectorAll("[data-file]").forEach((b) => b.addEventListener("click", async () => {
+      try { const f = await api(`/api/knowledge/files/${encodeURIComponent(b.dataset.file)}`); $("#kb-file").hidden = false; $("#kb-file").textContent = f.markdown; }
+      catch (error) { toast(error.message); }
+    }));
+    c.querySelectorAll("[data-delete]").forEach((b) => b.addEventListener("click", async () => {
+      if (!b.dataset.confirm) { b.dataset.confirm = "1"; b.textContent = "Confirmer la suppression ?"; return; }
+      try { await api(`/api/knowledge/${encodeURIComponent(b.dataset.delete)}`, { method: "DELETE" }); toast(`${b.dataset.delete} supprimé`); loadKnowledge(true); }
+      catch (error) { toast(error.message); }
+    }));
+    const drop = $("#kb-drop");
+    if (drop) {
+      $("#kb-file-input").addEventListener("change", (e) => uploadKnowledge([...e.target.files]));
+      drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+      drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+      drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); uploadKnowledge([...e.dataTransfer.files]); });
+    }
+  }
+  async function uploadKnowledge(files) {
+    const log = (html) => $("#kb-upload-log")?.insertAdjacentHTML("beforeend", html);
+    for (const file of files) {
+      const post = (replace) => api("/api/knowledge", { method: "POST", body: JSON.stringify({ filename: file.name, content, replace }) });
+      let content;
+      try { content = await file.text(); } catch { log(`<div class="error-box">${esc(file.name)} : lecture impossible</div>`); continue; }
+      try {
+        let info;
+        try { info = await post(false); }
+        catch (error) {
+          if (!/existe déjà/.test(error.message) || !confirm(`${error.message}\nRemplacer le fichier téléversé ?`)) throw error;
+          info = await post(true);
+        }
+        toast(`${info.name} : ${info.entries} entrée(s) ajoutée(s)`);
+      } catch (error) { log(`<div class="error-box">${esc(file.name)} : ${esc(error.message)}</div>`); }
+    }
+    const errors = $("#kb-upload-log")?.innerHTML || "";
+    await loadKnowledge(true);
+    if (errors) $("#kb-upload-log").innerHTML = errors;
+  }
+  function openKnowledge(id) {
+    const open = () => {
+      const entry = kb.data.entries.find((e) => e.id === id);
+      if (!entry) { toast("Entrée introuvable"); return; }
+      kb.view = KB_KIND_VIEW[entry.kind] || "glossaire"; kb.domain = ""; kb.focus = id; $("#kb-search").value = "";
+      document.querySelectorAll("[role=tab][data-view]").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.view === "knowledge")));
+      document.querySelectorAll(".view").forEach((v) => (v.hidden = v.id !== "knowledge"));
+      renderKnowledge();
+    };
+    (kb.data ? Promise.resolve() : api("/api/knowledge").then((d) => { kb.data = d; })).then(open).catch((error) => toast(error.message));
+  }
+  // Prompt cliquable : envoyé tel quel, ou placé dans le champ de saisie s'il contient un {champ} à compléter.
+  function usePrompt(entry) {
+    if (!entry) return;
+    const text = entry.body.trim(); const placeholder = /\{[^}]+\}/.exec(text);
+    const fill = (area) => { area.value = text; area.focus(); if (placeholder) area.setSelectionRange(placeholder.index, placeholder.index + placeholder[0].length); };
+    if (entry.target === "review") {
+      show("review");
+      if (!review.current) { toast("Ouvrez ou lancez d'abord une review"); $("#review-url").focus(); return; }
+      placeholder ? fill($("#review-input")) : sendReview(text);
+    } else {
+      show("chat");
+      placeholder ? fill($("#input")) : send(text);
+    }
+  }
+  $("#kb-search").addEventListener("input", () => renderKnowledge());
+  $("#kb-tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-kb]"); if (b) { kb.view = b.dataset.kb; loadKnowledge().catch((error) => toast(error.message)); } });
+  $("#kb-domains").addEventListener("click", (e) => { const b = e.target.closest("[data-domain]"); if (b) { kb.domain = b.dataset.domain; renderKnowledge(); } });
+
+  // --- Review --------------------------------------------------------------------------
+  const review = { current: null, busy: false, list: [], pending: null };
+  const STEP_LABELS = { fetch: "📥 Téléchargement et extraction", analyze: "🤖 Reviewer (skill review-actu + règles métiers)", guard: "🛡 Guard : citations vérifiées dans la page", save: "💾 Validation Pydantic et enregistrement" };
+  const STEP_ORDER = ["fetch", "analyze", "guard", "save"];
+  const VERDICT = { ok: ["✓", "respectée", "v-ok"], ko: ["✗", "non respectée", "v-ko"], na: ["–", "non applicable", "v-na"] };
+  const scrollReview = () => { const v = $("#review"); v.scrollTop = v.scrollHeight; };
+  async function loadReviews(selectFirst = true) {
+    review.list = await api("/api/reviews").catch(() => []);
+    $("#review-list").innerHTML = review.list.map((r) => `<button data-id="${esc(r.id)}" class="${r.id === review.current?.id ? "active" : ""}">
+      ${esc(r.title)}<small>${esc(r.site)} · ${esc(r.updated_at.slice(0, 10))} · pertinence ${r.relevance}/10${r.revision > 1 ? ` · rév. ${r.revision}` : ""}</small></button>`).join("");
+    $("#review-list").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => openReview(b.dataset.id)));
+    $("#review-empty").hidden = !!(review.list.length || review.current);
+    if (selectFirst && !review.current && !review.pending && review.list.length) openReview(review.list[0].id);
+  }
+  async function openReview(id) {
+    review.pending = id;
+    try {
+      renderReview(await api(`/api/reviews/${encodeURIComponent(id)}`));
+      await loadReviewChat();
+      history.replaceState(null, "", `#r=${encodeURIComponent(id)}`);
+    } catch (error) { toast(error.message); }
+    review.pending = null;
+  }
+  const meter = (label, value) => `<div class="score"><span class="label">${label} · ${value}/10</span><div class="meter"><div style="width:${value * 10}%"></div></div></div>`;
+  function renderReview(r) {
+    review.current = r;
+    const a = r.analysis, p = r.page;
+    $("#review-empty").hidden = true; $("#review-card").hidden = false; $("#review-chat").hidden = false;
+    $("#review-list").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.id === r.id));
+    const claims = a.claims.map((c, i) => `<div class="claim ${c.status}">
+        <div class="top">${c.status === "etaye" ? '<span class="badge-ok">✓ étayée par la page</span>' : '<span class="badge-warn">⚠ non étayée</span>'}<span class="chip">${esc(c.kind)}</span></div>
+        <div>${esc(c.claim)}</div>${c.quote ? `<blockquote>« ${esc(c.quote)} »</blockquote>` : ""}
+        <button class="btn small" data-challenge="${i}">❝ Challenger</button></div>`).join("") || '<p class="muted">Aucune affirmation extraite.</p>';
+    const checks = a.rule_checks.length ? `<table class="plain">${a.rule_checks.map((c) => `<tr><td class="${VERDICT[c.verdict][2]}" title="${VERDICT[c.verdict][1]}">${VERDICT[c.verdict][0]}</td>
+        <td><b>R${c.rule_id}</b> <span class="chip">${esc(c.domain)}</span> ${esc(c.rule)}${c.note ? `<div class="muted" style="font-size:.84rem">${esc(c.note)}</div>` : ""}</td></tr>`).join("")}</table>`
+      : '<p class="muted">Aucune règle évaluée.</p>';
+    $("#review-card").innerHTML = `
+      <div class="review-head"><h3><a href="${safeUrl(p.final_url)}" target="_blank" rel="noopener">${esc(r.title)} ↗</a></h3>
+        <div class="muted" style="font-size:.84rem">${esc(p.site)} · ${esc(p.published_at || "date non précisée")} · ${p.word_count} mots${p.truncated ? " (tronqué)" : ""}
+          · révision ${r.revision} · ${esc(r.model)}</div>
+        <div class="chips" style="margin-top:8px">${p.domains.map((d) => `<span class="chip">${esc(d)}</span>`).join("") || '<span class="chip">domaine non détecté</span>'}
+          <span class="state ${a.source_type === "primaire" ? "published" : a.source_type === "secondaire" ? "awaiting_approval" : ""}">source ${esc(a.source_type)}</span></div></div>
+      <div class="scores">${meter("Pertinence", a.relevance)}${meter("Nouveauté", a.novelty)}${meter("Confiance", a.confidence)}</div>
+      ${a.source_type_reason ? `<p class="muted" style="font-size:.86rem;margin:4px 0">${esc(a.source_type_reason)}</p>` : ""}
+      <h3 style="margin-top:14px">Synthèse</h3><div class="answer">${markdown(a.summary)}</div>
+      <p><b>Pourquoi c'est important :</b> ${esc(a.why_it_matters)}</p>
+      ${a.key_points.length ? `<h3>Points clés</h3><ul>${a.key_points.map((k) => `<li>${esc(k)}</li>`).join("")}</ul>` : ""}
+      <h3>Affirmations (${a.claims.filter((c) => c.status === "etaye").length}/${a.claims.length} étayées)</h3>${claims}
+      <h3>Règles métiers</h3>${checks}
+      ${a.risks.length ? `<h3>Risques</h3><ul>${a.risks.map((k) => `<li>${esc(k)}</li>`).join("")}</ul>` : ""}
+      ${a.questions.length ? `<h3>Questions pour challenger</h3><div class="stack">${a.questions.map((q) => `<button class="review-q" data-q="${esc(q)}">💬 ${esc(q)}</button>`).join("")}</div>` : ""}
+      ${p.glossary.length ? `<h3>Termes du glossaire</h3><div class="chips">${p.glossary.map((g) => `<a class="chip" href="#k=${esc(g.id)}">📖 ${esc(g.title)}</a>`).join("")}</div>` : ""}
+      ${a.tags.length ? `<div class="kb-meta" style="margin-top:10px">Tags : ${a.tags.map(esc).join(", ")}</div>` : ""}
+      ${r.warnings.length ? `<div class="warning">🛡️ Guard : ${r.warnings.map(esc).join(" · ")}</div>` : ""}
+      <div class="engaged"><span class="e">🤖 <b>fetch → analyze → guard → save</b></span><span class="e">👥 agent <b>reviewer</b></span>
+        <span class="e">📚 skills <b>review-actu, veille-tech</b></span><span class="e">📝 <b>review.md</b></span>
+        ${r.trace_url ? `<a class="trace" href="${safeUrl(r.trace_url)}" target="_blank" rel="noopener">🧭 Graphe ↗</a>` : ""}
+        ${r.langfuse?.trace ? `<a class="trace" href="${safeUrl(r.langfuse.trace)}" target="_blank" rel="noopener">🔭 Langfuse ↗</a>` : ""}</div>`;
+    $("#review-card").querySelectorAll("[data-q]").forEach((b) => b.addEventListener("click", () => sendReview(b.dataset.q)));
+    $("#review-card").querySelectorAll("[data-challenge]").forEach((b) => b.addEventListener("click", () => {
+      const claim = a.claims[Number(b.dataset.challenge)];
+      $("#review-input").value = `> ${claim.claim}\nCette affirmation est-elle vraiment étayée par l'article ?`;
+      $("#review-input").focus(); $("#review-chat").scrollIntoView({ block: "nearest" });
+    }));
+    renderReviewPrompts();
+  }
+  function renderReviewPrompts() {
+    const prompts = kbEntries("prompts").filter((e) => e.target === "review");
+    $("#review-prompts").innerHTML = prompts.map((e) => `<button class="review-q" data-prompt-id="${esc(e.id)}" title="${esc(e.body)}">⚡ ${esc(e.title)}</button>`).join("");
+    $("#review-prompts").querySelectorAll("[data-prompt-id]").forEach((b) => b.addEventListener("click", () => usePrompt(prompts.find((e) => e.id === b.dataset.promptId))));
+    if (!kb.data) api("/api/knowledge").then((d) => { kb.data = d; renderReviewPrompts(); }).catch(() => {});
+  }
+  async function loadReviewChat() {
+    const container = $("#review-messages"); container.innerHTML = "";
+    const messages = await api(`/api/conversations/${encodeURIComponent(review.current.conversation_id)}`).catch(() => []);
+    for (const m of messages) {
+      if (m.role === "human") addUser(m.content, container);
+      else {
+        const view = addAssistant(container);
+        view.answer.innerHTML = markdown(m.content, m.sources);
+        renderExtra(view.extra, { sources: m.sources, warnings: [], data: {}, trace_url: m.trace_url, engaged: m.engaged, langfuse: m.langfuse });
+      }
+    }
+  }
+  async function sendReview(text) {
+    if (!review.current || review.busy || !text.trim()) return;
+    review.busy = true; $("#review-send").disabled = true; $("#review-revise").disabled = true;
+    const container = $("#review-messages");
+    addUser(text.trim(), container);
+    const view = addAssistant(container); view.answer.classList.add("cursor"); scrollReview();
+    try { await streamSSE("/api/chat", { message: text.trim(), review_id: review.current.id }, chatHandler(view, scrollReview)); }
+    catch (error) { view.answer.classList.remove("cursor"); view.answer.innerHTML = `<p class="warning">⚠ ${esc(error.message)}</p>`; }
+    review.busy = false; $("#review-send").disabled = false; $("#review-revise").disabled = false; scrollReview(); loadConversations();
+  }
+  async function runReview(path, body) {
+    if (review.busy) return;
+    review.busy = true; $("#review-go").disabled = true; $("#review-revise").disabled = true;
+    const steps = $("#review-steps"); steps.innerHTML = "";
+    const pending = (node) => steps.insertAdjacentHTML("beforeend", `<li data-icon="⏳" class="pending">${esc(STEP_LABELS[node])}…</li>`);
+    pending(body?.url ? "fetch" : "analyze");
+    try {
+      await streamSSE(path, body, (event) => {
+        if (event.type === "step") {
+          steps.querySelector(".pending")?.remove();
+          steps.insertAdjacentHTML("beforeend", `<li data-icon="✓"><time>${(event.ms / 1000).toFixed(1)} s</time><b>${esc(STEP_LABELS[event.node] || event.node)}</b>${event.detail ? " — " + esc(event.detail) : ""}</li>`);
+          const next = STEP_ORDER[STEP_ORDER.indexOf(event.node) + 1]; if (next) pending(next);
+        } else if (event.type === "review") {
+          renderReview({ ...event.review, trace_url: event.trace_url, langfuse: event.langfuse });
+          loadReviews(false); loadReviewChat();
+          history.replaceState(null, "", `#r=${encodeURIComponent(event.review.id)}`);
+          toast(event.review.revision > 1 ? `Review révisée (révision ${event.review.revision})` : "Review prête : challengez-la ci-dessous");
+        } else if (event.type === "error") {
+          steps.querySelector(".pending")?.remove();
+          steps.insertAdjacentHTML("beforeend", `<li data-icon="✕"><span class="err">${esc(event.text)}</span></li>`);
+        }
+      });
+    } catch (error) {
+      steps.querySelector(".pending")?.remove();
+      steps.insertAdjacentHTML("beforeend", `<li data-icon="✕"><span class="err">${esc(error.message)}</span></li>`);
+    }
+    review.busy = false; $("#review-go").disabled = false; $("#review-revise").disabled = false;
+  }
+  $("#review-form").addEventListener("submit", (e) => { e.preventDefault(); const url = $("#review-url").value.trim(); if (url) runReview("/api/reviews", { url }); });
+  $("#review-composer").addEventListener("submit", (e) => { e.preventDefault(); const text = $("#review-input").value; $("#review-input").value = ""; sendReview(text); });
+  $("#review-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#review-composer").requestSubmit(); } });
+  $("#review-revise").addEventListener("click", () => review.current && runReview(`/api/reviews/${encodeURIComponent(review.current.id)}/revise`, null));
+
   // --- Démarrage ---------------------------------------------------------------------
   loadHealth(); loadConversations(); setInterval(loadHealth, 30000);
   api("/api/runs").then((runs) => { const active = runs.find((r) => ["running", "awaiting_approval"].includes(r.status)); if (active) followRun(active.id); }).catch(() => {});
   const linked = location.hash.match(/^#c=(.+)$/);
   if (linked) openConversation(decodeURIComponent(linked[1])).catch(() => {});
   else if (location.hash === "#grill-start") { show("grill"); startGrill(); }  // lien direct : démarre l'entretien
-  else if (["#search", "#runs", "#reports", "#prompts", "#memory", "#grill"].includes(location.hash)) show(location.hash.slice(1));
+  else if (location.hash.startsWith("#r=")) { openReview(decodeURIComponent(location.hash.slice(3))); show("review"); }
+  else if (location.hash.startsWith("#k=")) openKnowledge(decodeURIComponent(location.hash.slice(3)));
+  else if (["#search", "#runs", "#reports", "#prompts", "#memory", "#grill", "#review", "#knowledge"].includes(location.hash)) show(location.hash.slice(1));
   input.focus();
 })();
 </script>

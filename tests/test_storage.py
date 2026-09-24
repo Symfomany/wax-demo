@@ -146,3 +146,38 @@ def test_search_filters_sources_dates_publication_and_match_all(connection):
     assert storage.search_documents(connection, "") == []
     with pytest.raises(ValueError, match="inconnue"):
         storage.search_documents(connection, "x", sources=["twitter"])
+
+
+def test_v5_adds_reviews_to_a_v4_database(tmp_path):
+    path = tmp_path / "v4.db"
+    legacy = sqlite3.connect(path)
+    legacy.executescript("".join(storage.MIGRATIONS[:4]) + "PRAGMA user_version = 4;")
+    legacy.execute("INSERT INTO traces (id, kind, session_id, title, steps_json) VALUES ('t', 'chat', 's', 'T', '[]')")
+    legacy.commit()
+    legacy.close()
+
+    connection = storage.connect(path)
+
+    assert storage.schema_version(connection) == 5
+    assert storage.memory_stats(connection)["traces"] == 1
+    assert storage.memory_stats(connection)["reviews"] == 0
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(reviews)")}
+    assert columns >= {"id", "url", "conversation_id", "revision", "record_json"}
+
+
+def test_review_round_trip_and_revision(connection):
+    record = {"id": "r1", "url": "https://example.org/a", "title": "A", "conversation_id": "c1", "revision": 1,
+              "page": {"site": "example.org", "domains": ["LLM"]}, "analysis": {"relevance": 7}}
+    storage.save_review(connection, record)
+    storage.save_review(connection, record | {"revision": 2, "analysis": {"relevance": 4}})
+
+    saved = storage.get_review(connection, "r1")
+    assert (saved["revision"], saved["analysis"]["relevance"]) == (2, 4)
+    assert storage.list_reviews(connection) == [{
+        "id": "r1", "url": "https://example.org/a", "title": "A", "revision": 2,
+        "created_at": saved["created_at"], "updated_at": saved["updated_at"],
+        "site": "example.org", "domains": ["LLM"], "relevance": 4,
+    }]
+    assert storage.get_review(connection, "absent") is None
+    with pytest.raises(sqlite3.IntegrityError):  # une conversation de challenge par review
+        storage.save_review(connection, record | {"id": "r2"})

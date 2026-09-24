@@ -27,10 +27,13 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Plan d'exécution : `python -m app.main plan --langgraph`
 - Recherche GitHub via MCP : `python -m app.main github "llm inference" --limit 5`
 - Mémoire : `python -m app.main memory [--export]`
-- Interface web de chat : `python -m app.main web` (http://127.0.0.1:8000)
+- Interface web de chat : `python -m app.main web` (http://127.0.0.1:8000) ; en arrière-plan :
+  `bin/veille start|stop|restart|status|logs [-f]` (PID et journal dans `data/web.pid`, `data/web.log`)
 - Rapport daté : `python -m app.main report` · Notion : `python -m app.main notion-sync`
 - Instructions templatées : `python -m app.main instructions claude-md|demande|chat`
 - Grill-me (profil de centres d'intérêt) : `python -m app.main grill`, skill `grill-me`, `grill-save`
+- Review d'une actu par URL : `python -m app.main review <URL> [--json]`, skill `review-actu`, onglet 🔬 Review
+- Base de connaissances : `python -m app.main knowledge [TERME] [--index] [--add fichier.md]`, onglet 📚 Knowledge
 - Inspection SQLite : `sqlite3 data/watch.db`
 - Vérification style : `python -m compileall app`
 
@@ -56,6 +59,10 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Prompts éditables : surcharges dans `data/prompts/` (`app/harness/prompts.py`), jamais les fichiers du dépôt.
 - Traces du graphe : table `traces` (v4), page `/trace/<id>` ; liens Langfuse déterministes (`app/observability.py`).
 - Grill-me : `app/grill.py` (entretien par `interrupt()`), profil dans le Store (`WatchMemory.interests`).
+- Knowledge : `knowledge/*.md` (glossaire, règles métiers par domaine, prompts ; format dans `knowledge/README.md`),
+  chargés par `app/knowledge.py` ; téléversements validés dans `data/knowledge/` (hors Git), jamais dans `knowledge/`.
+- Review : `app/review.py` (agent Reviewer fetch → analyze → guard → save ; SSRF bloquée, citations vérifiées
+  dans la page), table `reviews` (v5), prompt `app/prompts/review.md` ; challenge = outil de chat `challenge_review`.
 - Documentation : `docs/getting-started.html`, `docs/index.html`, `docs/langgraph.md`,
   `docs/llm-ollama-claude.md`, `docs/UPGRADE.md`, `docs/jetson-orin.md`.
 

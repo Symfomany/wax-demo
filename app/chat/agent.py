@@ -31,14 +31,16 @@ from app.instructions import render_instructions
 from app.llm import BudgetExceeded, LLMOutputError, StructuredLLM
 from app.memory import WatchMemory
 
-ToolName = Literal[
+RouterTool = Literal[
     "search_watch", "latest_digests", "run_watch", "github_search",
-    "memory_status", "notion_sync", "list_reports", "grill_me", "none",
+    "memory_status", "notion_sync", "list_reports", "grill_me", "knowledge_search", "none",
 ]
+# `challenge_review` n'est jamais choisi par le routeur : il sert le chat d'une review.
+ToolName = Literal[RouterTool, "challenge_review"]
 
 
 class ChatDecision(BaseModel):
-    tool: ToolName
+    tool: RouterTool
     query: str = Field("", description="Mots-clés si l'outil en a besoin, sinon vide")
 
 
@@ -51,6 +53,9 @@ RULES: list[tuple[re.Pattern, ToolName]] = [
     (re.compile(r"\b(mémoire|memoire|leçons?|préférences?|santé des sources)\b", re.I), "memory_status"),
     (re.compile(r"\brapports?\b", re.I), "list_reports"),
     (re.compile(r"\b(quoi de neuf|dernières? veilles?|derniers? digests?|résume la veille|nouveautés)\b", re.I), "latest_digests"),
+    (re.compile(r"\b(d[ée]finitions?|d[ée]finir|d[ée]finis|glossaire|que signifie|signifie|r[èe]gles? m[ée]tiers?|"
+                r"base de connaissances?|knowledge)\b|c['’]est quoi|qu['’]est[- ]ce (?:que|qu['’])\s*(?:c['’]est|un|une|le|la|les|l['’])",
+                re.I), "knowledge_search"),
     (re.compile(r"^\s*(bonjour|salut|hello|merci|coucou)\b[\s!.?]*$", re.I), "none"),
 ]
 QUERY_NOISE = re.compile(
@@ -94,6 +99,9 @@ TOOL_ENGAGEMENT: dict[str, dict[str, list[str]]] = {
     "notion_sync": {"skills": ["rapport-veille"], "mcp": ["notion-veille"]},
     "list_reports": {"data": ["reports/"]},
     "grill_me": {"skills": ["grill-me"], "data": ["Store LangGraph (centres d'intérêt)"]},
+    "knowledge_search": {"data": ["knowledge/ (glossaire, règles métiers, notes)"]},
+    "challenge_review": {"agents": ["reviewer"], "skills": ["review-actu"],
+                         "data": ["reviews (SQLite)", "knowledge/"]},
     "none": {},
 }
 
@@ -124,6 +132,7 @@ class ChatState(TypedDict, total=False):
     result: dict
     answer: str
     warnings: list[str]
+    review_id: str  # conversation de challenge d'une review (conservé par le checkpointer)
 
 
 @dataclass
@@ -170,6 +179,10 @@ def build_chat_graph(context: ChatContext, checkpointer=None):
 
     def route(state: ChatState) -> dict:
         message = state["messages"][-1].content
+        if state.get("review_id"):
+            # Message complet : les passages cités (« > … ») orientent le choix des extraits.
+            return {"decision": {"tool": "challenge_review", "query": message,
+                                 "review_id": state["review_id"], "routed_by": "rule"}}
         decision = rule_route(message)
         routed_by = "rule" if decision else "llm"
         if decision is None:
@@ -195,6 +208,8 @@ def build_chat_graph(context: ChatContext, checkpointer=None):
             args["query"] = decision["query"]
         if "keywords" in tool.args and decision["query"]:
             args["keywords"] = decision["query"]
+        if "review_id" in tool.args:
+            args["review_id"] = decision.get("review_id", "")
         writer({"type": "tool_start", "tool": decision["tool"], "args": args})
         try:
             result = tool.invoke(args, config)
@@ -246,13 +261,17 @@ def build_chat_graph(context: ChatContext, checkpointer=None):
     return builder.compile(checkpointer=checkpointer)
 
 
-def stream_chat(graph, conversation_id: str, message: str, config: dict):
-    """Événements pour l'interface : tool_start/tool_end, token, final (+ parcours du graphe)."""
+def stream_chat(graph, conversation_id: str, message: str, config: dict, review_id: str | None = None):
+    """Événements pour l'interface : tool_start/tool_end, token, final (+ parcours du graphe).
+
+    `review_id` ouvre une conversation de challenge : il reste dans l'état du fil.
+    """
     config = config | {"configurable": {"thread_id": f"chat-{conversation_id}"}}
     steps, started = [], time.perf_counter()
     last = started
+    inputs = {"messages": [HumanMessage(message)], **({"review_id": review_id} if review_id else {})}
     for mode, chunk in graph.stream(
-        {"messages": [HumanMessage(message)]}, config, stream_mode=["messages", "custom", "values", "updates"]
+        inputs, config, stream_mode=["messages", "custom", "values", "updates"]
     ):
         if mode == "updates":
             now = time.perf_counter()
