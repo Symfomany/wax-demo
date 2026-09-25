@@ -22,12 +22,15 @@ async function detail(response: Response): Promise<string> {
   return typeof body.detail === "string" ? body.detail : `HTTP ${response.status}`
 }
 
-export function createApi(base: string, fetcher: typeof fetch = fetch): VeilleApi {
+export function createApi(base: string, fetcher: typeof fetch = fetch, token?: string): VeilleApi {
   base = base.replace(/\/$/, "")
+  // Jeton WEB_API_TOKEN du serveur, s'il en exige un.
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  if (token) headers.Authorization = `Bearer ${token}`
   const call = async (method: string, path: string, body?: unknown): Promise<any> => {
     const response = await fetcher(base + path, {
       method,
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     })
     if (!response.ok) throw new ApiError(response.status, await detail(response))
@@ -41,7 +44,7 @@ export function createApi(base: string, fetcher: typeof fetch = fetch): VeilleAp
     async stream(path, body, onEvent) {
       const response = await fetcher(base + path, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: body === null ? undefined : JSON.stringify(body),
       })
       if (!response.ok || !response.body) throw new ApiError(response.status, await detail(response))

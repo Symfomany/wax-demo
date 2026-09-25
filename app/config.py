@@ -99,6 +99,9 @@ class Settings(BaseSettings):
     news_per_source: int = 24
     web_host: str = "127.0.0.1"
     web_port: int = 8000
+    # Jeton exigé sur l'API web (Authorization: Bearer, ou cookie posé par /?token=…) ;
+    # indispensable dès que l'interface est exposée hors de la machine (Tailscale Funnel, tunnel)
+    web_api_token: str | None = None
 
     @property
     def notion_enabled(self) -> bool:

@@ -7,6 +7,7 @@ base de connaissances et review d'actualités par URL.
 from __future__ import annotations
 
 import json
+import secrets
 from collections.abc import Callable
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
@@ -14,8 +15,8 @@ from pathlib import Path
 from uuid import uuid4
 
 import httpx
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import BaseModel, Field
@@ -33,6 +34,15 @@ from app.review import FetchError, Page, ReviewContext, build_review_graph, stre
 from app.web.runs import RunManager
 
 STATIC = Path(__file__).resolve().parent / "static"
+TOKEN_COOKIE = "veille_token"
+
+
+def authorized(request: Request, token: str) -> bool:
+    """Jeton présenté en en-tête Bearer ou en cookie (comparaison à temps constant)."""
+    header = request.headers.get("authorization", "")
+    presented = header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else ""
+    presented = presented or request.cookies.get(TOKEN_COOKIE, "")
+    return bool(presented) and secrets.compare_digest(presented.encode(), token.encode())
 
 
 @dataclass
@@ -181,6 +191,26 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
     diagram_cache: dict[str, dict[str, str]] = {}
     app.state.runs = runs
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    token = settings.web_api_token
+
+    if token:
+        @app.middleware("http")
+        async def require_token(request: Request, call_next):
+            path = request.url.path
+            if path == "/" and "token" in request.query_params:
+                # Connexion du navigateur : le jeton passe une fois dans l'URL, puis en cookie HttpOnly.
+                if not secrets.compare_digest(request.query_params["token"].encode(), token.encode()):
+                    return JSONResponse({"detail": "Jeton invalide"}, status_code=401)
+                response = RedirectResponse("/", status_code=303)
+                https = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+                response.set_cookie(TOKEN_COOKIE, token, httponly=True, samesite="strict", secure=https,
+                                    max_age=90 * 24 * 3600)
+                return response
+            # / et /static ne portent aucune donnée ; /api/health sert de sonde à bin/veille et à la TUI.
+            if path in ("/", "/api/health") or path.startswith("/static/") or authorized(request, token):
+                return await call_next(request)
+            return JSONResponse({"detail": "Jeton d'API requis"}, status_code=401,
+                                headers={"WWW-Authenticate": "Bearer"})
 
     def services() -> ChatServices:
         return ChatServices(
