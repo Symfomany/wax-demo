@@ -58,6 +58,7 @@ class NewsItem(BaseModel):
     image: str | None = None  # https uniquement
     accent: str | None = None  # couleur de fond de la carte (#rrggbb)
     query: str = Field("", max_length=300)  # recherche web : sujets demandés
+    screenshot: str | None = Field(None, pattern=r"^/api/news/[0-9a-f]{16}/screenshot$")  # aperçu (MCP Playwright)
 
     @field_validator("image")
     @classmethod
@@ -388,22 +389,16 @@ def explain_api_error(error: Exception) -> str:
     return f"API Claude : {type(error).__name__} : {text[:400]}"
 
 
-def search_news(topics: str, exclusions: list[str] | None = None, memory: str = "Aucun.",
-                days: int | None = None, client: Any = None, model: str | None = None,
-                today: date | None = None) -> SearchReport:
-    from app.harness.prompts import render_prompt
+WebResults = dict[str, tuple[str, str, str | None]]  # URL normalisée → (URL, titre, page_age)
 
-    days = days or settings.news_search_days
-    model = model or settings.news_model
-    today = today or datetime.now(timezone.utc).date()
-    exclusions = exclusions or []
-    client = client or claude_client()
-    prompt = render_prompt("news-search", topics=topics, days=days, today=today.isoformat(), memory=memory,
-                           exclusions=", ".join(exclusions) or "cours, tutoriels, listes « awesome »")
+
+def web_search(prompt: str, client: Any, model: str) -> tuple[WebResults, str, int]:
+    """Un appel Claude avec l'outil serveur web_search : (résultats vus, texte final, nombre de recherches).
+
+    Seuls ces résultats font foi : toute URL proposée par Claude doit y figurer."""
     tool = {"type": settings.news_search_tool, "name": "web_search", "max_uses": settings.news_search_max_uses}
     messages: list[dict] = [{"role": "user", "content": prompt}]
-
-    results: dict[str, tuple[str, str, str | None]] = {}  # URL normalisée → (URL, titre, page_age)
+    results: WebResults = {}
     searches, text = 0, ""
     for _ in range(4):  # pause_turn : le serveur rend la main au milieu d'une longue boucle d'outils
         response = client.messages.create(model=model, max_tokens=6000, messages=messages, tools=[tool])
@@ -422,7 +417,32 @@ def search_news(topics: str, exclusions: list[str] | None = None, memory: str = 
         messages = [messages[0], {"role": "assistant", "content": response.content}]
     if response.stop_reason == "refusal":
         raise NewsError("Claude a refusé la recherche.")
+    return results, text, searches
 
+
+def extract_json(text: str) -> dict:
+    """Objet JSON final de Claude (éventuellement dans un bloc ```json)."""
+    fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.S)
+    raw = fenced.group(1) if fenced else text[text.find("{"): text.rfind("}") + 1]
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise NewsError(f"Réponse de Claude non conforme au schéma attendu : {error}") from error
+
+
+def search_news(topics: str, exclusions: list[str] | None = None, memory: str = "Aucun.",
+                days: int | None = None, client: Any = None, model: str | None = None,
+                today: date | None = None) -> SearchReport:
+    from app.harness.prompts import render_prompt
+
+    days = days or settings.news_search_days
+    model = model or settings.news_model
+    today = today or datetime.now(timezone.utc).date()
+    exclusions = exclusions or []
+    client = client or claude_client()
+    prompt = render_prompt("news-search", topics=topics, days=days, today=today.isoformat(), memory=memory,
+                           exclusions=", ".join(exclusions) or "cours, tutoriels, listes « awesome »")
+    results, text, searches = web_search(prompt, client, model)
     answer = parse_answer(text)
     oldest = today - timedelta(days=days + 2)
     banned = [word.lower() for word in exclusions]

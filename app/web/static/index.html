@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Veille GenAI</title>
+<title>Veille AI</title>
 <style>
 :root {
   --bg: #f6f5f1; --panel: #ffffff; --panel-2: #f1efe9; --line: #e4e1d8; --text: #1c1b19; --muted: #6d6a62;
@@ -51,7 +51,8 @@ aside { background: var(--panel); border-right: 1px solid var(--line); display: 
 .new-chat:hover { border-color: var(--accent); color: var(--accent); }
 .side-title { font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700; padding: 0 6px; }
 .conversations { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
-.conversations button { text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 9px; cursor: pointer;
+/* flex: none : sans lui, overflow:hidden ramène la hauteur minimale à 0 et les boutons s'écrasent au lieu de défiler */
+.conversations button { flex: none; line-height: 1.35; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 9px; cursor: pointer;
                         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: .9rem; }
 .conversations button:hover { background: var(--panel-2); color: var(--text); }
 .conversations button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
@@ -519,6 +520,176 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   .assistant-panel { right: 12px; left: 12px; width: auto; }
 }
 
+/* --- Barre du haut + menu burger coulissant ------------------------------------------ */
+.topbar { display: flex; align-items: center; gap: 10px; padding: calc(9px + env(safe-area-inset-top, 0px)) 16px 9px; border-bottom: 1px solid var(--line);
+          background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(10px); position: relative; z-index: 5; min-width: 0; }
+.burger { flex: none; width: 42px; height: 42px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); cursor: pointer;
+          display: grid; place-content: center; gap: 4px; transition: border-color .15s, transform .15s; }
+.burger:hover { border-color: var(--accent); transform: scale(1.04); }
+.burger span { display: block; width: 18px; height: 2px; border-radius: 2px; background: var(--text); transition: transform .25s, opacity .2s, width .25s; }
+.burger span:nth-child(2) { width: 12px; }
+.burger[aria-expanded="true"] span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.burger[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
+.burger[aria-expanded="true"] span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+.crumb { display: flex; align-items: center; gap: 10px; min-width: 0; flex: none; }
+.crumb .ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-size: 1.05rem; background: var(--accent-soft); }
+.crumb b { display: block; font-size: 1rem; line-height: 1.2; white-space: nowrap; }
+.crumb small { display: block; color: var(--muted); font-size: .74rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.quick { display: flex; gap: 4px; margin-left: 8px; padding: 4px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--line); min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.quick::-webkit-scrollbar { display: none; }
+.quick button { border: 0; background: none; padding: 6px 12px; border-radius: 10px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: .86rem; white-space: nowrap; position: relative; }
+.quick button:hover { color: var(--text); }
+.quick button[aria-current="page"] { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+.top-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none; }
+.icon-btn { position: relative; width: 38px; height: 38px; border-radius: 11px; border: 1px solid transparent; background: none; cursor: pointer; font-size: 1.05rem; display: grid; place-items: center; }
+.icon-btn:hover { background: var(--panel); border-color: var(--line); }
+.icon-btn .count { position: absolute; top: 1px; right: 1px; min-width: 17px; height: 17px; border-radius: 9px; background: var(--bad); color: #fff; font-size: .66rem; font-weight: 700; display: grid; place-items: center; padding: 0 4px; }
+.user-chip { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 6px 4px 10px; font-size: .82rem; font-weight: 600; }
+.user-chip button { border: 0; background: var(--panel-2); border-radius: 999px; padding: 3px 9px; cursor: pointer; font-size: .76rem; color: var(--muted); }
+.user-chip button:hover { color: var(--bad); }
+.run-badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--accent); color: #fff; font-size: .7rem; text-align: center; animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 22%, transparent); } }
+.drawer-back { position: fixed; inset: 0; z-index: 85; background: rgba(12,12,18,.45); backdrop-filter: blur(3px); opacity: 0; transition: opacity .25s; pointer-events: none; }
+.drawer-back.open { opacity: 1; pointer-events: auto; }
+.drawer { position: fixed; top: 0; bottom: 0; left: 0; z-index: 86; width: min(360px, 88vw); display: flex; flex-direction: column; background: var(--panel);
+          border-right: 1px solid var(--line); box-shadow: 30px 0 80px rgba(10,10,20,.25); transform: translateX(-104%); transition: transform .32s cubic-bezier(.2,.9,.25,1);
+          padding: calc(14px + env(safe-area-inset-top, 0px)) 12px calc(12px + env(safe-area-inset-bottom, 0px)); visibility: hidden; }
+.drawer.open { transform: none; visibility: visible; }
+.drawer-head { display: flex; align-items: center; gap: 10px; padding: 2px 6px 12px; }
+.drawer-head .brand { flex: 1; padding: 0; }
+.drawer-search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--panel-2); border-radius: 12px; padding: 8px 11px; margin: 0 4px 10px; }
+.drawer-search:focus-within { border-color: var(--accent); }
+.drawer-search input { border: 0; outline: 0; background: none; flex: 1; min-width: 0; }
+.drawer-search kbd, .kbd { font: 600 .68rem var(--mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 5px; color: var(--muted); background: var(--panel); }
+.drawer-nav { flex: 1; overflow-y: auto; min-height: 0; display: grid; align-content: start; gap: 2px; padding: 0 2px; }
+.drawer-group { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; padding: 12px 10px 4px; }
+.drawer-item { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; align-items: center; text-align: left; border: 0; background: none; cursor: pointer;
+               padding: 7px 8px; border-radius: 12px; color: var(--text); opacity: 0; transform: translateX(-12px); }
+.drawer.open .drawer-item { animation: item-in .35s cubic-bezier(.2,.9,.3,1.1) forwards; animation-delay: calc(var(--i, 0) * 22ms + 60ms); }
+@keyframes item-in { to { opacity: 1; transform: none; } }
+.drawer-item .ico { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; font-size: 1.1rem; background: var(--panel-2); transition: transform .2s; }
+.drawer-item b { display: block; font-size: .92rem; font-weight: 650; }
+.drawer-item small { display: block; font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drawer-item:hover, .drawer-item:focus-visible { background: var(--panel-2); outline: 0; }
+.drawer-item:hover .ico { transform: scale(1.08) rotate(-4deg); }
+.drawer-item[aria-current="page"] { background: var(--accent-soft); }
+.drawer-item[aria-current="page"] .ico { background: linear-gradient(135deg, var(--accent), #c05bd6); color: #fff; }
+.drawer-item[aria-current="page"] b { color: var(--accent); }
+.drawer-foot { border-top: 1px solid var(--line); padding: 10px 6px 0; display: grid; gap: 8px; }
+.drawer-foot .row { justify-content: space-between; }
+@media (prefers-reduced-motion: reduce) { .drawer, .drawer-back, .drawer-item { transition: none; animation: none !important; opacity: 1; transform: none; } }
+
+/* --- Grill-me : chargement -------------------------------------------------------------- */
+#grill-card { position: relative; }
+.grill-loading { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; border-radius: var(--radius);
+                 background: color-mix(in srgb, var(--panel) 86%, transparent); backdrop-filter: blur(2px); animation: fade-in .2s ease-out; }
+.grill-loading .inner, .grill-intro-loading .inner { display: grid; justify-items: center; gap: 10px; text-align: center; padding: 20px; }
+.grill-intro-loading .inner { justify-items: start; text-align: left; padding: 6px 0 0; }
+:is(.grill-loading, .grill-intro-loading) .bar { width: min(260px, 60vw); height: 5px; border-radius: 5px; background: var(--panel-2); overflow: hidden; }
+:is(.grill-loading, .grill-intro-loading) .bar i { display: block; height: 100%; width: 40%; border-radius: 5px; background: linear-gradient(90deg, var(--accent), #c05bd6); animation: indet 1.2s ease-in-out infinite; }
+@keyframes indet { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+:is(.grill-loading, .grill-intro-loading) small { color: var(--muted); font-size: .8rem; }
+.grill-intro-loading { margin-top: 12px; }
+
+/* --- Aide & visite guidée ---------------------------------------------------------------- */
+.help-hero { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; background: linear-gradient(135deg, var(--accent-soft), var(--panel)); }
+.help-hero .big { font-size: 2.6rem; }
+.help-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 12px; margin-bottom: 14px; }
+.help-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; cursor: pointer; transition: transform .15s, border-color .15s; text-align: left; font: inherit; color: inherit; }
+.help-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+.help-card h4 { margin: 0 0 4px; font-size: .98rem; }
+.help-card p { margin: 0; font-size: .84rem; color: var(--muted); }
+.faq details { border-bottom: 1px solid var(--line); padding: 8px 0; }
+.faq summary { cursor: pointer; font-weight: 600; }
+.faq p { margin: 6px 0 2px; color: var(--muted); font-size: .9rem; }
+.shortcuts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: center; font-size: .9rem; }
+.tour-spot { position: fixed; z-index: 120; border-radius: 14px; pointer-events: none; box-shadow: 0 0 0 4px var(--accent), 0 0 0 9999px rgba(10,10,20,.62);
+             transition: all .35s cubic-bezier(.2,.9,.3,1); }
+.tour-card { position: fixed; z-index: 121; width: min(360px, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+             padding: 16px 18px 14px; box-shadow: 0 24px 70px rgba(0,0,0,.35); transition: top .35s, left .35s; animation: modal-in .25s cubic-bezier(.2,.9,.3,1.15); }
+.tour-card .step { font-size: .72rem; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .07em; }
+.tour-card h3 { margin: 4px 0 6px; font-size: 1.08rem; }
+.tour-card p { margin: 0; font-size: .9rem; color: var(--muted); line-height: 1.55; }
+.tour-card .dots { display: flex; gap: 5px; margin: 12px 0 10px; }
+.tour-card .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.tour-card .dots i.on { background: var(--accent); width: 18px; border-radius: 4px; }
+.tour-card .row { justify-content: space-between; }
+
+/* --- Événements ------------------------------------------------------------------------- */
+.ev-month { font: 700 .8rem var(--sans); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 22px 0 10px; display: flex; align-items: center; gap: 10px; }
+.ev-month::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.ev-list { display: grid; gap: 10px; }
+.ev { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 14px; align-items: center; background: var(--panel); border: 1px solid var(--line);
+      border-radius: 16px; padding: 12px 14px; transition: border-color .15s, transform .15s; }
+.ev:hover { border-color: var(--accent); transform: translateY(-1px); }
+.ev .tile { width: 64px; height: 66px; border-radius: 14px; display: grid; place-content: center; text-align: center; background: var(--accent-soft); color: var(--accent); }
+.ev .tile b { font-size: 1.5rem; line-height: 1; } .ev .tile small { font-size: .7rem; font-weight: 700; text-transform: uppercase; }
+.ev .tile.tbd { background: var(--warn-soft); color: var(--warn); font-size: 1.4rem; }
+.ev h4 { margin: 0 0 3px; font-size: 1rem; overflow-wrap: anywhere; } .ev h4 a { color: var(--text); text-decoration: none; } .ev h4 a:hover { color: var(--accent); }
+.ev .meta { display: flex; flex-wrap: wrap; gap: 6px 10px; font-size: .78rem; color: var(--muted); align-items: center; }
+.ev p { margin: 5px 0 0; font-size: .84rem; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ev .soon { font-size: .76rem; font-weight: 700; color: var(--ok); white-space: nowrap; }
+.kind-badge { font-size: .72rem; font-weight: 700; border-radius: 999px; padding: 1px 8px; background: var(--panel-2); color: var(--text); }
+.verified { color: var(--ok); font-weight: 700; } .tbd-chip { color: var(--warn); font-weight: 700; }
+
+/* --- Médias ------------------------------------------------------------------------------ */
+.media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); gap: 16px; }
+.mcard { display: flex; flex-direction: column; text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 16px; overflow: hidden; cursor: pointer;
+         font: inherit; color: inherit; padding: 0; transition: transform .15s, border-color .15s; box-shadow: var(--shadow); }
+.mcard:hover { transform: translateY(-3px); border-color: var(--accent); }
+.mcard .thumb { position: relative; aspect-ratio: 16 / 9; background: linear-gradient(135deg, var(--accent-soft), var(--panel-2)); display: grid; place-items: center; overflow: hidden; }
+.mcard .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.mcard .thumb .glyph { font-size: 2.6rem; }
+.mcard .play { position: absolute; width: 50px; height: 50px; border-radius: 50%; display: grid; place-items: center; background: rgba(15,15,20,.7); color: #fff; font-size: 1.1rem;
+               backdrop-filter: blur(4px); transition: transform .15s; }
+.mcard:hover .play { transform: scale(1.12); }
+.mcard .kind { position: absolute; top: 9px; left: 9px; font-size: .7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: rgba(15,15,20,.72); color: #fff; }
+.mcard .dur { position: absolute; bottom: 8px; right: 8px; font: 600 .7rem var(--mono); padding: 1px 6px; border-radius: 6px; background: rgba(15,15,20,.78); color: #fff; }
+.mcard .body { padding: 11px 13px 13px; display: grid; gap: 4px; }
+.mcard h4 { margin: 0; font-size: .95rem; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mcard .src { font-size: .76rem; color: var(--muted); }
+/* --- Benchmarks ------------------------------------------------------------------------ */
+.bench-overview { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 18px; align-items: center; }
+.bench-total b { display: block; font-size: 2.4rem; line-height: 1; letter-spacing: -.02em; }
+.bench-total span { color: var(--muted); font-size: .84rem; }
+.bench-bars { display: grid; gap: 6px; }
+.bench-bar { display: grid; grid-template-columns: 170px minmax(0, 1fr) 42px; gap: 10px; align-items: center; font-size: .82rem; border: 0; background: none;
+             padding: 2px 4px; border-radius: 8px; cursor: pointer; color: inherit; text-align: left; font-family: inherit; }
+.bench-bar:hover, .bench-bar[aria-pressed="true"] { background: var(--accent-soft); }
+.bench-bar i { display: block; height: 9px; border-radius: 5px; background: linear-gradient(90deg, var(--accent), #c05bd6); min-width: 3px; }
+.bench-bar span:last-child { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bench-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); gap: 12px; }
+.bcard { text-align: left; font: inherit; color: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 6px; background: var(--panel);
+         border: 1px solid var(--line); border-radius: 14px; padding: 13px 15px; transition: transform .15s, border-color .15s; min-width: 0; }
+.bcard:hover { transform: translateY(-2px); border-color: var(--accent); }
+.bcard .top { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: .72rem; color: var(--muted); }
+.bcard h4 { margin: 0; font-size: 1.02rem; overflow-wrap: anywhere; }
+.bcard .full { font-size: .78rem; color: var(--muted); margin-top: -3px; }
+.bcard p { margin: 0; font-size: .84rem; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.bcard .lead { margin-top: auto; font-size: .78rem; border-top: 1px dashed var(--line); padding-top: 6px; }
+.trust { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.trust span { font-size: .74rem; font-weight: 700; border-radius: 999px; padding: 3px 10px; background: var(--panel-2); }
+.trust .good { background: var(--ok-soft); color: var(--ok); } .trust .warn { background: var(--warn-soft); color: var(--warn); } .trust .bad { background: var(--bad-soft); color: var(--bad); }
+table.lb { width: 100%; border-collapse: collapse; font-size: .86rem; }
+table.lb th, table.lb td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+table.lb td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+table.lb tr.open td:nth-child(2)::after { content: " · poids ouverts"; color: var(--ok); font-size: .72rem; font-weight: 700; }
+table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 6px; border-radius: 3px; background: var(--accent); opacity: .7; }
+@media (max-width: 860px) { .bench-overview { grid-template-columns: minmax(0, 1fr); } .bench-bar { grid-template-columns: 120px minmax(0, 1fr) 36px; } }
+.player { aspect-ratio: 16 / 9; width: 100%; border: 0; display: block; background: #000; }
+.modal audio { width: 100%; margin-top: 10px; }
+.ncard-visual img.shot { object-position: top; }
+
+@media (max-width: 1500px) { .crumb small { display: none; } }
+@media (max-width: 1180px) { .quick button { padding: 6px 9px; font-size: .82rem; } }
+@media (max-width: 860px) {
+  .quick, .crumb small { display: none; }
+  .user-chip span { display: none; }
+  .ev { grid-template-columns: 54px minmax(0, 1fr); }
+  .ev .soon { grid-column: 2; }
+  .ev .tile { width: 54px; height: 58px; }
+}
+
 @media (max-width: 860px) {
   .news-panel { grid-template-columns: minmax(0, 1fr); }
   .app { grid-template-columns: minmax(0, 1fr); }
@@ -537,8 +708,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
 <body>
 <div class="app">
   <aside id="sidebar">
-    <div class="brand"><div class="logo">✦</div><div>Veille GenAI<small>LLM Watch Harness</small></div>
-      <button class="bell" id="bell" aria-label="Notifications" title="Notifications">🔔<span class="count" id="bell-count" hidden></span></button></div>
+    <div class="brand"><div class="logo">✦</div><div>Veille AI<small>For Wax Conference</small></div></div>
     <button class="new-chat" id="new-chat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Nouvelle conversation</button>
     <button class="claude-search" id="claude-search" title="Recherche web par l'API Claude (outil web_search) sur vos centres d'intérêt">🌐 Mes actus via Claude</button>
     <div class="side-title">Conversations</div>
@@ -556,20 +726,16 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   </aside>
 
   <main>
-    <div class="tabs" role="tablist">
-      <button class="menu-btn" id="menu" aria-label="Menu">☰</button>
-      <button role="tab" data-view="chat" aria-selected="true">💬 Chat</button>
-      <button role="tab" data-view="news" aria-selected="false">🗞️ Actus</button>
-      <button role="tab" data-view="search" aria-selected="false">🔎 Recherche</button>
-      <button role="tab" data-view="review" aria-selected="false">🔬 Review</button>
-      <button role="tab" data-view="runs" aria-selected="false">🛰️ Veille <span class="badge" id="run-badge" hidden>1</span></button>
-      <button role="tab" data-view="sources" aria-selected="false">🧭 Sources</button>
-      <button role="tab" data-view="reports" aria-selected="false">📰 Rapports</button>
-      <button role="tab" data-view="knowledge" aria-selected="false">📚 Knowledge</button>
-      <button role="tab" data-view="grill" aria-selected="false">🎯 Grill-me</button>
-      <button role="tab" data-view="prompts" aria-selected="false">✏️ Prompts</button>
-      <button role="tab" data-view="memory" aria-selected="false">🧠 Mémoire</button>
-    </div>
+    <header class="topbar">
+      <button class="burger" id="burger" aria-label="Ouvrir le menu" aria-expanded="false" aria-controls="drawer" title="Menu (Ctrl+K)"><span></span><span></span><span></span></button>
+      <div class="crumb"><span class="ico" id="crumb-icon">💬</span><div><b id="crumb-title">Chat</b><small id="crumb-sub">Questions sourcées sur votre veille</small></div></div>
+      <nav class="quick" id="quick" aria-label="Accès rapide"></nav>
+      <div class="top-actions">
+        <button class="icon-btn" id="help-btn" title="Aide et visite guidée (?)" aria-label="Aide">❓</button>
+        <button class="icon-btn" id="bell" title="Notifications" aria-label="Notifications">🔔<span class="count" id="bell-count" hidden></span></button>
+        <div class="user-chip" id="user-chip" hidden>👤 <span id="user-name"></span><button id="logout" title="Se déconnecter">⎋ Sortir</button></div>
+      </div>
+    </header>
 
     <!-- Chat -->
     <section class="view" id="chat">
@@ -614,6 +780,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
             <p class="subtitle" style="margin:4px 0 0">Blogs crawlés (<span id="news-blogs">claude.com/blog</span>), flux officiels et recherche web
             par l'API Claude sur vos centres d'intérêt. Titres, liens et dates viennent toujours de la page source.</p>
           </div>
+          <button class="btn" id="news-shots" hidden title="Captures des pages sans image (serveur MCP Playwright)">📸 Aperçus</button>
           <button class="btn" id="news-crawl">🔄 Crawler les blogs</button>
           <button class="btn primary" id="news-toggle-search">🌐 Recherche Claude</button>
         </div>
@@ -641,6 +808,118 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
         <div class="news-filters" id="news-filters" style="margin:-6px 0 18px"></div>
         <div class="news-grid" id="news-grid"></div>
         <div class="news-more" id="news-more"></div>
+      </div>
+    </section>
+
+    <!-- Événements -->
+    <section class="view" id="events" hidden>
+      <div class="wrap wide">
+        <div class="news-head">
+          <div style="flex:1;min-width:240px">
+            <h2 class="title">📅 Événements IA</h2>
+            <p class="subtitle" style="margin:4px 0 0">Conférences, meetups, webinaires, hackathons et keynotes. Recherche web Claude sur votre profil
+            (une date n'est affichée que si elle figure dans la page de l'événement) et calendriers <code>.ics</code> de <code>sources.toml</code>.</p>
+          </div>
+          <a class="btn" href="/api/events.ics" download title="Abonnez votre agenda aux événements datés">📆 Exporter .ics</a>
+          <button class="btn" id="events-crawl">📥 Calendriers</button>
+          <button class="btn primary" id="events-search">🌐 Chercher (Claude)</button>
+        </div>
+        <div class="news-progress" id="events-progress" hidden><div id="events-critter"></div></div>
+        <div class="news-tools">
+          <label class="news-search"><span aria-hidden="true">🔍</span><input id="events-q" placeholder="Filtrer : titre, lieu, sujet" aria-label="Filtrer les événements"></label>
+          <span class="segmented" role="group" aria-label="Période">
+            <button data-when="upcoming" aria-pressed="true">À venir</button><button data-when="past" aria-pressed="false">Passés</button><button data-when="all" aria-pressed="false">Tous</button>
+          </span>
+        </div>
+        <div class="news-filters" id="events-kinds" style="margin:-6px 0 8px"></div>
+        <div id="events-list"></div>
+      </div>
+    </section>
+
+    <!-- Médias -->
+    <section class="view" id="media" hidden>
+      <div class="wrap wide">
+        <div class="news-head">
+          <div style="flex:1;min-width:240px">
+            <h2 class="title">🎬 Vidéos &amp; podcasts</h2>
+            <p class="subtitle" style="margin:4px 0 0">Les meilleures vidéos, conférences filmées, podcasts et émissions IA / LLM / GenAI récents :
+            chaînes et podcasts de <code>sources.toml</code> et recherche web Claude. Lecture intégrée (YouTube sans cookies, audio).</p>
+          </div>
+          <button class="btn" id="media-crawl">📥 Chaînes &amp; podcasts</button>
+          <button class="btn primary" id="media-search">🌐 Chercher (Claude)</button>
+        </div>
+        <div class="news-progress" id="media-progress" hidden><div id="media-critter"></div></div>
+        <div class="news-tools">
+          <label class="news-search"><span aria-hidden="true">🔍</span><input id="media-q" placeholder="Filtrer : titre, chaîne, sujet" aria-label="Filtrer les médias"></label>
+          <span class="segmented" role="group" aria-label="Type">
+            <button data-kind="" aria-pressed="true">Tout</button><button data-kind="video" aria-pressed="false">🎬 Vidéos</button><button data-kind="podcast" aria-pressed="false">🎙️ Podcasts</button>
+          </span>
+        </div>
+        <div class="news-filters" id="media-sources" style="margin:-6px 0 18px"></div>
+        <div class="media-grid" id="media-grid"></div>
+      </div>
+    </section>
+
+    <!-- Benchmarks -->
+    <section class="view" id="benchmarks" hidden>
+      <div class="wrap wide">
+        <div class="news-head">
+          <div style="flex:1;min-width:240px">
+            <h2 class="title">📊 Benchmarks LLM</h2>
+            <p class="subtitle" style="margin:4px 0 0">Catalogue et classements de <a href="https://benchlm.ai/benchmarks" target="_blank" rel="noopener">BenchLM.ai</a> :
+            ce que mesure chaque benchmark, qui est en tête, meilleur modèle à poids ouverts, et fiabilité des scores (saturation, provenance, fraîcheur).
+            Chiffres recopiés de la source, jamais produits par un LLM.</p>
+          </div>
+          <button class="btn primary" id="bench-crawl">🔄 Actualiser le catalogue</button>
+        </div>
+        <div class="card bench-overview" id="bench-overview" hidden></div>
+        <div class="news-tools">
+          <label class="news-search"><span aria-hidden="true">🔍</span><input id="bench-q" placeholder="Filtrer : nom, tâche, description (ex. SWE, long context, math)" aria-label="Filtrer les benchmarks"></label>
+          <span class="muted" id="bench-count"></span>
+        </div>
+        <div class="bench-grid" id="bench-grid"></div>
+      </div>
+    </section>
+
+    <!-- Aide -->
+    <section class="view" id="help" hidden>
+      <div class="wrap wide">
+        <div class="card help-hero">
+          <span class="big">🧭</span>
+          <div style="flex:1;min-width:240px">
+            <h2 class="title">Aide — Veille AI</h2>
+            <p class="muted" style="margin:0">Une veille LLM / GenAI factuelle et sourcée : chaque affirmation renvoie à une URL, aucune date ni version n'est inventée.
+            Le menu ☰ (ou <span class="kbd">Ctrl</span>+<span class="kbd">K</span>) donne accès à toutes les sections.</p>
+          </div>
+          <button class="btn primary" id="tour-start">▶ Lancer la visite guidée</button>
+        </div>
+        <div class="help-grid" id="help-grid"></div>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))">
+          <div class="card"><h3>⌨️ Raccourcis</h3>
+            <div class="shortcuts">
+              <span><span class="kbd">Ctrl</span>+<span class="kbd">K</span></span><span>Ouvrir le menu et chercher une section</span>
+              <span><span class="kbd">Alt</span>+<span class="kbd">1…9</span></span><span>Aller directement à une section</span>
+              <span><span class="kbd">?</span></span><span>Ouvrir cette aide</span>
+              <span><span class="kbd">Échap</span></span><span>Fermer le menu, une fenêtre ou la visite</span>
+              <span><span class="kbd">Entrée</span></span><span>Envoyer (chat) · <span class="kbd">Maj</span>+<span class="kbd">Entrée</span> nouvelle ligne</span>
+            </div>
+          </div>
+          <div class="card faq"><h3>❔ Questions fréquentes</h3>
+            <details><summary>Comment fonctionne le classement des signaux ?</summary><p>Après le Scout, un ranking hybride combine le score LLM (pertinence, nouveauté,
+              confiance), la fraîcheur, vos mots-clés Grill-me, l'autorité de la source et la corroboration par plusieurs sources. Chaque item du digest affiche son
+              score /100 et le détail des raisons. Bruit (tutoriels, commits de maintenance…) et doublons sont écartés avant, sans LLM.</p></details>
+            <details><summary>Pourquoi un événement est « date à confirmer » ?</summary><p>La date proposée par la recherche n'a pas été retrouvée dans la page de
+              l'événement : elle n'est donc pas affichée (règle : ne jamais inventer une date). Ouvrez la page officielle pour vérifier.</p></details>
+            <details><summary>Je ne reçois pas de notifications système</summary><p>Ouvrez 🔔 puis « Activer les notifications système » : le navigateur demande
+              l'autorisation. Choisissez ensuite « toujours » ou « en arrière-plan » (onglet masqué).</p></details>
+            <details><summary>Changer l'identifiant ou le mot de passe</summary><p>Modifiez WEB_USERNAME et WEB_PASSWORD dans la configuration (au moins 8 caractères avec
+              minuscule, majuscule, chiffre et caractère spécial), puis <code>bin/veille restart</code>. <code>bin/veille web-password</code> en génère un conforme.</p></details>
+            <details><summary>Aperçus des actus (captures d'écran)</summary><p>Les actus sans image peuvent recevoir une capture de leur page via le serveur MCP Playwright :
+              SCREENSHOT_ENABLED=true, Node.js et le navigateur de Playwright requis.</p></details>
+            <details><summary>La TUI en exécutable</summary><p><code>bin/veille tui-build</code> produit <code>tui/dist/veille-tui</code> (sans Bun ni node_modules) ;
+              <code>bin/veille tui-build bun-linux-arm64</code> pour la Jetson.</p></details>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -759,7 +1038,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
               <div class="row"><button class="btn ok" id="approve">✓ Publier</button><button class="btn bad" id="reject">✕ Rejeter</button></div>
             </div>
           </div>
-          <div id="published" hidden></div>
+          <div id="run-published" hidden></div>
         </div>
       </div>
     </section>
@@ -891,6 +1170,23 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     </section>
   </main>
 </div>
+<div class="drawer-back" id="drawer-back"></div>
+<aside class="drawer" id="drawer" aria-label="Menu principal" aria-hidden="true">
+  <div class="drawer-head">
+    <div class="brand"><div class="logo">✦</div><div>Veille AI<small>For Wax Conference</small></div></div>
+    <button class="icon-btn" id="drawer-close" aria-label="Fermer le menu">✕</button>
+  </div>
+  <label class="drawer-search"><span aria-hidden="true">🔍</span><input id="drawer-filter" placeholder="Aller à…" aria-label="Filtrer les sections"><kbd>Ctrl K</kbd></label>
+  <nav class="drawer-nav" id="drawer-nav"></nav>
+  <div class="drawer-foot">
+    <div class="row"><span class="muted" style="font-size:.8rem">Thème</span>
+      <div class="theme" role="group" aria-label="Thème" style="margin:0;flex:0 1 210px">
+        <button data-theme-set="light">Clair</button><button data-theme-set="system">Auto</button><button data-theme-set="dark">Sombre</button>
+      </div></div>
+    <div class="row"><span class="muted" style="font-size:.8rem" id="drawer-notif-state">Notifications système</span>
+      <button class="btn small" id="drawer-notif">🔔 Activer</button></div>
+  </div>
+</aside>
 <div class="selection-pop" id="selection-pop" hidden>
   <button id="sel-highlight">🖍 Surligner</button><button id="sel-cite">❝ Citer dans le prompt</button>
 </div>
@@ -918,10 +1214,18 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
 
   // --- Utilitaires -------------------------------------------------------------
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const safeUrl = (u) => /^https?:\/\//i.test(u) || /^\/(trace|reports)\//.test(u) || /^#k=[\w\/-]+$/.test(u) ? u : "#";
+  const safeUrl = (u) => /^https?:\/\//i.test(u) || /^\/(trace|reports)\//.test(u) || /^#k=[\w\/-]+$/.test(u)
+    || /^\/api\/news\/[0-9a-f]{16}\/screenshot$/.test(u) ? u : "#";
   const toast = (text) => notify({ title: text, kind: /impossible|erreur|absente|✗/i.test(text) ? "warn" : "info", timeout: 3600, store: false });
+  // Session expirée (login actif) : retour à la page de connexion, puis à la vue courante.
+  const needLogin = (response) => {
+    if (response.status !== 401) return false;
+    location.href = `/login?next=${encodeURIComponent(location.pathname + location.hash)}`;
+    return true;
+  };
   const api = async (path, options = {}) => {
     const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+    if (needLogin(response)) throw new Error("Session expirée : reconnexion…");
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(typeof body.detail === "string" ? body.detail : response.statusText);
     return body;
@@ -1005,20 +1309,55 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
       <div class="critter-text"><b>${esc(text)}</b>${sub ? `<small>${esc(sub)}</small>` : ""}</div></div>`;
   }
 
-  // --- Notifications (toasts empilés, centre de notifications, notification navigateur) ---------
+  // --- Notifications (toasts empilés, centre de notifications, notifications système) ---------
+  // Mode système : "background" (onglet masqué, défaut), "always" (toujours) ou "off".
   const NOTIF_ICONS = { ok: "✅", warn: "⚠️", err: "⛔", info: "✨" };
-  const notifState = { items: [], unread: 0 };
-  try { notifState.items = JSON.parse(localStorage.getItem("veille-notifs") || "[]").slice(0, 30); } catch {}
-  function saveNotifs() { try { localStorage.setItem("veille-notifs", JSON.stringify(notifState.items.slice(0, 30))); } catch {} }
+  const notifState = { items: [], mode: "background" };
+  try { notifState.items = JSON.parse(localStorage.getItem("veille-notifs") || "[]").slice(0, 40); } catch {}
+  try { notifState.mode = localStorage.getItem("veille-notif-mode") || "background"; } catch {}
+  function saveNotifs() { try { localStorage.setItem("veille-notifs", JSON.stringify(notifState.items.slice(0, 40))); } catch {} }
+  const BASE_TITLE = document.title;
+  const FAVICON = (count) => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b4bdb"/><stop offset="1" stop-color="#c05bd6"/></linearGradient></defs>
+    <rect width="64" height="64" rx="16" fill="url(#g)"/><text x="32" y="44" font-size="34" text-anchor="middle" fill="#fff" font-family="sans-serif">✦</text>
+    ${count ? `<circle cx="50" cy="14" r="13" fill="#e5484d" stroke="#fff" stroke-width="3"/><text x="50" y="20" font-size="17" font-weight="700" text-anchor="middle" fill="#fff" font-family="sans-serif">${count > 9 ? "9+" : count}</text>` : ""}</svg>`);
   function renderBell() {
     const count = notifState.items.filter((n) => n.unread).length;
     const badge = $("#bell-count"); if (!badge) return;
     badge.hidden = !count; badge.textContent = count > 9 ? "9+" : String(count);
+    document.title = count ? `(${count}) ${BASE_TITLE}` : BASE_TITLE;
+    let link = document.querySelector("link[rel=icon]");
+    if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
+    link.href = FAVICON(count);
   }
-  function askNotificationPermission() {
-    try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch {}
+  const notifSupported = () => "Notification" in window;
+  const notifPermission = () => (notifSupported() ? Notification.permission : "unsupported");
+  function renderNotifSettings() {
+    const labels = { granted: "✓ autorisées", denied: "✗ bloquées par le navigateur", default: "non activées", unsupported: "non prises en charge" };
+    const state = $("#drawer-notif-state"); if (state) state.textContent = `Notifications système : ${labels[notifPermission()]}`;
+    const button = $("#drawer-notif"); if (button) button.hidden = notifPermission() !== "default";
   }
-  function notify({ title, body = "", kind = "info", icon, action, timeout = 6500, store = true, view }) {
+  async function askNotificationPermission(explicit = false) {
+    // Les navigateurs n'autorisent la demande qu'à la suite d'un geste de l'utilisateur.
+    try {
+      if (notifSupported() && Notification.permission === "default") {
+        const answer = await Notification.requestPermission();
+        if (answer === "granted" && explicit) systemNotify("🔔 Notifications activées", "Vous serez prévenu des veilles à valider, des recherches terminées et des événements proches.", { force: true });
+      }
+    } catch {}
+    renderNotifSettings();
+  }
+  // Notification système : selon le mode choisi ; clic → focus de l'onglet et action.
+  function systemNotify(title, body = "", { tag, action, sticky = false, force = false } = {}) {
+    try {
+      if (notifPermission() !== "granted" || notifState.mode === "off") return;
+      if (!force && notifState.mode === "background" && !document.hidden) return;
+      const n = new Notification(title, { body, tag: tag || "veille-" + Date.now(), renotify: !!tag, requireInteraction: sticky,
+                                          icon: FAVICON(0), badge: FAVICON(0), silent: false });
+      n.onclick = () => { window.focus(); action?.run(); n.close(); };
+    } catch {}
+  }
+  function notify({ title, body = "", kind = "info", icon, action, timeout = 6500, store = true, view, tag, sticky = false }) {
     const box = $("#notifs");
     const el = document.createElement("div");
     el.className = `notif ${kind}`; el.setAttribute("role", kind === "err" ? "alert" : "status");
@@ -1034,31 +1373,41 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     if (store) {
       notifState.items.unshift({ title, body, kind, icon, view: view || null, at: new Date().toISOString(), unread: true });
       saveNotifs(); renderBell();
+      systemNotify(title, body, { tag, sticky, action: action || (view ? { run: () => show(view) } : null) });
     }
-    try {
-      if (store && document.hidden && "Notification" in window && Notification.permission === "granted") {
-        const n = new Notification(title, { body, tag: "veille-" + Date.now() });
-        n.onclick = () => { window.focus(); action?.run(); n.close(); };
-      }
-    } catch {}
   }
   function toggleNotifCenter() {
     let panel = $("#notif-center");
     if (panel) { panel.remove(); return; }
     panel = document.createElement("div"); panel.id = "notif-center"; panel.className = "notif-center";
     const when = (iso) => new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    const modes = [["always", "Toujours"], ["background", "Onglet masqué"], ["off", "Jamais"]];
     panel.innerHTML = `<header><b>🔔 Notifications</b><span class="row"><button class="btn small" id="notif-read">Tout lu</button><button class="btn small" id="notif-clear">Vider</button></span></header>
+      <div style="padding:0 6px 10px;display:grid;gap:8px;border-bottom:1px solid var(--line);margin-bottom:6px">
+        ${notifPermission() === "default" ? '<button class="btn small primary" id="notif-perm">🔔 Activer les notifications système</button>'
+          : notifPermission() === "denied" ? '<p class="muted" style="margin:0;font-size:.78rem">Notifications système bloquées : autorisez-les dans les réglages du site.</p>' : ""}
+        <div class="row" style="justify-content:space-between"><span class="muted" style="font-size:.78rem">Système</span>
+          <span class="segmented" role="group" aria-label="Notifications système">${modes.map(([m, l]) => `<button data-mode="${m}" aria-pressed="${notifState.mode === m}">${l}</button>`).join("")}</span></div>
+      </div>
       ${notifState.items.map((n, i) => `<div class="item ${n.unread ? "unread" : ""} ${n.view ? "link" : ""}" data-i="${i}"><span>${esc(n.icon || NOTIF_ICONS[n.kind] || "✨")}</span>
         <div><b>${esc(n.title)}</b>${n.body ? `<p>${esc(n.body)}</p>` : ""}<time>${esc(when(n.at))}</time></div></div>`).join("")
         || '<p class="muted" style="text-align:center;padding:18px">Aucune notification.</p>'}`;
     document.body.appendChild(panel);
+    const rect = $("#bell").getBoundingClientRect();
+    panel.style.left = "auto"; panel.style.right = `${Math.max(12, innerWidth - rect.right)}px`; panel.style.top = `${rect.bottom + 8}px`;
     panel.querySelectorAll(".item.link").forEach((it) => it.addEventListener("click", () => { show(notifState.items[Number(it.dataset.i)].view); panel.remove(); }));
+    panel.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", (e) => {
+      e.stopPropagation(); notifState.mode = b.dataset.mode; try { localStorage.setItem("veille-notif-mode", notifState.mode); } catch {}
+      panel.querySelectorAll("[data-mode]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.mode === notifState.mode)));
+    }));
+    $("#notif-perm")?.addEventListener("click", async (e) => { e.stopPropagation(); await askNotificationPermission(true); panel.remove(); toggleNotifCenter(); });
     $("#notif-read").addEventListener("click", () => { notifState.items.forEach((n) => (n.unread = false)); saveNotifs(); renderBell(); panel.remove(); toggleNotifCenter(); });
     $("#notif-clear").addEventListener("click", () => { notifState.items = []; saveNotifs(); renderBell(); panel.remove(); });
   }
   $("#bell").addEventListener("click", (e) => { e.stopPropagation(); toggleNotifCenter(); });
   document.addEventListener("click", (e) => { const p = $("#notif-center"); if (p && !p.contains(e.target)) p.remove(); });
-  renderBell();
+  $("#drawer-notif").addEventListener("click", () => askNotificationPermission(true));
+  renderBell(); renderNotifSettings();
 
   // --- Modale de document : ce que la veille a collecté et résumé -----------------------------
   const DOC_KINDS = { rss: "📰 Blog", arxiv: "📄 arXiv", github: "🐙 GitHub", "github-mcp": "🆕 Dépôt", notion: "📝 Notion" };
@@ -1248,10 +1597,92 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   applyTheme(theme);
   document.querySelectorAll("[data-theme-set]").forEach((b) => b.addEventListener("click", () => applyTheme(b.dataset.themeSet)));
 
-  // --- Onglets -------------------------------------------------------------------
+  // --- Navigation : tiroir coulissant (burger), accès rapide, raccourcis -------------------------
+  const VIEWS = [
+    { id: "chat", icon: "💬", label: "Chat", sub: "Questions sourcées sur votre veille", group: "Veille", quick: true },
+    { id: "news", icon: "🗞️", label: "Actus", sub: "Blogs officiels, flux et recherche web Claude", group: "Veille", quick: true },
+    { id: "events", icon: "📅", label: "Événements", sub: "Conférences, meetups, webinaires IA", group: "Veille", quick: true },
+    { id: "media", icon: "🎬", label: "Vidéos & podcasts", sub: "Meilleures vidéos, podcasts, émissions", group: "Veille", quick: true },
+    { id: "runs", icon: "🛰️", label: "Veille", sub: "Lancer, suivre et valider un digest", group: "Veille", quick: true },
+    { id: "benchmarks", icon: "📊", label: "Benchmarks", sub: "Classements BenchLM analysés", group: "Veille", quick: true },
+    { id: "search", icon: "🔎", label: "Recherche", sub: "Mots-clés, sources, dates", group: "Veille" },
+    { id: "review", icon: "🔬", label: "Review", sub: "Analyse sourcée d'une URL, puis challenge", group: "Veille" },
+    { id: "reports", icon: "📰", label: "Rapports", sub: "Rapports datés HTML et Markdown", group: "Veille" },
+    { id: "grill", icon: "🎯", label: "Grill-me", sub: "Votre profil de centres d'intérêt", group: "Profil & réglages" },
+    { id: "sources", icon: "🧭", label: "Sources", sub: "Ajouter une source vérifiée", group: "Profil & réglages" },
+    { id: "knowledge", icon: "📚", label: "Knowledge", sub: "Glossaire, règles métiers, notes", group: "Profil & réglages" },
+    { id: "prompts", icon: "✏️", label: "Prompts", sub: "Prompts des agents (surcharges)", group: "Profil & réglages" },
+    { id: "memory", icon: "🧠", label: "Mémoire", sub: "Leçons, thèmes, santé des sources", group: "Profil & réglages" },
+    { id: "help", icon: "❓", label: "Aide", sub: "Guide, raccourcis, visite guidée", group: "Aide" },
+  ];
+  const viewOf = (id) => VIEWS.find((v) => v.id === id) || VIEWS[0];
+  let currentView = "chat";
+  function renderNav(filter = "") {
+    const q = filter.trim().toLowerCase();
+    const shown = VIEWS.filter((v) => !q || `${v.label} ${v.sub} ${v.group}`.toLowerCase().includes(q));
+    let html = "", group = null;
+    shown.forEach((v, i) => {
+      if (v.group !== group) { group = v.group; html += `<div class="drawer-group">${esc(group)}</div>`; }
+      const n = VIEWS.indexOf(v) + 1;
+      html += `<button class="drawer-item" data-view="${v.id}" style="--i:${i}" ${v.id === currentView ? 'aria-current="page"' : ""}>
+        <span class="ico">${v.icon}</span><span><b>${esc(v.label)}${v.id === "runs" ? '<span class="run-badge" hidden>●</span>' : ""}</b><small>${esc(v.sub)}</small></span>
+        ${n <= 9 ? `<span class="kbd" title="Alt+${n}">${n}</span>` : ""}</button>`;
+    });
+    if (!q || "conversations historique".includes(q)) html += `<div class="drawer-group">Historique</div><button class="drawer-item" data-open="conversations" style="--i:${shown.length}"><span class="ico">🗂️</span><span><b>Conversations</b><small>Reprendre une conversation du chat</small></span></button>`;
+    $("#drawer-nav").innerHTML = html || '<p class="muted" style="padding:10px">Aucune section.</p>';
+    $("#drawer-nav").querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => show(b.dataset.view)));
+    $("#drawer-nav").querySelector("[data-open]")?.addEventListener("click", () => { closeDrawer(); show("chat"); $("#sidebar").classList.add("open"); });
+    syncRunBadges();
+  }
+  $("#quick").innerHTML = VIEWS.filter((v) => v.quick).map((v) => `<button data-view="${v.id}">${v.icon} ${esc(v.label.split(" ")[0])}${v.id === "runs" ? '<span class="run-badge" hidden>1</span>' : ""}</button>`).join("");
+  $("#quick").querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => show(b.dataset.view)));
+  let runActive = false;
+  function syncRunBadges() { document.querySelectorAll(".run-badge").forEach((b) => (b.hidden = !runActive)); }
+  function openDrawer() {
+    renderNav(); $("#drawer-filter").value = "";
+    $("#drawer").classList.add("open"); $("#drawer-back").classList.add("open");
+    $("#drawer").setAttribute("aria-hidden", "false"); $("#burger").setAttribute("aria-expanded", "true");
+    setTimeout(() => $("#drawer-filter").focus(), 120);
+  }
+  function closeDrawer() {
+    $("#drawer").classList.remove("open"); $("#drawer-back").classList.remove("open");
+    $("#drawer").setAttribute("aria-hidden", "true"); $("#burger").setAttribute("aria-expanded", "false");
+  }
+  const drawerOpen = () => $("#drawer").classList.contains("open");
+  $("#burger").addEventListener("click", () => (drawerOpen() ? closeDrawer() : openDrawer()));
+  $("#drawer-close").addEventListener("click", closeDrawer);
+  $("#drawer-back").addEventListener("click", closeDrawer);
+  $("#drawer-filter").addEventListener("input", (e) => renderNav(e.target.value));
+  $("#drawer-filter").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { const first = $("#drawer-nav [data-view]"); if (first) show(first.dataset.view); }
+    if (e.key === "ArrowDown") { e.preventDefault(); $("#drawer-nav .drawer-item")?.focus(); }
+  });
+  $("#drawer-nav").addEventListener("keydown", (e) => {
+    const items = [...$("#drawer-nav").querySelectorAll(".drawer-item")]; const i = items.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" && i >= 0) { e.preventDefault(); items[Math.min(items.length - 1, i + 1)].focus(); }
+    if (e.key === "ArrowUp" && i >= 0) { e.preventDefault(); (i ? items[i - 1] : $("#drawer-filter")).focus(); }
+  });
+  $("#help-btn").addEventListener("click", () => show("help"));
+  document.addEventListener("keydown", (e) => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "") || document.activeElement?.isContentEditable;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); drawerOpen() ? closeDrawer() : openDrawer(); }
+    else if (e.key === "Escape" && drawerOpen()) closeDrawer();
+    else if (e.altKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); show(VIEWS[Number(e.key) - 1].id); }
+    else if (e.key === "?" && !typing) show("help");
+  });
+
+  // Affiche une vue (menu, fil d'Ariane) sans déclencher son chargement.
+  function markView(view) {
+    const meta = viewOf(view); currentView = meta.id;
+    document.querySelectorAll("#quick [data-view], #drawer-nav [data-view]").forEach((t) => {
+      if (t.dataset.view === meta.id) t.setAttribute("aria-current", "page"); else t.removeAttribute("aria-current");
+    });
+    document.querySelectorAll(".view").forEach((v) => (v.hidden = v.id !== meta.id));
+    $("#crumb-icon").textContent = meta.icon; $("#crumb-title").textContent = meta.label; $("#crumb-sub").textContent = meta.sub;
+    return meta.id;
+  }
   function show(view) {
-    document.querySelectorAll("[role=tab][data-view]").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.view === view)));
-    document.querySelectorAll(".view").forEach((v) => (v.hidden = v.id !== view));
+    view = markView(view);
     if (view === "reports") loadReports();
     if (view === "memory") loadMemory();
     if (view === "prompts") loadPrompts();
@@ -1259,13 +1690,17 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     if (view === "review") loadReviews();
     if (view === "sources") loadSources();
     if (view === "news") loadNews(true);
+    if (view === "events") loadEvents();
+    if (view === "media") loadMedia();
+    if (view === "help") renderHelp();
+    if (view === "benchmarks") loadBenchmarks();
     if (view === "knowledge") loadKnowledge().catch((error) => toast(error.message));
     $("#sidebar").classList.remove("open");
+    closeDrawer();
   }
-  document.querySelectorAll("[role=tab][data-view]").forEach((t) => t.addEventListener("click", () => show(t.dataset.view)));
-  $("#menu").addEventListener("click", () => $("#sidebar").classList.toggle("open"));
 
   // --- Santé ---------------------------------------------------------------------
+  const health = {};
   async function loadHealth() {
     try {
       const h = await api("/api/health");
@@ -1275,7 +1710,11 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
       $("#st-langsmith").className = "dot " + (h.tracing.langsmith ? "on" : "");
       $("#st-notion").className = "dot " + (h.notion ? "on" : "");
       $("#st-claude").className = "dot " + (h.claude_search ? "on" : "off");
-      news.keyReady = h.claude_search;
+      news.keyReady = h.claude_search; news.screenshots = !!h.screenshots; $("#news-shots").hidden = !h.screenshots;
+      if (health.ollama !== undefined && health.ollama !== h.ollama)
+        notify({ title: h.ollama ? "🟢 LLM local de retour" : "🔴 LLM local injoignable", body: h.ollama ? h.model : "Vérifiez « ollama serve » : chat, veille et Grill-me en dépendent.",
+                 kind: h.ollama ? "ok" : "err", icon: "🧠", tag: "health-llm" });
+      health.ollama = h.ollama;
       $("#a-model").textContent = h.claude_search ? `${h.assistant_model} · API Claude directe` : "⚠ clé CLAUDE_API absente";
     } catch { $("#st-model").textContent = "API injoignable"; }
   }
@@ -1391,6 +1830,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   async function streamSSE(path, body, onEvent) {
     const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : undefined });
+    if (needLogin(response)) throw new Error("Session expirée : reconnexion…");
     if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || response.statusText);
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
     while (true) {
@@ -1540,7 +1980,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   // --- Veille en direct ------------------------------------------------------------
   const runTags = tagInput($("#run-tags"));
   const ICONS = { step: "🧭", collect: "📥", agent: "🤖", warning: "⚠", error: "✕", awaiting_approval: "✋",
-                  published: "✓", decision: "👤", status: "●" };
+                  published: "✓", decision: "👤", status: "●", filtered: "🧹" };
   const STATE_LABELS = { running: "en cours", awaiting_approval: "validation attendue", published: "publiée",
                          rejected: "rejetée", blocked: "bloquée par les guards", failed: "en échec", error: "erreur" };
   function eventText(e) {
@@ -1554,6 +1994,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
       case "published": return "publication : fichiers, rapport daté (MD + HTML)" + (e.outputs?.notion ? ", Notion" : "");
       case "decision": return e.approved ? `publication demandée${e.note ? ` — « ${esc(e.note)} »` : ""}` : `rejet${e.note ? ` — « ${esc(e.note)} »` : ""}`;
       case "status": return `statut final : <b>${esc(STATE_LABELS[e.status] || e.status)}</b>`;
+      case "filtered": return `<span class="muted">écarté (${esc(e.kind)}) : <b>${esc(e.title)}</b> — ${esc(e.reason)}</span>`;
       default: return esc(JSON.stringify(e));
     }
   }
@@ -1564,7 +2005,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     } catch (error) { toast(error.message); }
   }
   function followRun(id) {
-    if (state.run !== id) { state.run = id; state.runCursor = 0; $("#timeline").innerHTML = ""; $("#approval").hidden = true; $("#published").hidden = true; }
+    if (state.run !== id) { state.run = id; state.runCursor = 0; $("#timeline").innerHTML = ""; $("#approval").hidden = true; $("#run-published").hidden = true; }
     clearInterval(state.poll);
     const tick = async () => {
       let run;
@@ -1581,12 +2022,13 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
       const before = state.runStatus?.[run.id];
       state.runStatus = { ...(state.runStatus || {}), [run.id]: run.status };
       if (before && before !== run.status) {
-        if (run.status === "awaiting_approval") notify({ title: "✋ Veille prête à valider", body: "Le digest attend votre décision.", kind: "warn", icon: "🛰️", view: "runs", action: { label: "Valider", run: () => show("runs") } });
-        else if (run.status === "published") notify({ title: "🛰️ Veille publiée", body: run.outputs?.notion ? "Rapport daté et page Notion à jour." : "Rapport daté produit.", kind: "ok", icon: "🛰️", view: "runs" });
-        else if (["failed", "blocked", "error"].includes(run.status)) notify({ title: "Veille interrompue", body: run.status, kind: "err", view: "runs" });
+        if (run.status === "awaiting_approval") notify({ title: "✋ Veille prête à valider", body: "Le digest attend votre décision.", kind: "warn", icon: "🛰️", view: "runs",
+                                                         tag: `run-${run.id}`, sticky: true, timeout: 12000, action: { label: "Valider", run: () => show("runs") } });
+        else if (run.status === "published") notify({ title: "🛰️ Veille publiée", body: run.outputs?.notion ? "Rapport daté et page Notion à jour." : "Rapport daté produit.", kind: "ok", icon: "🛰️", view: "runs", tag: `run-${run.id}` });
+        else if (["failed", "blocked", "error"].includes(run.status)) notify({ title: "Veille interrompue", body: STATE_LABELS[run.status] || run.status, kind: "err", view: "runs", tag: `run-${run.id}` });
       }
       const st = $("#run-state"); st.className = `state ${run.status}`; st.textContent = STATE_LABELS[run.status] || run.status;
-      $("#run-badge").hidden = !["running", "awaiting_approval"].includes(run.status);
+      runActive = ["running", "awaiting_approval"].includes(run.status); syncRunBadges();
       $("#start-run").disabled = run.status === "running";
       $("#run-trace").hidden = run.status === "running"; $("#run-trace").href = `/trace/${encodeURIComponent(run.id)}`;
       $("#run-langfuse").hidden = !run.langfuse; if (run.langfuse) $("#run-langfuse").href = safeUrl(run.langfuse.trace);
@@ -1594,11 +2036,11 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
       else $("#approval").hidden = true;
       if (run.status === "published") {
         const out = run.outputs;
-        $("#published").hidden = false;
-        $("#published").innerHTML = `<div class="warning" style="background:var(--ok-soft);color:var(--ok)">✓ Veille publiée.
+        $("#run-published").hidden = false;
+        $("#run-published").innerHTML = `<div class="warning" style="background:var(--ok-soft);color:var(--ok)">✓ Veille publiée.
           ${out.report ? ` <a href="#" data-report="${esc(out.report.split("reports/").pop())}">Lire le rapport daté</a>` : ""}
           ${out.notion ? ` · <a href="${safeUrl(out.notion)}" target="_blank" rel="noopener">Page Notion</a>` : ""}</div>`;
-        $("#published").querySelector("[data-report]")?.addEventListener("click", (e) => { e.preventDefault(); show("reports"); openReport(e.target.dataset.report); });
+        $("#run-published").querySelector("[data-report]")?.addEventListener("click", (e) => { e.preventDefault(); show("reports"); openReport(e.target.dataset.report); });
       }
       if (!["running", "awaiting_approval"].includes(run.status)) clearInterval(state.poll);
     };
@@ -1689,7 +2131,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   });
 
   // --- Grill-me --------------------------------------------------------------------
-  const grill = { session: null, question: null, selected: new Set(), profile: null };
+  const grill = { session: null, question: null, selected: new Set(), profile: null, busy: false, timer: null };
   const chipList = (values, cls = "chip") => (values || []).map((v) => `<span class="${cls}">${esc(v)}</span>`).join(" ") || '<span class="muted">—</span>';
   function renderProfile(p, container, title = "Ton profil de veille") {
     container.innerHTML = `<h3>${title}</h3><p>${esc(p.summary)}</p>
@@ -1709,15 +2151,39 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
       $("#grill-start").textContent = "Refaire l'entretien";
     }
   }
+  // Chargement : le LLM local prépare la question suivante (ou rédige le profil) — overlay Scouty + chrono.
+  function grillBusy(on, text = "", sub = "") {
+    grill.busy = on;
+    clearInterval(grill.timer);
+    document.querySelectorAll("#grill-card button, #grill-card input, #grill-start").forEach((el) => (el.disabled = on));
+    $("#grill-loading")?.remove(); $("#grill-intro-loading")?.remove();
+    if (!on) return;
+    const start = Date.now();
+    const html = (id) => `<div id="${id}" class="${id}"><div class="inner">${critter(text, sub)}<div class="bar"><i></i></div><small id="${id}-time">0 s</small></div></div>`;
+    if ($("#grill-card").hidden) $("#grill-intro").insertAdjacentHTML("beforeend", html("grill-intro-loading"));
+    else $("#grill-card").insertAdjacentHTML("beforeend", html("grill-loading"));
+    grill.timer = setInterval(() => {
+      const t = document.querySelector("#grill-loading-time, #grill-intro-loading-time");
+      if (t) t.textContent = `${Math.round((Date.now() - start) / 1000)} s · LLM local`;
+    }, 1000);
+  }
   async function startGrill() {
+    if (grill.busy) return;
+    grillBusy(true, "Scouty prépare l'entretien", "première question et recommandation");
     try {
       grill.profile = null; $("#grill-log").innerHTML = ""; $("#grill-history").hidden = true; $("#grill-result").hidden = true;
       const step = await api("/api/grill", { method: "POST" });
-      grill.session = step.session; handleGrillStep(step);
-    } catch (error) { toast(error.message); }
+      grill.session = step.session; grillBusy(false); handleGrillStep(step);
+    } catch (error) { grillBusy(false); toast(error.message); }
   }
   function handleGrillStep(step) {
-    if (step.question) return renderQuestion(step.question);
+    if (step.question) {
+      renderQuestion(step.question);
+      if (document.hidden) notify({ title: "🎯 Grill-me : question suivante prête", body: step.question.text, kind: "info", icon: "🎯", view: "grill", tag: "grill" });
+      return;
+    }
+    notify({ title: "🎯 Profil de veille enregistré", body: (step.profile.keywords || []).slice(0, 6).join(", ") || step.profile.summary,
+             kind: "ok", icon: "🎯", view: "grill", tag: "grill" });
     grill.question = null; grill.profile = step.profile;
     $("#grill-card").hidden = true; $("#grill-intro").hidden = true; $("#grill-result").hidden = false;
     renderProfile(step.profile, $("#grill-result"), "✓ Profil enregistré dans la mémoire des agents");
@@ -1752,12 +2218,17 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
     (q.options.length ? $("#grill-options button") : $("#grill-text"))?.focus();
   }
   async function answerGrill(payload, label) {
-    if (!grill.session || !grill.question) return;
+    if (!grill.session || !grill.question || grill.busy) return;
     const q = grill.question;
-    $("#grill-history").hidden = false;
-    $("#grill-log").insertAdjacentHTML("beforeend", `<li><b>${esc(q.text)}</b><br>${esc(label)}</li>`);
-    try { handleGrillStep(await api(`/api/grill/${grill.session}/answer`, { method: "POST", body: JSON.stringify(payload) })); }
-    catch (error) { toast(error.message); }
+    const last = q.id !== "domains" && !q.progress.remaining;  // « domaines » : la suite dépend de la réponse
+    grillBusy(true, last ? "Scouty rédige ton profil de veille" : "Scouty prépare la question suivante",
+              last ? "synthèse de tes réponses par le LLM local, puis enregistrement en mémoire" : "adaptée à ta réponse");
+    try {
+      const step = await api(`/api/grill/${grill.session}/answer`, { method: "POST", body: JSON.stringify(payload) });
+      $("#grill-history").hidden = false;
+      $("#grill-log").insertAdjacentHTML("beforeend", `<li><b>${esc(q.text)}</b><br>${esc(label)}</li>`);
+      grillBusy(false); handleGrillStep(step);
+    } catch (error) { grillBusy(false); toast(error.message); }
   }
   const optionLabels = (ids) => grill.question.options.filter((o) => ids.includes(o.id)).map((o) => o.label).join(", ");
   $("#grill-start").addEventListener("click", startGrill);
@@ -1930,8 +2401,7 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
       const entry = kb.data.entries.find((e) => e.id === id);
       if (!entry) { toast("Entrée introuvable"); return; }
       kb.view = KB_KIND_VIEW[entry.kind] || "glossaire"; kb.domain = ""; kb.focus = id; $("#kb-search").value = "";
-      document.querySelectorAll("[role=tab][data-view]").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.view === "knowledge")));
-      document.querySelectorAll(".view").forEach((v) => (v.hidden = v.id !== "knowledge"));
+      markView("knowledge");
       renderKnowledge();
     };
     (kb.data ? Promise.resolve() : api("/api/knowledge").then((d) => { kb.data = d; })).then(open).catch((error) => toast(error.message));
@@ -2180,9 +2650,10 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
 
   function newsCard(n, i) {
     const bg = n.accent || hashColor(n.title);
+    const picture = n.image || n.screenshot;  // aperçu par capture d'écran (MCP Playwright) si l'actu n'a pas d'image
     const illo = n.image && /\.svg(\?|$)/i.test(n.image);
-    const visual = n.image
-      ? `<img src="${esc(safeUrl(n.image))}" alt="" loading="lazy" class="${illo ? "illo" : ""}" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'glyph',textContent:'${categoryEmoji(n)}'}))">`
+    const visual = picture
+      ? `<img src="${esc(safeUrl(picture))}" alt="" loading="lazy" class="${illo ? "illo" : n.image ? "" : "shot"}" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'glyph',textContent:'${categoryEmoji(n)}'}))">`
       : `<div class="glyph">${categoryEmoji(n)}<small>${esc(n.category || n.source)}</small></div>`;
     const text = n.summary || n.why || "";
     return `<a class="ncard" href="${safeUrl(n.url)}" target="_blank" rel="noopener" data-news="${i}" title="${esc(n.why ? "Pourquoi ça compte : " + n.why : n.title)}">
@@ -2317,11 +2788,28 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
       const counts = Object.entries(r.counts).map(([k, v]) => `${k} ${v}`).join(" · ");
       const errors = Object.entries(r.errors).map(([k, v]) => `${k} : ${v}`).join(" · ");
       done(!errors, errors ? `⚠ ${counts || "aucune actu"} — ${errors}` : `✓ ${r.saved} actus · ${counts}`);
-      notify({ title: errors ? "Crawl terminé avec des erreurs" : "Blogs crawlés", body: errors || counts, kind: errors ? "warn" : "ok", icon: "🔄", view: "news" });
+      notify({ title: errors ? "Crawl terminé avec des erreurs" : "Blogs crawlés", body: errors || counts, kind: errors ? "warn" : "ok", icon: "🔄", view: "news", tag: "news-crawl" });
       await loadNews();
+      if (news.screenshots) setTimeout(() => captureNews(true), 2800);  // cartes sans image : aperçus
     } catch (error) { done(false, `✗ ${error.message}`); notify({ title: "Crawl impossible", body: error.message, kind: "err" }); }
     news.busy = false; $("#news-crawl").disabled = false;
   }
+  async function captureNews(auto = false) {
+    if (news.shooting) return;
+    news.shooting = true; $("#news-shots").disabled = true;
+    const done = progress("Scouty photographie les pages", ["Serveur MCP Playwright", "Chromium headless", "Captures page par page", "Enregistrement"]);
+    try {
+      const r = await api("/api/news/screenshots", { method: "POST", body: JSON.stringify({}) });
+      const failed = Object.keys(r.errors).length;
+      done(!failed, `📸 ${r.saved} aperçu(s)` + (failed ? ` · ${failed} page(s) en échec` : "") + (r.remaining ? ` · ${r.remaining} restante(s)` : ""));
+      if (r.saved || !auto) notify({ title: `📸 ${r.saved} aperçu(s) ajouté(s)`, body: failed ? `${failed} page(s) sans capture` : "Cartes sans image illustrées par une capture de la page.",
+                                     kind: failed ? "warn" : "ok", icon: "📸", view: "news", tag: "news-shots" });
+      if (r.saved) await loadNews();
+    } catch (error) { done(false, `✗ ${error.message}`); if (!auto) notify({ title: "Aperçus impossibles", body: error.message, kind: "err" }); }
+    news.shooting = false; $("#news-shots").disabled = false;
+  }
+  $("#news-shots").addEventListener("click", () => captureNews(false));
+
   async function searchNews() {
     if (news.busy) return;
     show("news"); askNotificationPermission();
@@ -2351,6 +2839,398 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   $("#news-grid-btn").addEventListener("click", () => setLayout("grid"));
   $("#news-list-btn").addEventListener("click", () => setLayout("list"));
 
+  // --- Événements IA ------------------------------------------------------------------------------
+  const KIND_LABELS = { conference: "🎤 Conférence", meetup: "🤝 Meetup", webinar: "💻 Webinaire", hackathon: "⚡ Hackathon",
+                        keynote: "🚀 Keynote", workshop: "🛠️ Atelier", other: "📌 Événement" };
+  const events = { items: [], when: "upcoming", kind: "", busy: false };
+  const isoDay = (d) => new Date(d + "T12:00:00");
+  function countdown(e) {
+    if (!e.starts_on) return "";
+    const today = new Date(); today.setHours(12, 0, 0, 0);
+    const days = Math.round((isoDay(e.starts_on) - today) / 86400000);
+    const end = e.ends_on ? Math.round((isoDay(e.ends_on) - today) / 86400000) : days;
+    if (days > 1) return `dans ${days} j`;
+    if (days === 1) return "demain";
+    if (days <= 0 && end >= 0) return "🔴 en cours";
+    return `il y a ${-days} j`;
+  }
+  function eventRow(e) {
+    const start = e.starts_on ? isoDay(e.starts_on) : null;
+    const range = e.ends_on && e.ends_on !== e.starts_on ? ` → ${isoDay(e.ends_on).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}` : "";
+    return `<article class="ev">
+      ${start ? `<div class="tile"><b>${start.getDate()}</b><small>${esc(start.toLocaleDateString("fr-FR", { month: "short" }))}</small></div>` : '<div class="tile tbd" title="Date à confirmer">❔</div>'}
+      <div style="min-width:0"><h4><a href="${safeUrl(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a></h4>
+        <div class="meta"><span class="kind-badge">${esc(KIND_LABELS[e.kind] || KIND_LABELS.other)}</span>
+          ${start ? `<span>📅 ${esc(start.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "long", year: "numeric" }))}${esc(range)}</span>` : ""}
+          ${e.online ? "<span>🌐 En ligne</span>" : e.location ? `<span>📍 ${esc(e.location)}</span>` : ""}
+          ${e.date_verified ? '<span class="verified" title="Date lue dans le flux ou retrouvée dans la page de l\'événement">✓ date vérifiée</span>' : '<span class="tbd-chip" title="Date non retrouvée dans la page : non affichée">date à confirmer</span>'}
+          <span>🔗 ${esc(host(e.url))}</span></div>
+        ${e.summary ? `<p>${esc(e.summary)}</p>` : ""}</div>
+      <span class="soon">${esc(countdown(e))}</span></article>`;
+  }
+  function renderEvents() {
+    const q = $("#events-q").value.trim().toLowerCase();
+    const items = events.items.filter((e) => (!events.kind || e.kind === events.kind) && (!q || `${e.title} ${e.location} ${e.summary}`.toLowerCase().includes(q)));
+    const counts = {}; events.items.forEach((e) => (counts[e.kind] = (counts[e.kind] || 0) + 1));
+    $("#events-kinds").innerHTML = [["", "Tous", events.items.length], ...Object.entries(counts).map(([k, n]) => [k, KIND_LABELS[k] || k, n])]
+      .map(([k, l, n]) => `<button data-kind="${esc(k)}" aria-pressed="${events.kind === k}">${esc(l)}<small>${n}</small></button>`).join("");
+    $("#events-kinds").querySelectorAll("[data-kind]").forEach((b) => b.addEventListener("click", () => { events.kind = b.dataset.kind; renderEvents(); }));
+    if (!items.length) {
+      $("#events-list").innerHTML = `<div class="news-empty">📅 Aucun événement${q || events.kind ? " pour ce filtre" : ""}.<br><span style="font-size:.86rem">
+        « 🌐 Chercher (Claude) » trouve les événements à venir sur vos centres d'intérêt ; « 📥 Calendriers » lit les flux .ics de sources.toml.</span></div>`;
+      return;
+    }
+    let html = "", month = null;
+    for (const e of items) {
+      const label = e.starts_on ? isoDay(e.starts_on).toLocaleDateString("fr-FR", { month: "long", year: "numeric" }) : "Date à confirmer";
+      if (label !== month) { if (month !== null) html += "</div>"; month = label; html += `<div class="ev-month">${esc(label)}</div><div class="ev-list">`; }
+      html += eventRow(e);
+    }
+    $("#events-list").innerHTML = html + "</div>";
+  }
+  async function loadEvents() {
+    try {
+      const data = await api(`/api/events?when=${events.when}`);
+      events.items = data.items; renderEvents(); remindEvents(data.items);
+    } catch (error) { toast(error.message); }
+  }
+  // Rappel : événement vérifié aujourd'hui ou demain, une fois par jour et par événement.
+  function remindEvents(items) {
+    const today = new Date().toISOString().slice(0, 10);
+    let seen = {}; try { seen = JSON.parse(localStorage.getItem("veille-event-reminders") || "{}"); } catch {}
+    for (const e of items) {
+      const when = countdown(e);
+      if (!e.date_verified || !["demain", "🔴 en cours"].includes(when) || seen[e.id] === today) continue;
+      seen[e.id] = today;
+      notify({ title: when === "demain" ? `📅 Demain : ${e.title}` : `🔴 En cours : ${e.title}`, body: e.online ? "En ligne" : e.location || host(e.url),
+               kind: "info", icon: "📅", view: "events", tag: `event-${e.id}`, action: { label: "Ouvrir", run: () => window.open(e.url, "_blank", "noopener") } });
+    }
+    try { localStorage.setItem("veille-event-reminders", JSON.stringify(seen)); } catch {}
+  }
+  async function radarAction(kind, path, button, title, steps) {
+    const state = kind === "events" ? events : media;
+    if (state.busy) return;
+    askNotificationPermission();
+    state.busy = true; button.disabled = true;
+    const box = $(`#${kind}-progress`); box.hidden = false;
+    const start = Date.now();
+    const draw = () => { $(`#${kind}-critter`).innerHTML = critter(title, `${steps} · ${Math.round((Date.now() - start) / 1000)} s`); };
+    draw(); const timer = setInterval(draw, 1000);
+    try { return await api(path, { method: "POST", body: JSON.stringify({}) }); }
+    finally { clearInterval(timer); box.hidden = true; state.busy = false; button.disabled = false; }
+  }
+  $("#events-search").addEventListener("click", async () => {
+    try {
+      const r = await radarAction("events", "/api/events/search", $("#events-search"), "Claude cherche les événements IA à venir",
+                                  "recherches web, puis vérification des dates dans chaque page");
+      notify({ title: r.saved ? `📅 ${r.saved} événement(s) trouvé(s)` : "Aucun nouvel événement", icon: "📅", view: "events", tag: "events-search",
+               body: [`${r.searches} recherche(s)`, r.unverified_dates ? `${r.unverified_dates} date(s) à confirmer` : "", r.rejected.length ? `${r.rejected.length} écarté(s)` : ""].filter(Boolean).join(" · "),
+               kind: r.saved ? "ok" : "info" });
+      loadEvents();
+    } catch (error) { notify({ title: "Recherche d'événements impossible", body: error.message, kind: "err", view: "events" }); }
+  });
+  $("#events-crawl").addEventListener("click", async () => {
+    try {
+      const r = await radarAction("events", "/api/events/crawl", $("#events-crawl"), "Scouty lit les calendriers", "flux .ics de sources.toml");
+      const errors = Object.entries(r.errors).map(([k, v]) => `${k} : ${v}`).join(" · ");
+      notify({ title: `📥 ${r.saved} événement(s) lus`, body: errors || (r.saved ? "" : "Aucun calendrier .ics déclaré (section events de sources.toml)."), kind: errors ? "warn" : "ok", icon: "📅", view: "events" });
+      loadEvents();
+    } catch (error) { notify({ title: "Calendriers illisibles", body: error.message, kind: "err" }); }
+  });
+  document.querySelectorAll("[data-when]").forEach((b) => b.addEventListener("click", () => {
+    events.when = b.dataset.when; document.querySelectorAll("[data-when]").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); loadEvents();
+  }));
+  $("#events-q").addEventListener("input", renderEvents);
+
+  // --- Vidéos, podcasts, émissions ---------------------------------------------------------------------
+  const media = { items: [], sources: [], kind: "", source: "", busy: false };
+  function mediaCard(m, i) {
+    const glyph = m.kind === "podcast" ? "🎙️" : "🎬";
+    return `<button class="mcard" data-media="${i}">
+      <div class="thumb">${m.thumbnail ? `<img src="${esc(safeUrl(m.thumbnail))}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : `<span class="glyph">${glyph}</span>`}
+        <span class="kind">${m.kind === "podcast" ? "🎙️ Podcast" : "🎬 Vidéo"}</span><span class="play">${m.youtube_id || m.audio_url ? "▶" : "↗"}</span>
+        ${m.duration ? `<span class="dur">${esc(m.duration)}</span>` : ""}</div>
+      <div class="body"><h4>${esc(m.title)}</h4><span class="src">${esc(m.source)} · ${esc(m.published_at ? newsDate(m.published_at) : "date inconnue")}</span></div></button>`;
+  }
+  function renderMedia() {
+    const q = $("#media-q").value.trim().toLowerCase();
+    const bySource = {}; media.sources.forEach((s) => (bySource[s.source] = (bySource[s.source] || 0) + s.count));
+    $("#media-sources").innerHTML = [["", "Toutes les chaînes", media.sources.reduce((a, s) => a + s.count, 0)], ...Object.entries(bySource)]
+      .map(([k, n]) => `<button data-msource="${esc(k)}" aria-pressed="${media.source === k}">${esc(k || "Toutes les chaînes")}<small>${n}</small></button>`).join("");
+    $("#media-sources").querySelectorAll("[data-msource]").forEach((b) => b.addEventListener("click", () => { media.source = b.dataset.msource; loadMedia(); }));
+    const items = media.items.filter((m) => !q || `${m.title} ${m.source} ${m.summary}`.toLowerCase().includes(q));
+    $("#media-grid").innerHTML = items.length ? items.map((m) => mediaCard(m, media.items.indexOf(m))).join("")
+      : `<div class="news-empty" style="grid-column:1/-1">🎬 Aucune vidéo ni podcast${q ? " pour ce filtre" : ""}.<br><span style="font-size:.86rem">
+         « 🌐 Chercher (Claude) » trouve les meilleurs contenus récents ; « 📥 Chaînes &amp; podcasts » lit les flux media de sources.toml.</span></div>`;
+    $("#media-grid").querySelectorAll("[data-media]").forEach((c) => c.addEventListener("click", () => openMedia(media.items[Number(c.dataset.media)])));
+  }
+  function openMedia(m) {
+    closeModal();
+    const back = document.createElement("div"); back.className = "modal-back"; back.id = "doc-modal";
+    back.addEventListener("click", (e) => { if (e.target === back) closeModal(); });
+    document.addEventListener("keydown", modalKeys);
+    const player = m.youtube_id
+      ? `<iframe class="player" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(m.youtube_id)}?autoplay=1&rel=0" title="${esc(m.title)}"
+           allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`
+      : `<div class="modal-hero">${m.thumbnail ? `<img src="${esc(safeUrl(m.thumbnail))}" alt="" referrerpolicy="no-referrer">` : `<span class="glyph">${m.kind === "podcast" ? "🎙️" : "🎬"}</span>`}</div>`;
+    back.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="${esc(m.title)}">${player}
+      <div class="modal-body"><div class="modal-meta"><span class="state">${m.kind === "podcast" ? "🎙️ Podcast" : "🎬 Vidéo"}</span><span>${esc(m.source)}</span>
+        ${m.published_at ? `<span>📅 ${esc(newsDate(m.published_at))}</span>` : ""}${m.duration ? `<span>⏱ ${esc(m.duration)}</span>` : ""}</div>
+        <h2>${esc(m.title)}</h2>
+        ${m.audio_url ? `<audio controls preload="none" src="${esc(safeUrl(m.audio_url))}"></audio>` : ""}
+        ${m.summary ? `<div class="modal-section"><h4>📝 Résumé</h4><p>${esc(m.summary)}</p></div>` : ""}
+        ${m.why ? `<div class="modal-section"><h4>💡 Pourquoi la regarder</h4><p class="modal-why">${esc(m.why)}</p></div>` : ""}
+        <div class="modal-actions"><a class="btn primary" href="${safeUrl(m.url)}" target="_blank" rel="noopener">↗ Ouvrir la source</a>
+          <button class="btn" data-act="cite">❝ Citer dans le chat</button><button class="btn" data-act="close">Fermer</button></div></div></div>`;
+    document.body.appendChild(back);
+    back.querySelector('[data-act="close"]').addEventListener("click", closeModal);
+    back.querySelector('[data-act="cite"]').addEventListener("click", () => { addQuote(`${m.title} — ${m.url}`); closeModal(); show("chat"); });
+  }
+  async function loadMedia() {
+    const params = new URLSearchParams({ limit: "120" });
+    if (media.kind) params.set("kind", media.kind);
+    if (media.source) params.set("source", media.source);
+    try { const data = await api(`/api/media?${params}`); media.items = data.items; media.sources = data.sources; renderMedia(); }
+    catch (error) { toast(error.message); }
+  }
+  document.querySelectorAll("#media [data-kind]").forEach((b) => b.addEventListener("click", () => {
+    media.kind = b.dataset.kind; document.querySelectorAll("#media [data-kind]").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); loadMedia();
+  }));
+  $("#media-q").addEventListener("input", renderMedia);
+  $("#media-search").addEventListener("click", async () => {
+    try {
+      const r = await radarAction("media", "/api/media/search", $("#media-search"), "Claude cherche les meilleures vidéos et podcasts IA", "recherches web, URL vérifiées");
+      notify({ title: r.saved ? `🎬 ${r.saved} vidéo(s) / podcast(s) trouvé(s)` : "Rien de neuf côté vidéos", body: r.items.slice(0, 3).map((i) => i.title).join(" · "),
+               kind: r.saved ? "ok" : "info", icon: "🎬", view: "media", tag: "media-search" });
+      loadMedia();
+    } catch (error) { notify({ title: "Recherche de médias impossible", body: error.message, kind: "err", view: "media" }); }
+  });
+  $("#media-crawl").addEventListener("click", async () => {
+    try {
+      const r = await radarAction("media", "/api/media/crawl", $("#media-crawl"), "Scouty lit les chaînes et podcasts", "flux media de sources.toml");
+      const errors = Object.entries(r.errors).map(([k, v]) => `${k} : ${v}`).join(" · ");
+      notify({ title: `📥 ${r.saved} contenu(s) lus`, body: errors || (r.saved ? Object.entries(r.counts).map(([k, v]) => `${k} ${v}`).join(" · ") : "Aucune chaîne déclarée (section media de sources.toml)."),
+               kind: errors ? "warn" : "ok", icon: "🎬", view: "media" });
+      loadMedia();
+    } catch (error) { notify({ title: "Flux illisibles", body: error.message, kind: "err" }); }
+  });
+
+  // --- Benchmarks (BenchLM.ai) ----------------------------------------------------------------------
+  const bench = { items: [], overview: null, category: "", busy: false };
+  const CATEGORY_ICONS = { agentic: "🤖", coding: "💻", reasoning: "🧩", multimodalGrounded: "🖼️", knowledge: "📚", multilingual: "🌍",
+                           instructionFollowing: "🎯", math: "➗", korean: "🇰🇷", crossDomain: "🔀" };
+  function renderBenchOverview() {
+    const o = bench.overview; if (!o || !o.total) { $("#bench-overview").hidden = true; return; }
+    const max = Math.max(...Object.values(o.by_category));
+    const keyOf = (name) => bench.items.find((b) => (b.category_name || b.category) === name)?.category || "";
+    // Clés numériques : un objet JS les réordonne par ordre croissant, on retrie donc ici.
+    const years = Object.entries(o.by_year).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 3).map(([y, n]) => `${y} : ${n}`).join(" · ");
+    $("#bench-overview").hidden = false;
+    $("#bench-overview").innerHTML = `<div class="bench-total"><b>${o.total}</b><span>benchmarks · ${Object.keys(o.by_category).length} catégories</span>
+        <div class="muted" style="font-size:.78rem;margin-top:8px">Par année : ${esc(years)}</div>
+        ${bench.category ? '<button class="btn small" style="margin-top:10px" data-bcat="">✕ Toutes les catégories</button>' : ""}</div>
+      <div class="bench-bars">${Object.entries(o.by_category).map(([name, n]) => { const key = bench.catKeys[name] || keyOf(name); return `<button class="bench-bar" data-bcat="${esc(key)}" aria-pressed="${bench.category === key}">
+        <span>${CATEGORY_ICONS[key] || "📊"} ${esc(name)}</span><span><i style="width:${(100 * n / max).toFixed(1)}%"></i></span><span>${n}</span></button>`; }).join("")}</div>`;
+    $("#bench-overview").querySelectorAll("[data-bcat]").forEach((b) => b.addEventListener("click", () => { bench.category = bench.category === b.dataset.bcat ? "" : b.dataset.bcat; loadBenchmarks(); }));
+  }
+  function benchCard(b, i) {
+    const lead = b.analysis?.leader;
+    return `<button class="bcard" data-bench="${i}">
+      <div class="top"><span class="kind-badge">${CATEGORY_ICONS[b.category] || "📊"} ${esc(b.category_name || b.category)}</span>${b.year ? `<span>${esc(b.year)}</span>` : ""}
+        ${b.difficulty ? `<span title="Difficulté">· ${esc(b.difficulty)}</span>` : ""}</div>
+      <h4>${esc(b.name)}</h4>${b.full_name && b.full_name !== b.name ? `<div class="full">${esc(b.full_name)}</div>` : ""}
+      <p>${esc(b.description || b.tasks || "")}</p>
+      ${lead ? `<div class="lead">🏆 ${esc(lead.model)} · <b>${esc(lead.score)}</b>${b.analysis.open_leader && b.analysis.open_leader !== lead ? ` · 🔓 ${esc(b.analysis.open_leader.model)} ${esc(b.analysis.open_leader.score)}` : ""}</div>`
+             : '<div class="lead muted">Classement : cliquer pour l\'analyser</div>'}</button>`;
+  }
+  function renderBenchmarks() {
+    const q = $("#bench-q").value.trim().toLowerCase();
+    const items = bench.items.filter((b) => !q || `${b.name} ${b.full_name} ${b.description} ${b.tasks} ${b.format}`.toLowerCase().includes(q));
+    $("#bench-count").textContent = `${items.length} benchmark(s)`;
+    renderBenchOverview();
+    $("#bench-grid").innerHTML = items.length ? items.slice(0, 240).map((b) => benchCard(b, bench.items.indexOf(b))).join("")
+      : `<div class="news-empty" style="grid-column:1/-1">📊 ${bench.overview?.total ? "Aucun benchmark pour ce filtre." : "Catalogue vide : « 🔄 Actualiser le catalogue » lit BenchLM.ai (une seule page)."}</div>`;
+    $("#bench-grid").querySelectorAll("[data-bench]").forEach((c) => c.addEventListener("click", () => openBenchmark(bench.items[Number(c.dataset.bench)])));
+  }
+  async function loadBenchmarks() {
+    try {
+      const data = await api(`/api/benchmarks${bench.category ? `?category=${encodeURIComponent(bench.category)}` : ""}`);
+      bench.items = data.items; bench.overview = data.overview;
+      bench.catKeys = bench.catKeys || {};
+      if (!bench.category) data.items.forEach((b) => (bench.catKeys[b.category_name || b.category] = b.category));
+      renderBenchmarks();
+      if (!data.overview.total && !bench.autoCrawled) { bench.autoCrawled = true; crawlBenchmarks(); }
+    } catch (error) { toast(error.message); }
+  }
+  async function crawlBenchmarks() {
+    if (bench.busy) return;
+    bench.busy = true; $("#bench-crawl").disabled = true;
+    $("#bench-grid").innerHTML = `<div style="grid-column:1/-1">${critter("Scouty lit le catalogue BenchLM", "une page, puis enregistrement", "center")}</div>`;
+    try {
+      const r = await api("/api/benchmarks/crawl", { method: "POST" });
+      notify({ title: `📊 ${r.saved} benchmarks à jour`, body: `${r.announced} annoncés par BenchLM · ${r.period}`, kind: "ok", icon: "📊", view: "benchmarks", tag: "bench" });
+      await loadBenchmarks();
+    } catch (error) { notify({ title: "Catalogue BenchLM illisible", body: error.message, kind: "err", view: "benchmarks" }); renderBenchmarks(); }
+    bench.busy = false; $("#bench-crawl").disabled = false;
+  }
+  function trustBadges(d) {
+    if (!d) return "";
+    const sat = d.saturation || {}, prov = d.provenance || {}, fresh = d.freshness || {};
+    const satCls = { separating: "good", clustering: "warn", saturated: "bad" }[sat.flag] || "";
+    const provCls = typeof prov.providerPct === "number" ? (prov.providerPct >= 50 ? "warn" : "good") : "";
+    return `<div class="trust">${sat.state ? `<span class="${satCls}" title="${esc(sat.text || "")}">📈 ${esc(sat.state)}${sat.flag ? ` · ${esc(sat.flag)}` : ""}</span>` : ""}
+      ${typeof prov.providerPct === "number" ? `<span class="${provCls}" title="${esc(prov.text || "")}">🧾 ${Math.round(prov.providerPct)} % auto-déclarés</span>` : ""}
+      ${fresh.stalenessState ? `<span class="${fresh.stalenessState === "Current" ? "good" : "warn"}" title="${esc(fresh.text || "")}">🕒 ${esc(fresh.stalenessState)}${fresh.refreshCadence ? ` · ${esc(fresh.refreshCadence)}` : ""}</span>` : ""}</div>`;
+  }
+  async function openBenchmark(b, refresh = false) {
+    closeModal();
+    const back = document.createElement("div"); back.className = "modal-back"; back.id = "doc-modal";
+    back.addEventListener("click", (e) => { if (e.target === back) closeModal(); });
+    document.addEventListener("keydown", modalKeys);
+    document.body.appendChild(back);
+    const draw = (r, loading, error) => {
+      const d = r.detail;
+      const rows = (d?.leaderboard || []).filter((x) => typeof x.score === "number").sort((x, y) => y.score - x.score);
+      const top = rows[0]?.score || 100;
+      back.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="${esc(b.name)}">
+        <div class="modal-hero" style="height:110px"><span class="glyph">${CATEGORY_ICONS[b.category] || "📊"}</span><button class="modal-close" aria-label="Fermer">✕</button></div>
+        <div class="modal-body">
+          <div class="modal-meta"><span class="state">${esc(b.category_name || b.category)}</span>${b.year ? `<span>📅 ${esc(b.year)}</span>` : ""}
+            ${b.difficulty ? `<span>🎚️ ${esc(b.difficulty)}</span>` : ""}${d?.last_updated ? `<span>mis à jour le ${esc(d.last_updated)} (BenchLM)</span>` : ""}</div>
+          <h2>${esc(b.name)}</h2>${b.full_name && b.full_name !== b.name ? `<p class="muted" style="margin:-4px 0 0">${esc(b.full_name)}</p>` : ""}
+          ${trustBadges(d)}
+          <div class="modal-section"><h4>🧪 Ce que ça mesure</h4><p>${esc(b.description || "—")}</p>
+            ${b.tasks || b.format ? `<p class="muted" style="margin-top:6px;font-size:.86rem">${b.tasks ? `Tâches : ${esc(b.tasks)}` : ""}${b.tasks && b.format ? " · " : ""}${b.format ? `Format : ${esc(b.format)}` : ""}</p>` : ""}
+            ${d?.details ? `<p class="muted" style="margin-top:6px;font-size:.86rem">${esc(d.details)}</p>` : ""}</div>
+          ${loading ? '<div class="modal-skel" style="width:90%"></div><div class="modal-skel" style="width:70%"></div>' : ""}
+          ${error ? `<div class="error-box">${esc(error)}</div>` : ""}
+          ${r.analysis?.points?.length ? `<div class="modal-section"><h4>🔎 Analyse</h4><ul>${r.analysis.points.map((pt) => `<li>${esc(pt)}</li>`).join("")}</ul></div>` : ""}
+          ${rows.length ? `<div class="modal-section"><h4>🏆 Classement (${rows.length} modèle(s))</h4><table class="lb"><thead><tr><th>#</th><th>Modèle</th><th>Éditeur</th><th class="barcell"></th><th style="text-align:right">Score</th></tr></thead><tbody>
+            ${rows.slice(0, 15).map((x, k) => `<tr class="${/open/i.test(x.source_type) ? "open" : ""}"><td>${k + 1}</td><td>${esc(x.model)}</td><td>${esc(x.creator)}</td>
+              <td class="barcell"><i style="width:${Math.max(2, 100 * x.score / top).toFixed(1)}%"></i></td><td class="num">${esc(x.score)}</td></tr>`).join("")}</tbody></table>
+            ${rows.length > 15 ? `<p class="muted" style="font-size:.8rem">+ ${rows.length - 15} autres sur BenchLM.</p>` : ""}</div>` : ""}
+          <div class="modal-actions">
+            <a class="btn primary" href="${safeUrl(b.url)}" target="_blank" rel="noopener">↗ Page BenchLM</a>
+            ${d?.paper_url ? `<a class="btn" href="${safeUrl(d.paper_url)}" target="_blank" rel="noopener">📄 ${esc((d.paper_title || "Papier source").slice(0, 60))}</a>` : ""}
+            <button class="btn" data-act="ask">💬 Demander au chat</button>
+            ${r.detail ? '<button class="btn" data-act="refresh">🔄 Rafraîchir</button>' : ""}
+          </div></div></div>`;
+      back.querySelector(".modal-close").addEventListener("click", closeModal);
+      back.querySelector('[data-act="refresh"]')?.addEventListener("click", () => openBenchmark(b, true));
+      back.querySelector('[data-act="ask"]').addEventListener("click", () => {
+        closeModal(); show("chat");
+        addQuote(`${b.name} (${b.url}) — ${b.description}${r.analysis?.points?.length ? " — " + r.analysis.points.join(" ") : ""}`);
+        $("#input").value = `Que vaut le benchmark ${b.name} pour choisir un modèle ? Limites et alternatives.`; $("#input").focus();
+      });
+    };
+    draw({ ...b, detail: null }, true);
+    try {
+      const r = await api(`/api/benchmarks/${encodeURIComponent(b.key)}${refresh ? "?refresh=true" : ""}`);
+      Object.assign(b, { analysis: r.analysis }); draw(r, false, r.stale_error ? `Détail en cache (rafraîchissement impossible : ${r.stale_error})` : "");
+      renderBenchmarks();  // la carte affiche désormais le leader
+    } catch (error) { draw({ ...b, detail: null }, false, error.message); }
+  }
+  $("#bench-crawl").addEventListener("click", crawlBenchmarks);
+  $("#bench-q").addEventListener("input", renderBenchmarks);
+
+  // --- Aide et visite guidée ------------------------------------------------------------------------
+  const HELP = {
+    chat: "Posez une question : réponse sourcée [n] depuis la veille, GitHub (MCP), la mémoire ou la base de connaissances. Sélectionnez un passage pour le citer.",
+    news: "Cartes des blogs officiels crawlés et des flux, plus la recherche web Claude sur votre profil. Clic : résumé ; Ctrl-clic : article.",
+    events: "Calendrier des conférences, meetups et webinaires IA. Dates vérifiées dans la page ; export .ics pour votre agenda.",
+    media: "Vidéos, podcasts et émissions récentes, lecture intégrée (YouTube sans cookies, audio).",
+    benchmarks: "469 benchmarks BenchLM expliqués : leader, meilleur modèle ouvert, saturation et provenance des scores.",
+    runs: "Lancez une veille (ciblée ou non), suivez le graphe en direct, puis validez ou rejetez le digest : votre note devient une leçon.",
+    search: "Recherche plein texte dans tout ce que la veille a collecté, avec filtres de sources et de dates.",
+    review: "Collez une URL : synthèse sourcée selon les règles métiers, citations vérifiées dans la page, puis challenge dans le chat.",
+    reports: "Rapports datés publiés (HTML lisible et Markdown), avec le classement expliqué de chaque signal.",
+    grill: "Entretien guidé qui définit vos centres d'intérêt : il pilote le Scout, le ranking et les recherches Claude.",
+    sources: "Ajoutez un blog, un flux, un dépôt GitHub ou une catégorie arXiv : vérification avant tout ajout.",
+    knowledge: "Glossaire, règles métiers par domaine et prompts de veille ; téléversez vos notes Markdown.",
+    prompts: "Éditez les prompts des agents (surcharges historisées, jamais les fichiers du dépôt).",
+    memory: "Leçons humaines, thèmes appris, santé des sources, page Notion.",
+  };
+  function renderHelp() {
+    $("#help-grid").innerHTML = VIEWS.filter((v) => HELP[v.id]).map((v) => `<button class="help-card" data-view-help="${v.id}"><h4>${v.icon} ${esc(v.label)}</h4><p>${esc(HELP[v.id])}</p></button>`).join("");
+    $("#help-grid").querySelectorAll("[data-view-help]").forEach((c) => c.addEventListener("click", () => show(c.dataset.viewHelp)));
+  }
+  const TOUR = [
+    { title: "Bienvenue 👋", text: "Voici la visite éclair de votre veille LLM / GenAI : factuelle, sourcée, sans date ni version inventée. 1 minute.", target: null },
+    { title: "Le menu ☰", text: "Toutes les sections sont dans ce menu coulissant. Raccourci : Ctrl+K, puis tapez le nom d'une section.", target: "#burger" },
+    { title: "Accès rapide", text: "Les sections du quotidien, en un clic : Chat, Actus, Événements, Vidéos, Veille.", target: "#quick" },
+    { title: "Le chat sourcé", text: "Posez vos questions ici : chaque réponse cite ses sources [n] et montre les agents engagés.", target: "#composer", view: "chat" },
+    { title: "Actus", text: "Blogs officiels, flux et recherche web Claude sur votre profil, en cartes.", target: "#news .news-head", view: "news" },
+    { title: "Événements", text: "Conférences, meetups, webinaires : dates vérifiées dans la page, export vers votre agenda.", target: "#events .news-head", view: "events" },
+    { title: "Vidéos & podcasts", text: "Les meilleurs contenus récents, lisibles sans quitter l'application.", target: "#media .news-head", view: "media" },
+    { title: "Lancer une veille", text: "Collecte → bruit et doublons écartés → Scout → ranking hybride expliqué → Critic → Editor → votre validation.", target: "#start-run", view: "runs" },
+    { title: "Votre profil", text: "Grill-me vous interroge pour cibler la veille : il guide le Scout et le classement.", target: "#grill-start", view: "grill" },
+    { title: "Notifications", text: "Veille à valider, recherches terminées, événement demain… Activez les notifications système ici.", target: "#bell" },
+    { title: "Assistant Claude", text: "Un doute rapide ? L'assistant flottant répond via l'API Claude, avec vos actus en contexte.", target: "#a-fab" },
+    { title: "C'est parti 🚀", text: "Cette aide reste accessible via ❓ (ou la touche ?). Bonne veille !", target: "#help-btn" },
+  ];
+  const tour = { i: 0, spot: null, card: null };
+  function endTour() {
+    tour.spot?.remove(); tour.card?.remove(); tour.spot = tour.card = null;
+    document.removeEventListener("keydown", tourKeys); removeEventListener("resize", placeTour);
+    try { localStorage.setItem("veille-tour-done", "1"); } catch {}
+  }
+  function tourKeys(e) {
+    if (e.key === "Escape") endTour();
+    else if (e.key === "ArrowRight" || e.key === "Enter") stepTour(1);
+    else if (e.key === "ArrowLeft") stepTour(-1);
+  }
+  function placeTour() {
+    const step = TOUR[tour.i]; const el = step.target && document.querySelector(step.target);
+    const card = tour.card, spot = tour.spot;
+    if (!el || !el.getClientRects().length) {
+      spot.style.cssText = `top:${innerHeight / 2}px;left:${innerWidth / 2}px;width:0;height:0`;
+      card.style.top = `${Math.max(16, innerHeight / 2 - card.offsetHeight / 2)}px`; card.style.left = `${Math.max(16, innerWidth / 2 - card.offsetWidth / 2)}px`;
+      return;
+    }
+    const r = el.getBoundingClientRect(); const pad = 6;
+    spot.style.cssText = `top:${r.top - pad}px;left:${r.left - pad}px;width:${r.width + 2 * pad}px;height:${r.height + 2 * pad}px`;
+    const below = r.bottom + 14 + card.offsetHeight < innerHeight;
+    card.style.top = `${below ? r.bottom + 14 : Math.max(16, r.top - card.offsetHeight - 14)}px`;
+    card.style.left = `${Math.min(innerWidth - card.offsetWidth - 16, Math.max(16, r.left + r.width / 2 - card.offsetWidth / 2))}px`;
+  }
+  function stepTour(delta) {
+    const next = tour.i + delta;
+    if (next < 0) return;
+    if (next >= TOUR.length) { endTour(); notify({ title: "Visite terminée ✨", body: "Aide : ❓ ou la touche ?", kind: "ok", store: false, timeout: 3000 }); return; }
+    tour.i = next; const step = TOUR[next];
+    if (step.view) markView(step.view);
+    tour.card.innerHTML = `<div class="step">Étape ${next + 1} / ${TOUR.length}</div><h3>${esc(step.title)}</h3><p>${esc(step.text)}</p>
+      <div class="dots">${TOUR.map((_, k) => `<i class="${k === next ? "on" : ""}"></i>`).join("")}</div>
+      <div class="row"><button class="btn small" data-t="skip">Passer</button><span class="row">
+        ${next ? '<button class="btn small" data-t="prev">← Précédent</button>' : ""}
+        <button class="btn small primary" data-t="next">${next === TOUR.length - 1 ? "Terminer" : "Suivant →"}</button></span></div>`;
+    tour.card.querySelector('[data-t="skip"]').addEventListener("click", endTour);
+    tour.card.querySelector('[data-t="prev"]')?.addEventListener("click", () => stepTour(-1));
+    tour.card.querySelector('[data-t="next"]').addEventListener("click", () => stepTour(1));
+    requestAnimationFrame(placeTour);
+    tour.card.querySelector('[data-t="next"]').focus();
+  }
+  function startTour() {
+    endTour(); closeDrawer();
+    tour.spot = Object.assign(document.createElement("div"), { className: "tour-spot" });
+    tour.card = Object.assign(document.createElement("div"), { className: "tour-card" });
+    tour.card.setAttribute("role", "dialog"); tour.card.setAttribute("aria-label", "Visite guidée");
+    document.body.append(tour.spot, tour.card);
+    document.addEventListener("keydown", tourKeys); addEventListener("resize", placeTour);
+    tour.i = -1; stepTour(1);
+  }
+  $("#tour-start").addEventListener("click", startTour);
+
+  // --- Session (login) ---------------------------------------------------------------------------------
+  api("/api/me").then((me) => {
+    if (!me.user || me.user === "api") return;
+    $("#user-chip").hidden = false; $("#user-name").textContent = me.user;
+  }).catch(() => {});
+  $("#logout").addEventListener("click", async () => {
+    await fetch("/api/logout", { method: "POST" }).catch(() => {});
+    location.href = "/login";
+  });
+
   // --- Démarrage ---------------------------------------------------------------------
   loadHealth(); loadConversations(); setInterval(loadHealth, 30000);
   api("/api/runs").then((runs) => { const active = runs.find((r) => ["running", "awaiting_approval"].includes(r.status)); if (active) followRun(active.id); }).catch(() => {});
@@ -2359,8 +3239,14 @@ table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(
   else if (location.hash === "#grill-start") { show("grill"); startGrill(); }  // lien direct : démarre l'entretien
   else if (location.hash.startsWith("#r=")) { openReview(decodeURIComponent(location.hash.slice(3))); show("review"); }
   else if (location.hash.startsWith("#k=")) openKnowledge(decodeURIComponent(location.hash.slice(3)));
-  else if (["#news", "#search", "#runs", "#reports", "#prompts", "#memory", "#grill", "#review", "#knowledge", "#sources"].includes(location.hash)) show(location.hash.slice(1));
+  else if (VIEWS.some((v) => `#${v.id}` === location.hash)) show(location.hash.slice(1));
+  else markView("chat");
+  addEventListener("hashchange", () => { if (VIEWS.some((v) => `#${v.id}` === location.hash)) show(location.hash.slice(1)); });
   input.focus();
+  // Première visite : visite guidée ; chargement discret des événements pour les rappels du jour.
+  let toured = false; try { toured = localStorage.getItem("veille-tour-done") === "1"; } catch {}
+  if (!toured && !location.hash) setTimeout(startTour, 700);
+  api("/api/events?when=upcoming&limit=50").then((d) => remindEvents(d.items)).catch(() => {});
 })();
 </script>
 </body>

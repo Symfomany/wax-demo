@@ -58,6 +58,9 @@ def report_context(
                 "source_label": "✨ Nouveau dépôt GitHub" if is_repo
                 else SOURCE_LABELS.get(item["source"], item["source"]),
                 "date_short": date.strftime("%d/%m/%Y") if date else "non précisée",
+                # ranking hybride : absent des digests antérieurs
+                "score": item.get("score"),
+                "rank_reasons": item.get("rank_reasons", []),
                 # tags d'affichage : ni tags de source, ni noms de flux ou de dépôt
                 "tags": [t for t in item.get("tags", []) if t.lower() not in SOURCE_TAGS
                          and " " not in t and "/" not in t],

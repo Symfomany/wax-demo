@@ -25,6 +25,10 @@ class Signal(BaseModel):
     why_it_matters: str
     claims: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    # Ranking hybride explicable (app/workflow/quality.py), calculé par le code
+    score: float | None = Field(None, ge=0, le=100)
+    score_breakdown: dict[str, float] = Field(default_factory=dict)
+    rank_reasons: list[str] = Field(default_factory=list)
 
 
 class Critique(BaseModel):
@@ -43,6 +47,8 @@ class DigestItem(BaseModel):
     summary: str
     why_it_matters: str
     tags: list[str] = Field(default_factory=list)
+    score: float | None = Field(None, ge=0, le=100)  # ranking hybride (0-100)
+    rank_reasons: list[str] = Field(default_factory=list)
 
 
 class Digest(BaseModel):

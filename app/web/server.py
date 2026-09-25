@@ -12,6 +12,8 @@ from collections.abc import Callable
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+from urllib.parse import quote
 from uuid import uuid4
 
 import httpx
@@ -31,10 +33,32 @@ from app.reports import list_reports
 from app.assistant import AssistantMessage
 from app.news import CrawlReport, NewsError, SearchReport
 from app.review import FetchError, Page, ReviewContext, build_review_graph, stream_review, transcript_objections
+from app.web.auth import SESSION_COOKIE
 from app.web.runs import RunManager
 
 STATIC = Path(__file__).resolve().parent / "static"
 TOKEN_COOKIE = "veille_token"
+
+
+def build_authenticator():
+    """Authentificateur configuré par .env, ou None si WEB_USERNAME / WEB_PASSWORD sont absents.
+
+    Lève AuthConfigError (le serveur ne démarre pas) si la configuration est incomplète ou faible."""
+    from app.web.auth import AuthConfigError, Authenticator, Throttle
+
+    if not settings.web_login_enabled:
+        return None
+    if not (settings.web_username and settings.web_password):
+        raise AuthConfigError("Renseigner à la fois WEB_USERNAME et WEB_PASSWORD (ou aucun des deux).")
+    return Authenticator(
+        settings.web_username, settings.web_password, session_hours=settings.web_session_hours,
+        secret=settings.web_session_secret, min_length=settings.web_password_min_length,
+        throttle=Throttle(max_failures=settings.web_login_max_failures, lock_seconds=settings.web_login_lock_seconds),
+    )
+
+
+def is_https(request: Request) -> bool:
+    return request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
 
 
 def authorized(request: Request, token: str) -> bool:
@@ -62,6 +86,13 @@ class WebDeps:
     news_older: Callable[[dict, int, set], "CrawlReport"] | None = None  # défaut : app.news.crawl_older
     review_publisher: Callable | None = None  # (connection, review_id) -> dict ; None : Notion non configuré
     assistant_stream: Callable | None = None  # défaut : app.assistant.stream_assistant (API Claude)
+    authenticator: Any = None  # défaut : WEB_USERNAME / WEB_PASSWORD (app.web.auth.Authenticator)
+    events_search: Callable[..., Any] | None = None  # défaut : app.events.search_events (API Claude)
+    events_crawl: Callable[[dict], Any] | None = None  # défaut : app.events.crawl_calendars
+    media_search: Callable[..., Any] | None = None  # défaut : app.media.search_media (API Claude)
+    media_crawl: Callable[[dict], Any] | None = None  # défaut : app.media.crawl_media
+    screenshot_capture: Callable[..., Any] | None = None  # défaut : app.screenshots.capture_news (MCP Playwright)
+    benchmarks_fetch: Callable[[str], str] | None = None  # défaut : app.news.default_fetch (pages BenchLM)
 
 
 def production_deps() -> WebDeps:
@@ -99,6 +130,11 @@ def production_deps() -> WebDeps:
     )
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=256)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     conversation_id: str | None = None
@@ -123,6 +159,15 @@ class SourceRequest(BaseModel):
 class NewsSearchRequest(BaseModel):
     topics: str = Field("", max_length=500)  # vide : centres d'intérêt du profil Grill-me
     days: int | None = Field(None, ge=1, le=60)
+
+
+class RadarRequest(BaseModel):
+    topics: str = Field("", max_length=500)  # vide : centres d'intérêt du profil Grill-me
+    days: int | None = Field(None, ge=1, le=365)
+
+
+class ScreenshotRequest(BaseModel):
+    limit: int | None = Field(None, ge=1, le=40)
 
 
 class OlderNewsRequest(BaseModel):
@@ -192,25 +237,88 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
     app.state.runs = runs
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     token = settings.web_api_token
+    auth = deps.authenticator if deps.authenticator is not None else build_authenticator()
+    app.state.auth = auth
 
-    if token:
+    def identify(request: Request, client: str) -> tuple[str | None, JSONResponse | None]:
+        """(utilisateur, refus) : cookie de session, jeton Bearer, ou HTTP Basic borné par l'anti-force brute."""
+        if token and authorized(request, token):
+            return "api", None
+        if auth is None:
+            return None, None
+        if user := auth.verify(request.cookies.get(SESSION_COOKIE, "")):
+            return user, None
+        header = request.headers.get("authorization", "")
+        if header.startswith("Basic "):
+            if wait := auth.throttle.locked_for(client):
+                return None, JSONResponse({"detail": f"Trop d'échecs : réessayez dans {wait} s"}, status_code=429,
+                                          headers={"Retry-After": str(wait)})
+            if auth.basic(header):
+                auth.throttle.success(client)
+                return auth.username, None
+            auth.throttle.failure(client)
+        return None, None
+
+    if token or auth:
         @app.middleware("http")
-        async def require_token(request: Request, call_next):
+        async def require_login(request: Request, call_next):
             path = request.url.path
-            if path == "/" and "token" in request.query_params:
+            if token and path == "/" and "token" in request.query_params:
                 # Connexion du navigateur : le jeton passe une fois dans l'URL, puis en cookie HttpOnly.
                 if not secrets.compare_digest(request.query_params["token"].encode(), token.encode()):
                     return JSONResponse({"detail": "Jeton invalide"}, status_code=401)
                 response = RedirectResponse("/", status_code=303)
-                https = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
-                response.set_cookie(TOKEN_COOKIE, token, httponly=True, samesite="strict", secure=https,
+                response.set_cookie(TOKEN_COOKIE, token, httponly=True, samesite="strict", secure=is_https(request),
                                     max_age=90 * 24 * 3600)
                 return response
-            # / et /static ne portent aucune donnée ; /api/health sert de sonde à bin/veille et à la TUI.
-            if path in ("/", "/api/health") or path.startswith("/static/") or authorized(request, token):
+            user, refusal = identify(request, request.client.host if request.client else "?")
+            request.state.user = user
+            if refusal:
+                return refusal
+            # Sans login : / et /static ne portent aucune donnée. Avec login : seule la page de connexion
+            # est publique ; /api/health (sonde de bin/veille et de la TUI) répond alors sans détail.
+            public = {"/api/health"} | ({"/login", "/api/login", "/api/logout", "/favicon.ico"} if auth else {"/"})
+            if user or path in public or (not auth and path.startswith("/static/")):
                 return await call_next(request)
-            return JSONResponse({"detail": "Jeton d'API requis"}, status_code=401,
-                                headers={"WWW-Authenticate": "Bearer"})
+            if auth and request.method == "GET" and not path.startswith("/api/") \
+                    and "text/html" in request.headers.get("accept", ""):
+                target = path + (f"?{request.url.query}" if request.url.query else "")
+                return RedirectResponse(f"/login?next={quote(target, safe='')}", status_code=303)
+            return JSONResponse({"detail": "Authentification requise" if auth else "Jeton d'API requis"},
+                                status_code=401, headers={"WWW-Authenticate": "Bearer"})
+
+    @app.get("/login")
+    def login_page():
+        if auth is None:
+            return RedirectResponse("/", status_code=303)
+        return FileResponse(STATIC / "login.html", headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/login")
+    def login(credentials: LoginRequest, request: Request):
+        if auth is None:
+            raise HTTPException(404, "Connexion désactivée (WEB_USERNAME / WEB_PASSWORD absents)")
+        client = request.client.host if request.client else "?"
+        if wait := auth.throttle.locked_for(client):
+            raise HTTPException(429, f"Trop d'échecs de connexion : réessayez dans {wait} s.",
+                                headers={"Retry-After": str(wait)})
+        if not auth.check(credentials.username, credentials.password):
+            auth.throttle.failure(client)
+            raise HTTPException(401, "Identifiant ou mot de passe incorrect.")
+        auth.throttle.success(client)
+        response = JSONResponse({"user": auth.username, "expires_in": auth.session_seconds})
+        response.set_cookie(SESSION_COOKIE, auth.issue(), httponly=True, samesite="strict", secure=is_https(request),
+                            max_age=auth.session_seconds, path="/")
+        return response
+
+    @app.post("/api/logout")
+    def logout():
+        response = JSONResponse({"user": None})
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
+
+    @app.get("/api/me")
+    def me(request: Request):
+        return {"user": getattr(request.state, "user", None), "login": auth is not None}
 
     def services() -> ChatServices:
         return ChatServices(
@@ -227,7 +335,9 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         return FileResponse(STATIC / "index.html")
 
     @app.get("/api/health")
-    def health():
+    def health(request: Request):
+        if auth and not getattr(request.state, "user", None):
+            return {"status": "ok", "login": True}  # sonde publique : aucun détail sans session
         ollama, models = False, []
         try:
             tags = httpx.get(f"{settings.ollama_url}/api/tags", timeout=2).json()
@@ -242,6 +352,7 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             "tracing": observability.status(),
             "notion": deps.notion_sync is not None,
             "claude_search": bool(settings.claude_search_key) or deps.news_search is not None,
+            "screenshots": settings.screenshot_enabled or deps.screenshot_capture is not None,
             "assistant_model": settings.assistant_model,
             "memory": storage.memory_stats(app.state.connection),
         }
@@ -550,6 +661,176 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
                 "results_seen": report.results_seen, "rejected": report.rejected,
                 "searches": report.searches, "model": report.model, "topics": report.topics}
 
+    # --- Aperçus des actus (captures d'écran par le MCP Playwright) ------------------------------
+
+    @app.post("/api/news/screenshots")
+    def news_screenshots(request: ScreenshotRequest):
+        from app.screenshots import ScreenshotError, capture_news
+
+        if deps.screenshot_capture is None and not settings.screenshot_enabled:
+            raise HTTPException(409, "Captures désactivées : SCREENSHOT_ENABLED=true dans la configuration "
+                                     "(Node.js et le navigateur de Playwright requis).")
+        candidates = [n for n in storage.list_news(app.state.connection, limit=200)
+                      if not n.get("image") and not n.get("screenshot")]
+        try:
+            report = (deps.screenshot_capture or capture_news)(candidates, limit=request.limit)
+        except ScreenshotError as error:
+            raise HTTPException(502, str(error))
+        by_id = {n["id"]: n for n in candidates}
+        storage.save_news(app.state.connection, [
+            {k: v for k, v in by_id[item_id].items() if k != "fetched_at"} | {"screenshot": f"/api/news/{item_id}/screenshot"}
+            for item_id in report.saved if item_id in by_id])
+        return {"saved": len(report.saved), "errors": report.errors, "skipped": report.skipped,
+                "remaining": max(0, len(candidates) - len(report.saved) - len(report.errors))}
+
+    @app.get("/api/news/{item_id}/screenshot")
+    def news_screenshot(item_id: str):
+        from app.screenshots import ScreenshotError, screenshot_path
+
+        try:
+            path = screenshot_path(item_id)
+        except ScreenshotError:
+            raise HTTPException(404, "Aperçu introuvable")
+        if not path.exists():
+            raise HTTPException(404, "Aperçu introuvable")
+        return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+    # --- Événements IA ---------------------------------------------------------------------------
+
+    def radar_topics(request: RadarRequest) -> tuple[str, str]:
+        from app.news import interest_topics
+
+        memory = WatchMemory(app.state.store)
+        topics, _ = interest_topics(memory.interests())
+        if request.topics.strip():
+            topics = "\n".join(f"- {t.strip()}" for t in request.topics.split(",") if t.strip())
+        return topics, memory.prompt_context()
+
+    def claude_call(function: Callable, **kwargs):
+        from app.news import explain_api_error
+
+        try:
+            return function(**kwargs)
+        except NewsError as error:
+            raise HTTPException(400, str(error))
+        except Exception as error:  # noqa: BLE001 — erreur API (clé refusée, quota…) affichée telle quelle
+            raise HTTPException(502, explain_api_error(error))
+
+    @app.get("/api/events")
+    def events(when: str = "upcoming", kind: str | None = None, q: str | None = None, limit: int = 100):
+        if when not in {"upcoming", "past", "all"}:
+            raise HTTPException(400, "when attendu : upcoming, past ou all")
+        return {"items": storage.list_events(app.state.connection, when, kind or None, (q or "").strip() or None,
+                                             limit=min(max(limit, 1), 300)),
+                "claude_search": bool(settings.claude_search_key) or deps.events_search is not None}
+
+    @app.post("/api/events/search")
+    def events_search(request: RadarRequest):
+        from app.events import search_events
+
+        topics, memory = radar_topics(request)
+        report = claude_call(deps.events_search or search_events, topics=topics, memory=memory, horizon=request.days)
+        storage.save_events(app.state.connection, [item.record() for item in report.items])
+        return {"saved": len(report.items), "items": [item.record() for item in report.items],
+                "results_seen": report.results_seen, "rejected": report.rejected,
+                "unverified_dates": report.unverified_dates, "searches": report.searches}
+
+    @app.post("/api/events/crawl")
+    def events_crawl():
+        from app.collectors import load_sources
+        from app.events import crawl_calendars
+
+        report = (deps.events_crawl or crawl_calendars)(load_sources(settings.sources_path))
+        storage.save_events(app.state.connection, [item.record() for item in report.items])
+        return {"saved": len(report.items), "errors": report.errors}
+
+    @app.get("/api/events.ics")
+    def events_calendar():
+        """Événements à venir datés, au format iCalendar (abonnement depuis un agenda)."""
+        from fastapi.responses import Response
+
+        from app.events import to_ics
+
+        return Response(to_ics(storage.list_events(app.state.connection, "upcoming", limit=300)),
+                        media_type="text/calendar; charset=utf-8",
+                        headers={"Content-Disposition": 'attachment; filename="veille-evenements.ics"'})
+
+    # --- Vidéos, podcasts, émissions ----------------------------------------------------------------
+
+    @app.get("/api/media")
+    def media(kind: str | None = None, source: str | None = None, q: str | None = None, limit: int = 60,
+              offset: int = 0):
+        return {"items": storage.list_media(app.state.connection, kind or None, source or None,
+                                            (q or "").strip() or None, min(max(limit, 1), 300), max(offset, 0)),
+                "sources": storage.media_sources(app.state.connection),
+                "claude_search": bool(settings.claude_search_key) or deps.media_search is not None}
+
+    @app.post("/api/media/search")
+    def media_search(request: RadarRequest):
+        from app.media import search_media
+
+        topics, memory = radar_topics(request)
+        report = claude_call(deps.media_search or search_media, topics=topics, memory=memory, days=request.days)
+        storage.save_media(app.state.connection, [item.record() for item in report.items])
+        return {"saved": len(report.items), "items": [item.record() for item in report.items],
+                "results_seen": report.results_seen, "rejected": report.rejected, "searches": report.searches}
+
+    @app.post("/api/media/crawl")
+    def media_crawl():
+        from app.collectors import load_sources
+        from app.media import crawl_media
+
+        report = (deps.media_crawl or crawl_media)(load_sources(settings.sources_path))
+        storage.save_media(app.state.connection, [item.record() for item in report.items])
+        return {"saved": len(report.items), "counts": report.counts, "errors": report.errors}
+
+    # --- Benchmarks (BenchLM.ai) ------------------------------------------------------------------
+
+    def benchmark_fetch():
+        from app.news import default_fetch
+
+        return deps.benchmarks_fetch or default_fetch
+
+    @app.get("/api/benchmarks")
+    def benchmarks(category: str | None = None, q: str | None = None):
+        from app.benchmarks import analyze, catalog_overview
+
+        items = storage.list_benchmarks(app.state.connection, category or None, (q or "").strip()[:100] or None)
+        everything = items if not (category or q) else storage.list_benchmarks(app.state.connection)
+        return {"items": [{k: v for k, v in item.items() if k != "detail"}
+                          | {"analysis": analyze(item, item["detail"]) if item["detail"] else None} for item in items],
+                "overview": catalog_overview(everything), "source": settings.benchmarks_url}
+
+    @app.post("/api/benchmarks/crawl")
+    def benchmarks_crawl():
+        from app.benchmarks import crawl_catalog
+
+        try:
+            report = crawl_catalog(benchmark_fetch())
+        except (NewsError, FetchError) as error:
+            raise HTTPException(502, str(error))
+        storage.save_benchmarks(app.state.connection, [item.record() for item in report.items])
+        return {"saved": len(report.items), "announced": report.total_announced, "period": report.period,
+                "invalid": report.invalid}
+
+    @app.get("/api/benchmarks/{key}")
+    def benchmark(key: str, refresh: bool = False):
+        from app.benchmarks import KEY, analyze, fetch_detail
+
+        if not KEY.match(key) or (record := storage.get_benchmark(app.state.connection, key)) is None:
+            raise HTTPException(404, "Benchmark inconnu : actualisez le catalogue.")
+        key = record["key"]  # clé canonique (la requête peut porter le chemin de page ou une autre casse)
+        if refresh or storage.benchmark_detail_stale(app.state.connection, key, settings.benchmarks_detail_ttl_hours):
+            try:
+                detail = fetch_detail(key, record.get("slug"), benchmark_fetch())
+                storage.save_benchmark_detail(app.state.connection, key, detail.model_dump())
+                record = storage.get_benchmark(app.state.connection, key)
+            except (NewsError, FetchError) as error:
+                if not record["detail"]:
+                    raise HTTPException(502, str(error))
+                record["stale_error"] = str(error)  # détail en cache affiché malgré l'échec
+        return record | {"analysis": analyze(record, record["detail"])}
+
     # --- Review d'une actualité par URL --------------------------------------------------------
 
     def review_graph():
@@ -764,7 +1045,7 @@ def build_diagrams(kind: str, services: ChatServices, connection) -> dict[str, s
     from app.llm import StructuredLLM
     from app.workflow.graph import build_graph
     from app.workflow.state import HarnessContext
-    from app.workflow.subagents import build_editorial, build_research, build_review
+    from app.workflow.subagents import build_editorial, build_quality, build_research, build_review
 
     context = HarnessContext(
         llm=StructuredLLM(lambda messages, schema: "{}", model="diagramme"),
@@ -772,6 +1053,7 @@ def build_diagrams(kind: str, services: ChatServices, connection) -> dict[str, s
     )
     return {
         "veille": build_graph(None, context).get_graph().draw_mermaid(),
+        "quality": build_quality(context).get_graph().draw_mermaid(),
         "research": build_research(context).get_graph().draw_mermaid(),
         "review": build_review(context).get_graph().draw_mermaid(),
         "editorial": build_editorial(context).get_graph().draw_mermaid(),

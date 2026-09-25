@@ -2,8 +2,27 @@ import { describe, expect, test } from "bun:test"
 import { parseSSE } from "../src/lib/sse"
 import { bar, runStage, truncate, wrap, percent } from "../src/lib/format"
 import { applyChatEvent } from "../src/lib/chat"
-import { createApi } from "../src/lib/api"
+import { authorization, createApi, parseEnv } from "../src/lib/api"
 import { CHAT_EVENTS } from "./fake-api"
+
+describe("authentification de la TUI", () => {
+  test("Basic prioritaire sur le jeton, jeton seul en Bearer", () => {
+    expect(authorization({ username: "veille", password: "Str0ng!Pass", token: "t" })).toBe(
+      `Basic ${Buffer.from("veille:Str0ng!Pass").toString("base64")}`)
+    expect(authorization("t")).toBe("Bearer t")
+    expect(authorization(undefined)).toBeUndefined()
+  })
+  test("lecture restreinte du fichier d'environnement", () => {
+    const env = "OTHER=secret\nWEB_USERNAME=veille\nexport WEB_PASSWORD='A1!b c#d'\nWEB_API_TOKEN= # vide\n"
+    expect(parseEnv(env, ["WEB_USERNAME", "WEB_PASSWORD", "WEB_API_TOKEN"])).toEqual({ WEB_USERNAME: "veille", WEB_PASSWORD: "A1!b c#d" })
+  })
+  test("en-tête transmis au serveur", async () => {
+    let seen = ""
+    const fetcher = (async (_: string, init: any) => { seen = init.headers.Authorization; return new Response("{}") }) as any
+    await createApi("http://x:1", fetcher, { username: "u", password: "p" }).get("/api/me")
+    expect(seen).toBe(`Basic ${Buffer.from("u:p").toString("base64")}`)
+  })
+})
 
 describe("SSE", () => {
   test("découpe les événements et garde le reste incomplet", () => {

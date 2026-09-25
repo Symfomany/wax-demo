@@ -26,6 +26,8 @@ EDITABLE: dict[str, tuple[Path, str, set[str], set[str]]] = {
                {"skill", "criteria", "rules", "glossary", "memory", "objections", "meta"}),
     "news-search": (PROMPTS_DIR / "news_search.md", "template", {"topics"},
                     {"days", "today", "exclusions", "memory"}),
+    "events-search": (PROMPTS_DIR / "events_search.md", "template", {"topics"}, {"today", "horizon", "memory"}),
+    "media-search": (PROMPTS_DIR / "media_search.md", "template", {"topics"}, {"today", "days", "memory"}),
     "chat-system": (
         settings.templates_dir / "claude" / "chat-system.md.j2",
         "jinja",
@@ -41,6 +43,8 @@ DESCRIPTIONS = {
     "grill": "Grill-me : synthèse de l'entretien sur tes centres d'intérêt",
     "review": "Agent Reviewer : review d'une actualité à partir de son URL",
     "news-search": "Scout web : recherche d'actus par l'API Claude (outil web_search)",
+    "events-search": "Scout événements : calendrier IA par l'API Claude (dates vérifiées dans la page)",
+    "media-search": "Scout médias : vidéos et podcasts IA par l'API Claude (outil web_search)",
     "chat-system": "Prompt système de l'assistant de chat (Jinja2)",
 }
 

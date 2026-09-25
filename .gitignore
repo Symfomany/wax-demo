@@ -13,6 +13,9 @@ __pycache__/
 data/*.db
 data/*.db-*
 data/knowledge/
+data/screenshots/
+data/playwright-mcp/
+.playwright-mcp/
 data/web.pid
 data/web.url
 data/web.log
@@ -24,3 +27,4 @@ output/
 
 # TUI (dépendances installées par « bin/veille tui »)
 tui/node_modules/
+tui/dist/

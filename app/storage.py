@@ -147,6 +147,47 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX news_published ON news(published_at);
     """,
+    # v7 — événements IA (onglet Événements) : flux iCalendar et recherche web Claude
+    """
+    CREATE TABLE events (
+        id TEXT PRIMARY KEY,
+        url TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        starts_on TEXT,
+        record_json TEXT NOT NULL,
+        fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX events_starts ON events(starts_on);
+    """,
+    # v8 — vidéos, podcasts et émissions IA (onglet Médias)
+    """
+    CREATE TABLE media (
+        id TEXT PRIMARY KEY,
+        url TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        source TEXT NOT NULL,
+        published_at TEXT,
+        record_json TEXT NOT NULL,
+        fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX media_published ON media(published_at);
+    """,
+    # v9 — benchmarks LLM (onglet Benchmarks) : catalogue BenchLM et détail (classement, trust card) en cache
+    """
+    CREATE TABLE benchmarks (
+        key TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        year TEXT,
+        record_json TEXT NOT NULL,
+        detail_json TEXT,
+        detail_fetched_at TEXT,
+        fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX benchmarks_category ON benchmarks(category);
+    """,
 ]
 
 
@@ -256,6 +297,13 @@ def published_urls(connection: sqlite3.Connection) -> set[str]:
 
 
 @locked
+def published_titles(connection: sqlite3.Connection, limit: int = 500) -> list[tuple[str, str]]:
+    """(url, titre) des items publiés les plus récents : détection des quasi-doublons."""
+    return [(row[0], row[1]) for row in connection.execute(
+        "SELECT url, title FROM published_items ORDER BY published_at DESC, rowid DESC LIMIT ?", (limit,))]
+
+
+@locked
 def record_digest(
     connection: sqlite3.Connection,
     run_id: str,
@@ -343,7 +391,7 @@ def cache_set(connection: sqlite3.Connection, key: str, model: str, response_jso
 def memory_stats(connection: sqlite3.Connection) -> dict[str, int]:
     tables = [
         "documents", "digests", "published_items", "feedback", "llm_cache", "runs",
-        "conversations", "notion_pages", "traces", "reviews", "news",
+        "conversations", "notion_pages", "traces", "reviews", "news", "events", "media", "benchmarks",
     ]
     return {
         table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -693,3 +741,174 @@ def document_detail(connection: sqlite3.Connection, url: str) -> dict | None:
         analysis = json.loads(review[1])["analysis"]
         detail["review"] = {"id": review[0], "relevance": analysis["relevance"], "summary": analysis["summary"]}
     return detail if len(detail) > 1 else None
+
+
+# --- Événements (v7) ------------------------------------------------------------------
+
+
+@locked
+def save_events(connection: sqlite3.Connection, records: Iterable[dict]) -> int:
+    """Insère ou met à jour des événements (records validés par app.events.EventItem).
+
+    Une date vérifiée n'est jamais remplacée par une date absente (nouvelle recherche sans date)."""
+    count = 0
+    for record in records:
+        connection.execute(
+            """
+            INSERT INTO events (id, url, title, kind, starts_on, record_json) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(url) DO UPDATE SET title = excluded.title, kind = excluded.kind,
+                starts_on = COALESCE(excluded.starts_on, events.starts_on),
+                record_json = CASE WHEN excluded.starts_on IS NULL AND events.starts_on IS NOT NULL
+                                   THEN events.record_json ELSE excluded.record_json END,
+                fetched_at = CURRENT_TIMESTAMP
+            """,
+            (record["id"], record["url"], record["title"][:300], record["kind"], record.get("starts_on"),
+             json.dumps(record, ensure_ascii=False)),
+        )
+        count += 1
+    connection.commit()
+    return count
+
+
+@locked
+def list_events(connection: sqlite3.Connection, when: str = "upcoming", kind: str | None = None,
+                query: str | None = None, today: str | None = None, limit: int = 100) -> list[dict]:
+    """when : upcoming (à venir, les plus proches d'abord, puis dates à confirmer) | past | all."""
+    today = today or connection.execute("SELECT date('now')").fetchone()[0]
+    clauses, params = [], []
+    if when == "upcoming":
+        clauses.append("(starts_on IS NULL OR COALESCE(json_extract(record_json, '$.ends_on'), starts_on) >= ?)")
+        params.append(today)
+    elif when == "past":
+        clauses.append("COALESCE(json_extract(record_json, '$.ends_on'), starts_on) < ?")
+        params.append(today)
+    if kind:
+        clauses.append("kind = ?")
+        params.append(kind)
+    if query:
+        clauses.append("(title LIKE ? OR record_json LIKE ?)")
+        params += [f"%{query}%", f"%{query}%"]
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    order = "starts_on IS NULL, starts_on ASC" if when == "upcoming" else "starts_on DESC"
+    rows = connection.execute(
+        f"SELECT record_json, fetched_at FROM events {where} ORDER BY {order}, fetched_at DESC LIMIT ?",
+        (*params, limit),
+    ).fetchall()
+    return [json.loads(row[0]) | {"fetched_at": row[1]} for row in rows]
+
+
+# --- Vidéos et podcasts (v8) ----------------------------------------------------------------
+
+
+@locked
+def save_media(connection: sqlite3.Connection, records: Iterable[dict]) -> int:
+    """Insère ou met à jour des médias (records validés par app.media.MediaItem)."""
+    count = 0
+    for record in records:
+        connection.execute(
+            """
+            INSERT INTO media (id, url, title, kind, source, published_at, record_json) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(url) DO UPDATE SET title = excluded.title, kind = excluded.kind, source = excluded.source,
+                published_at = COALESCE(excluded.published_at, media.published_at),
+                record_json = excluded.record_json, fetched_at = CURRENT_TIMESTAMP
+            """,
+            (record["id"], record["url"], record["title"][:300], record["kind"], record["source"][:80],
+             record.get("published_at"), json.dumps(record, ensure_ascii=False)),
+        )
+        count += 1
+    connection.commit()
+    return count
+
+
+@locked
+def list_media(connection: sqlite3.Connection, kind: str | None = None, source: str | None = None,
+               query: str | None = None, limit: int = 60, offset: int = 0) -> list[dict]:
+    clauses, params = [], []
+    for column, value in (("kind", kind), ("source", source)):
+        if value:
+            clauses.append(f"{column} = ?")
+            params.append(value)
+    if query:
+        clauses.append("(title LIKE ? OR record_json LIKE ?)")
+        params += [f"%{query}%", f"%{query}%"]
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = connection.execute(
+        f"SELECT record_json, fetched_at FROM media {where} "
+        "ORDER BY COALESCE(published_at, substr(fetched_at, 1, 10)) DESC, fetched_at DESC LIMIT ? OFFSET ?",
+        (*params, limit, offset),
+    ).fetchall()
+    return [json.loads(row[0]) | {"fetched_at": row[1]} for row in rows]
+
+
+@locked
+def media_sources(connection: sqlite3.Connection) -> list[dict]:
+    rows = connection.execute("SELECT source, kind, COUNT(*) FROM media GROUP BY source, kind ORDER BY COUNT(*) DESC")
+    return [{"source": r[0], "kind": r[1], "count": r[2]} for r in rows]
+
+
+# --- Benchmarks (v9) ----------------------------------------------------------------------
+
+
+@locked
+def save_benchmarks(connection: sqlite3.Connection, records: Iterable[dict]) -> int:
+    """Catalogue (records validés par app.benchmarks.Benchmark) ; le détail en cache est conservé."""
+    count = 0
+    for record in records:
+        connection.execute(
+            """
+            INSERT INTO benchmarks (key, name, category, year, record_json) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET name = excluded.name, category = excluded.category, year = excluded.year,
+                record_json = excluded.record_json, fetched_at = CURRENT_TIMESTAMP
+            """,
+            (record["key"], record["name"], record["category"], record.get("year"), json.dumps(record, ensure_ascii=False)),
+        )
+        count += 1
+    connection.commit()
+    return count
+
+
+@locked
+def save_benchmark_detail(connection: sqlite3.Connection, key: str, detail: dict) -> None:
+    connection.execute("UPDATE benchmarks SET detail_json = ?, detail_fetched_at = CURRENT_TIMESTAMP WHERE key = ?",
+                       (json.dumps(detail, ensure_ascii=False), key))
+    connection.commit()
+
+
+def _benchmark_row(row) -> dict:
+    return json.loads(row[0]) | {"detail": json.loads(row[1]) if row[1] else None, "detail_fetched_at": row[2],
+                                 "fetched_at": row[3]}
+
+
+@locked
+def list_benchmarks(connection: sqlite3.Connection, category: str | None = None, query: str | None = None,
+                    limit: int = 600) -> list[dict]:
+    clauses, params = [], []
+    if category:
+        clauses.append("category = ?")
+        params.append(category)
+    if query:
+        clauses.append("(name LIKE ? OR record_json LIKE ?)")
+        params += [f"%{query}%", f"%{query}%"]
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = connection.execute(
+        f"SELECT record_json, detail_json, detail_fetched_at, fetched_at FROM benchmarks {where} "
+        "ORDER BY year DESC, name COLLATE NOCASE LIMIT ?", (*params, limit)).fetchall()
+    return [_benchmark_row(row) for row in rows]
+
+
+@locked
+def get_benchmark(connection: sqlite3.Connection, key: str) -> dict | None:
+    """Par clé BenchLM (casse indifférente) ou par chemin de page (ex. aahle, mrcr-v2-64k-128k)."""
+    row = connection.execute(
+        "SELECT record_json, detail_json, detail_fetched_at, fetched_at FROM benchmarks "
+        "WHERE key = ? OR lower(key) = lower(?) OR json_extract(record_json, '$.slug') = ? "
+        "ORDER BY key = ? DESC LIMIT 1", (key, key, key, key)).fetchone()
+    return _benchmark_row(row) if row else None
+
+
+@locked
+def benchmark_detail_stale(connection: sqlite3.Connection, key: str, hours: int) -> bool:
+    row = connection.execute(
+        "SELECT detail_json IS NULL OR detail_fetched_at < datetime('now', ?) FROM benchmarks WHERE key = ?",
+        (f"-{int(hours)} hours", key)).fetchone()
+    return bool(row is None or row[0])

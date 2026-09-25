@@ -2,6 +2,7 @@
 
     START → supervisor ─┬─ Send×N → collector ──┐
                         ├─ prefilter ───────────┤
+                        ├─ quality   (sous-graphe : bruit → doublons → sélection) ┤
                         ├─ research  (sous-graphe map-reduce) ─┤
                         ├─ review    (sous-graphe conditionnel) ┤→ supervisor
                         ├─ editorial (sous-graphe + réparation) ┘
@@ -35,11 +36,13 @@ from app.workflow.state import (
     EditorialUpdate,
     HarnessContext,
     PrefilterUpdate,
+    QualityUpdate,
     ResearchUpdate,
     ReviewUpdate,
     WatchState,
 )
-from app.workflow.subagents import build_editorial, build_research, build_review
+from app.workflow.quality import DEFAULT_EXCLUSIONS
+from app.workflow.subagents import build_editorial, build_quality, build_research, build_review
 from app.workflow.tasks import TaskGraph
 
 # Erreurs transitoires (Ollama ou réseau) : relancées par LangGraph.
@@ -52,6 +55,7 @@ AGENT_NODES = ("research", "review", "editorial")
 
 
 def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None = None):
+    quality_graph = build_quality(context)
     research_graph = build_research(context)
     review_graph = build_review(context)
     editorial_graph = build_editorial(context)
@@ -131,7 +135,10 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
 
     @node_contract(PrefilterUpdate)
     def prefilter(state: WatchState) -> dict:
-        """Mémoire + dédoublonnage + fraîcheur + équilibrage des sources."""
+        """Mémoire + dédoublonnage exact + fraîcheur + équilibrage des sources.
+
+        Garde un pool plus large que max_documents : le sous-graphe quality écarte ensuite
+        bruit et quasi-doublons avant de retenir les max_documents premiers."""
         now = context.now()
         options = state.get("options") or {}
         max_age = options.get("max_age_days") or context.max_age_days
@@ -167,15 +174,16 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
             by_source.setdefault(key, []).append(document)
 
         # Tourniquet entre sources : arXiv ne doit pas écraser les releases.
+        pool = max_documents * max(1, context.quality_pool_factor)
         candidates: list[Document] = []
         queues = list(by_source.values())
-        while queues and len(candidates) < max_documents:
+        while queues and len(candidates) < pool:
             for queue in list(queues):
                 if not queue:
                     queues.remove(queue)
                     continue
                 candidates.append(queue.pop(0))
-                if len(candidates) >= max_documents:
+                if len(candidates) >= pool:
                     break
 
         return {
@@ -183,13 +191,43 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
             "candidates": [doc.model_dump(mode="json") for doc in candidates],
         }
 
+    @node_contract(QualityUpdate)
+    def quality(state: WatchState, store: BaseStore) -> dict:
+        """Bruit et quasi-doublons écartés avant le Scout (moins d'appels LLM, digest plus net)."""
+        interests = WatchMemory(store).interests() or {}
+        exclusions = list(dict.fromkeys([*DEFAULT_EXCLUSIONS, *interests.get("exclusions", [])]))
+        result = quality_graph.invoke(
+            {
+                "candidates": state["candidates"],
+                "exclusions": exclusions,
+                "published": [list(item) for item in storage.published_titles(context.connection)],
+                "max_documents": (state.get("options") or {}).get("max_documents") or context.max_documents,
+            }
+        )
+        filtered = result.get("filtered", [])
+        noise = sum(1 for item in filtered if item["kind"] == "bruit")
+        return {
+            "status": {"quality": "done"},
+            "candidates": result["kept"],
+            "quality": result["quality"],
+            "filtered": filtered,
+            "trace": [f"quality : {noise} bruit(s), {len(filtered) - noise} doublon(s) écarté(s), "
+                      f"{len(result['kept'])} candidat(s) retenu(s)"],
+        }
+
     @node_contract(ResearchUpdate)
     def research(state: WatchState, store: BaseStore) -> dict:
+        memory = WatchMemory(store)
+        interests = memory.interests() or {}
+        keywords = [*(state.get("options") or {}).get("keywords", []), *interests.get("keywords", []),
+                    *(tag for tag, _ in memory.top_tags())]
         result = research_graph.invoke(
             {
                 "candidates": state["candidates"],
                 "min_relevance": state["min_relevance"],
-                "memory": focus_note(state) + WatchMemory(store).prompt_context(),
+                "memory": focus_note(state) + memory.prompt_context(),
+                "quality": state.get("quality", {}),
+                "keywords": list(dict.fromkeys(k for k in keywords if k)),
             }
         )
         return {
@@ -304,10 +342,11 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
     builder.add_node(
         "supervisor",
         supervisor,
-        destinations=("collector", "prefilter", *AGENT_NODES, "approval", "blocked", "failed"),
+        destinations=("collector", "prefilter", "quality", *AGENT_NODES, "approval", "blocked", "failed"),
     )
     builder.add_node("collector", collector)
     builder.add_node("prefilter", prefilter)
+    builder.add_node("quality", quality)
     for name, node in zip(AGENT_NODES, (research, review, editorial)):
         builder.add_node(name, node, retry_policy=AGENT_RETRY, error_handler=agent_failed)
     builder.add_node("approval", approval)
@@ -318,7 +357,7 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
     builder.add_node("failed", failed)
 
     builder.add_edge(START, "supervisor")
-    for worker in ("collector", "prefilter", *AGENT_NODES):
+    for worker in ("collector", "prefilter", "quality", *AGENT_NODES):
         builder.add_edge(worker, "supervisor")
     builder.add_conditional_edges(
         "approval", lambda state: "publish" if state.get("approval") else "reject", ["publish", "reject"]

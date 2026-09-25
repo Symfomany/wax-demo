@@ -8,6 +8,7 @@
     "start": "bun run src/index.tsx",
     "dev": "bun --watch run src/index.tsx",
     "test": "bun test",
+    "build": "scripts/build.sh",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

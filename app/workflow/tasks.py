@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
-AgentName = Literal["collector", "prefilter", "research", "review", "editorial"]
+AgentName = Literal["collector", "prefilter", "quality", "research", "review", "editorial"]
 Status = Literal["pending", "running", "done", "failed", "skipped"]
 
 
@@ -106,7 +106,9 @@ def default_plan(collect: bool = True, collectors: tuple[str, ...] = COLLECTORS)
     ]
     tasks += [
         Task(id="prefilter", agent="prefilter", deps=collect_ids),
-        Task(id="research", agent="research", deps=["prefilter"]),
+        # Bruit et doublons écartés avant tout appel LLM (sous-graphe quality).
+        Task(id="quality", agent="quality", deps=["prefilter"]),
+        Task(id="research", agent="research", deps=["quality"]),
         Task(id="review", agent="review", deps=["research"]),
         Task(id="editorial", agent="editorial", deps=["review"]),
     ]

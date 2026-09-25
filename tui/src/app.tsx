@@ -109,7 +109,7 @@ export function App({ api, initialScreen = "home", onQuit }: { api: VeilleApi; i
       <box flexDirection="column" width="100%" height="100%" backgroundColor={C.bg}>
         <box flexDirection="row" height={1} paddingLeft={1} backgroundColor={C.panel}>
           <text>
-            <strong fg={C.accent}>✦ Veille GenAI </strong>
+            <strong fg={C.accent}>✦ Veille AI </strong>
             {SCREENS.map((s) => (
               <span key={s.id} fg={s.id === screen ? C.bg : C.muted} bg={s.id === screen ? C.accent : undefined}>
                 {s.id === screen || compact === false ? ` ${s.key} ${s.icon} ${s.label} ` : ` ${s.key} ${s.icon} `}

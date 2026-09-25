@@ -75,6 +75,42 @@ def fake_news_search(topics, exclusions, memory, days):
                         searches=2, model="claude-test")
 
 
+def fake_events_search(topics, memory, horizon):
+    from app.events import EventReport, make_event
+
+    return EventReport(items=[
+        make_event(url="https://conf.example.org/2026", title="AI Conf 2026", source="Web (Claude)", origin="web_search",
+                   kind="conference", starts_on=date(2026, 10, 5), date_verified=True, location="Paris"),
+        make_event(url="https://tbd.example.org/", title="Meetup TBD", source="Web (Claude)", origin="web_search", kind="meetup"),
+    ], results_seen=4, rejected=["https://invented.example.org"], unverified_dates=1, searches=2)
+
+
+def fake_media_search(topics, memory, days):
+    from app.media import MediaReport, make_media
+
+    return MediaReport(items=[make_media(url="https://youtu.be/abcdefghijk", title="Agents talk", source="YouTube",
+                                         origin="web_search", kind="video", published_at=date(2026, 9, 22))],
+                       results_seen=3, searches=1)
+
+
+def fake_screenshots(items, limit=None):
+    from app.screenshots import ScreenshotReport, screenshot_path
+
+    report = ScreenshotReport()
+    for item in items[:1]:
+        path = screenshot_path(item["id"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\xff\xd8\xff" + b"0" * 20_000)
+        report.saved[item["id"]] = str(path)
+    return report
+
+
+def fake_benchmark_pages(url):
+    from tests.test_benchmarks import CATALOG, DETAIL
+
+    return CATALOG if url.endswith("/benchmarks") else DETAIL
+
+
 def fake_news_older(sources, page, known):
     from app.news import CrawlReport, make_item
 
@@ -145,6 +181,10 @@ def client(isolated_settings, notion_calls):
         news_older=fake_news_older,
         review_publisher=fake_review_publisher,
         assistant_stream=fake_assistant,
+        events_search=fake_events_search,
+        media_search=fake_media_search,
+        screenshot_capture=fake_screenshots,
+        benchmarks_fetch=fake_benchmark_pages,
         review_llm=lambda connection: StructuredLLM(fake_review_llm(), model="fake-review", connection=connection),
     )
     with TestClient(create_app(deps)) as test_client:
@@ -186,6 +226,90 @@ def test_api_token_guards_the_api_but_not_the_page(isolated_settings, monkeypatc
         login = anonymous.get("/?token=s3cret", follow_redirects=False)
         assert login.status_code == 303 and "httponly" in login.headers["set-cookie"].lower()
         assert anonymous.get("/api/reports").status_code == 200  # cookie posé par la connexion
+
+
+def test_login_locks_every_page_and_api(isolated_settings, monkeypatch):
+    import base64
+
+    from app.web.auth import Authenticator, Throttle
+
+    deps = WebDeps(router_llm=chat_router(), chat_model=lambda: None, graph_factory=lambda: None,
+                   notion_sync=None, github_search=None,
+                   authenticator=Authenticator("veille", "Str0ng!Pass", throttle=Throttle(max_failures=3)))
+    with TestClient(create_app(deps)) as browser:
+        page = browser.get("/", headers={"Accept": "text/html"}, follow_redirects=False)
+        assert page.status_code == 303 and page.headers["location"] == "/login?next=%2F"
+        assert browser.get("/static/index.html").status_code == 401
+        assert browser.get("/api/reports").status_code == 401
+        assert browser.get("/api/health").json() == {"status": "ok", "login": True}  # sonde sans détail
+        assert "Se connecter" in browser.get("/login").text
+
+        assert browser.post("/api/login", json={"username": "veille", "password": "faux"}).status_code == 401
+        login = browser.post("/api/login", json={"username": "veille", "password": "Str0ng!Pass"})
+        assert login.status_code == 200
+        cookie = login.headers["set-cookie"].lower()
+        assert "httponly" in cookie and "samesite=strict" in cookie
+        assert browser.get("/api/reports").status_code == 200
+        assert "model" in browser.get("/api/health").json()
+        assert browser.get("/api/me").json() == {"user": "veille", "login": True}
+        browser.post("/api/logout")
+        browser.cookies.clear()
+        assert browser.get("/api/reports").status_code == 401
+
+    with TestClient(create_app(deps)) as tui:
+        basic = "Basic " + base64.b64encode(b"veille:Str0ng!Pass").decode()
+        assert tui.get("/api/reports", headers={"Authorization": basic}).status_code == 200
+        wrong = {"Authorization": "Basic " + base64.b64encode(b"veille:x").decode()}
+        codes = [tui.get("/api/reports", headers=wrong).status_code for _ in range(4)]
+        assert codes == [401, 401, 401, 429]  # anti-force brute, y compris par /api/health
+        assert tui.get("/api/health", headers=wrong).status_code == 429
+        assert tui.post("/api/login", json={"username": "veille", "password": "Str0ng!Pass"}).status_code == 429
+
+
+def test_events_media_and_screenshots_endpoints(client, isolated_settings, monkeypatch):
+    monkeypatch.setattr(settings, "screenshot_dir", isolated_settings / "shots")
+    page = client.get("/").text
+    assert all(f'id="{view}"' in page for view in ("events", "media", "help", "drawer"))
+
+    found = client.post("/api/events/search", json={"topics": "agents"}).json()
+    assert (found["saved"], found["unverified_dates"]) == (2, 1)
+    upcoming = client.get("/api/events").json()["items"]
+    assert [e["title"] for e in upcoming] == ["AI Conf 2026", "Meetup TBD"]  # datés d'abord, puis à confirmer
+    ics = client.get("/api/events.ics")
+    assert ics.headers["content-type"].startswith("text/calendar") and ics.text.count("BEGIN:VEVENT") == 1
+    assert client.get("/api/events?when=later").status_code == 400
+
+    assert client.post("/api/media/search", json={}).json()["saved"] == 1
+    media = client.get("/api/media?kind=video").json()
+    assert media["items"][0]["youtube_id"] == "abcdefghijk" and media["sources"][0]["source"] == "YouTube"
+
+    client.post("/api/news/crawl")
+    shots = client.post("/api/news/screenshots", json={}).json()
+    assert shots["saved"] == 1
+    shot = next(n for n in client.get("/api/news").json()["items"] if n.get("screenshot"))
+    image = client.get(shot["screenshot"])
+    assert image.status_code == 200 and image.headers["content-type"] == "image/jpeg"
+    assert client.get("/api/news/0123456789abcdef/screenshot").status_code == 404
+    assert client.get("/api/health").json()["screenshots"] is True
+
+
+def test_benchmarks_catalog_detail_and_analysis(client):
+    assert client.get("/api/benchmarks").json()["overview"]["total"] == 0
+    assert client.post("/api/benchmarks/crawl").json()["saved"] == 3
+
+    listed = client.get("/api/benchmarks?category=agentic").json()
+    assert listed["overview"]["by_category"] == {"Agentic": 3} and listed["items"][0]["analysis"] is None
+    assert [b["key"] for b in client.get("/api/benchmarks?q=MRCR").json()["items"]] == ["mrcrv2_64_128"]
+
+    detail = client.get("/api/benchmarks/DRACO").json()  # casse indifférente
+    assert detail["key"] == "draco" and detail["analysis"]["open_leader"]["model"] == "Open B"
+    by_path = client.get("/api/benchmarks/mrcr-v2-64k-128k").json()  # chemin de page accepté
+    assert by_path["key"] == "mrcrv2_64_128"
+    assert client.get("/api/benchmarks/draco").json()["detail_fetched_at"]  # en cache
+    assert client.get("/api/benchmarks/inconnu").status_code == 404
+    items = {b["key"]: b for b in client.get("/api/benchmarks").json()["items"]}
+    assert items["draco"]["analysis"]["leader"]["model"] == "Closed A"  # la liste reprend l'analyse en cache
+    assert items["gaia"]["analysis"] is None
 
 
 def test_health_reports_components(client):
@@ -328,7 +452,8 @@ def test_targeted_run_from_api(client):
 
 def test_prompt_editing_api(client):
     prompts = {p["name"] for p in client.get("/api/prompts").json()}
-    assert prompts == {"scout", "critic", "editor", "router", "chat-system", "grill", "review", "news-search"}
+    assert prompts == {"scout", "critic", "editor", "router", "chat-system", "grill", "review", "news-search",
+                       "events-search", "media-search"}
     original = client.get("/api/prompts/critic").json()
     assert original["overridden"] is False and original["required"] == ["signals"]
 
@@ -485,7 +610,7 @@ def test_news_crawl_search_and_filters(client):
     assert client.post("/api/news/search", json={"days": 99}).status_code == 422
 
     page = client.get("/").text
-    assert 'id="claude-search"' in page and 'data-view="news"' in page
+    assert 'id="claude-search"' in page and 'id="news"' in page and '{ id: "news"' in page
 
 
 def test_news_infinite_scroll_crawls_older_pages_and_documents_open(client):

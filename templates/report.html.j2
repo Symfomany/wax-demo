@@ -100,6 +100,7 @@ footer { margin-top: 3em; font-size: .8rem; color: var(--muted); border-top: 1px
     <h3><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a></h3>
     <p class="summary">{{ item.summary }}</p>
     <div class="why"><b>Pourquoi c'est important —</b> {{ item.why_it_matters }}</div>
+    {% if item.score is not none %}<details class="rank"><summary>📊 Classement {{ "%.0f" | format(item.score) }}/100</summary><ul>{% for reason in item.rank_reasons %}<li>{{ reason }}</li>{% endfor %}</ul></details>{% endif %}
     {% if item.tags %}<div class="chips">{% for tag in item.tags %}<span class="chip">{{ tag }}</span>{% endfor %}</div>{% endif %}
   </article>
   {% endfor %}
