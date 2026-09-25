@@ -19,7 +19,8 @@ PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 EDITABLE: dict[str, tuple[Path, str, set[str], set[str]]] = {
     "scout": (PROMPTS_DIR / "scout.md", "template", {"documents"}, {"criteria", "memory", "max_picks"}),
     "critic": (PROMPTS_DIR / "critic.md", "template", {"signals"}, set()),
-    "editor": (PROMPTS_DIR / "editor.md", "template", {"signals"}, {"memory", "corrections"}),
+    "claims": (PROMPTS_DIR / "claims.md", "template", {"signals"}, {"max_claims"}),
+    "editor": (PROMPTS_DIR / "editor.md", "template", {"signals"}, {"memory", "corrections", "profile"}),
     "router": (PROMPTS_DIR / "router.md", "template", {"message"}, {"history"}),
     "grill": (PROMPTS_DIR / "grill.md", "template", {"answers"}, set()),
     "review": (PROMPTS_DIR / "review.md", "template", {"article"},
@@ -38,6 +39,7 @@ EDITABLE: dict[str, tuple[Path, str, set[str], set[str]]] = {
 DESCRIPTIONS = {
     "scout": "Agent Scout (research) : sélection des documents par lot",
     "critic": "Agent Critic (review) : vérification factuelle des signaux",
+    "claims": "Fact-checker (evidence) : extraction des affirmations et de leurs citations",
     "editor": "Agent Editor (editorial) : rédaction du digest",
     "router": "Routeur du chat : choix de l'outil",
     "grill": "Grill-me : synthèse de l'entretien sur tes centres d'intérêt",

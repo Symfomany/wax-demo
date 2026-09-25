@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pourquoi cette veille ?</title>
+<style>
+:root { --bg: #f6f5f1; --panel: #fff; --panel-2: #f1efe9; --line: #e4e1d8; --text: #1c1b19; --muted: #6d6a62;
+        --accent: #5b4bdb; --accent-soft: #ecebfd; --ok: #1f7a45; --ok-soft: #dcf3e4; --warn: #9a6a10; --warn-soft: #faf0d9;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #121216; --panel: #1b1b21; --panel-2: #24242c; --line: #30303a; --text: #ecebf2; --muted: #a09fae;
+          --accent: #9b90ff; --accent-soft: #29264a; --ok: #6fcf97; --ok-soft: #1a3326; --warn: #e6b85c; --warn-soft: #362b14;
+          color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.page { max-width: 1100px; margin: 0 auto; padding: calc(24px + env(safe-area-inset-top, 0px)) 16px calc(48px + env(safe-area-inset-bottom, 0px)); }
+.kicker { font-size: .75rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+h1 { font-size: 1.6rem; margin: .2em 0; }
+h2 { font-size: 1.05rem; margin: 1.8em 0 .6em; }
+.muted { color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; min-width: 0; }
+.card h3 { margin: 0 0 8px; font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.chip { display: inline-block; font-size: .8rem; padding: 2px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); margin: 2px 4px 2px 0; }
+.chip.avoid { background: var(--warn-soft); color: var(--warn); }
+.chip.ok { background: var(--ok-soft); color: var(--ok); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+code { font-family: var(--mono); font-size: .85em; }
+ul.plain { margin: 0; padding-left: 18px; }
+button { font: inherit; font-size: .82rem; border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+         border-radius: 8px; padding: 3px 10px; cursor: pointer; margin: 2px 4px 2px 0; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.item { border-top: 1px solid var(--line); padding: 10px 0; }
+.item:first-child { border-top: 0; }
+.item a { font-weight: 600; }
+.error { color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="kicker">Veille LLM / GenAI · transparence</div>
+  <h1>Pourquoi cette veille ?</h1>
+  <p class="muted">Ce qui oriente la sélection et la rédaction : profil d'impact versionné, mémoire typée, règles issues de tes retours,
+    ranking hybride et règles de preuve. <a href="/">← Retour</a></p>
+
+  <div id="error" class="error"></div>
+
+  <h2>Profil d'impact</h2>
+  <div class="grid" id="profile"></div>
+
+  <h2>Dernier digest : pourquoi chaque signal ?</h2>
+  <div class="card" id="items"><span class="muted">Chargement…</span></div>
+
+  <h2>Règles issues de tes retours</h2>
+  <div class="card table-wrap"><table>
+    <thead><tr><th>Statut</th><th>Règle</th><th>Provenance</th><th>Confiance</th><th>Expire</th><th></th></tr></thead>
+    <tbody id="rules"></tbody>
+  </table></div>
+
+  <h2>Mémoire typée</h2>
+  <div class="card table-wrap"><table>
+    <thead><tr><th>Type</th><th>Contenu</th><th>Provenance</th><th>Confiance</th><th>Créé</th><th>Expire</th></tr></thead>
+    <tbody id="records"></tbody>
+  </table></div>
+
+  <h2>Ranking et preuves</h2>
+  <div class="grid">
+    <div class="card"><h3>Poids du ranking hybride</h3><div id="weights"></div></div>
+    <div class="card"><h3>Thèmes appris</h3><div id="tags"></div></div>
+    <div class="card"><h3>Règles de preuve</h3><ul class="plain" id="evidence"></ul></div>
+  </div>
+</div>
+<script>
+const $ = (sel) => document.querySelector(sel);
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const day = (value) => value ? esc(String(value).slice(0, 10)) : "—";
+const chips = (list, cls = "") => (list || []).map((x) => `<span class="chip ${cls}">${esc(x)}</span>`).join("") || '<span class="muted">—</span>';
+const safeUrl = (url) => /^https?:\/\//.test(url || "") ? esc(url) : "#";
+const KINDS = { lesson: "Leçon", preference: "Préférence", rule: "Règle", profile: "Profil" };
+
+function card(title, body) { return `<div class="card"><h3>${esc(title)}</h3>${body}</div>`; }
+
+function render(data) {
+  const p = data.profile;
+  $("#profile").innerHTML = p ? [
+    card("Identité", `<b>${esc(p.identity.role)}</b><div class="muted"><code>${esc(p.label)}</code> · ${esc(p.path)}</div>`),
+    card("Priorités", chips(p.priorities.topics)),
+    card("Matériel", chips([...p.hardware.gpus, ...p.hardware.platforms])),
+    card("Préférences", chips(p.preferences.favor, "ok") + chips(p.preferences.avoid, "avoid")),
+  ].join("") : card("Profil", '<span class="muted">Aucun fichier de profil (IMPACT_PROFILE_PATH).</span>');
+
+  const last = data.last_digest;
+  $("#items").innerHTML = last ? `<div class="muted">Digest du ${day(last.generated_at)} · profil <code>${esc(last.profile_version || "—")}</code></div>`
+    + last.items.map((item) => `<div class="item"><a href="${safeUrl(item.url)}" target="_blank" rel="noopener">${esc(item.title)}</a>
+      <div>${item.score != null ? `📊 ${Math.round(item.score)}/100` : ""} ${item.confidence != null ? ` · 🛡️ confiance ${item.confidence}/100` : ""}</div>
+      ${(item.impact_reasons || []).length ? `<div>🎯 ${esc(item.impact_reasons.join(" · "))}</div>` : ""}
+      <details><summary class="muted">Détail du classement et de la confiance</summary><ul class="plain">
+        ${[...(item.rank_reasons || []), ...(item.confidence_reasons || [])].map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details></div>`).join("")
+    : '<span class="muted">Aucun digest publié.</span>';
+
+  const rules = data.records.filter((r) => r.kind === "rule");
+  $("#rules").innerHTML = rules.map((r) => `<tr><td>${r.status === "active" ? "✅ active" : "💡 suggérée"}</td><td>${esc(r.content)}</td>
+    <td>${esc(r.provenance)}</td><td>${Math.round(r.confidence * 100)} %</td><td>${day(r.expires_at)}</td>
+    <td>${r.status === "suggested" ? `<button class="primary" data-key="${esc(r.key)}" data-decision="accept">Accepter</button><button data-key="${esc(r.key)}" data-decision="dismiss">Écarter</button>` : ""}</td></tr>`).join("")
+    || '<tr><td colspan="6" class="muted">Aucune règle : elles sont suggérées après des rejets récurrents d\'un même thème.</td></tr>';
+
+  $("#records").innerHTML = data.records.filter((r) => r.kind !== "rule").map((r) => `<tr><td>${esc(KINDS[r.kind] || r.kind)}</td>
+    <td>${esc(r.content)}</td><td><code>${esc(r.provenance)}</code></td><td>${Math.round(r.confidence * 100)} %</td>
+    <td>${day(r.created_at)}</td><td>${day(r.expires_at)}</td></tr>`).join("")
+    || '<tr><td colspan="6" class="muted">Mémoire vide.</td></tr>';
+
+  const w = data.ranking.weights;
+  $("#weights").innerHTML = Object.keys(w).map((k) => `<span class="chip">${esc(k)} ${Math.round(w[k] * 100)} %</span>`).join("")
+    + `<div class="muted">Diversité : −${esc(data.ranking.diversity_penalty)} pt par source déjà retenue · ${esc(data.ranking.max_signals)} signaux max.</div>`;
+  $("#tags").innerHTML = chips(data.tags.map(([tag, score]) => `${tag} (${score})`));
+  $("#evidence").innerHTML = data.evidence_rules.map((r) => `<li>${esc(r)}</li>`).join("");
+}
+
+async function load() {
+  try {
+    const response = await fetch("/api/why", { credentials: "same-origin" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    render(await response.json());
+  } catch (error) { $("#error").textContent = `Chargement impossible : ${error.message}`; }
+}
+
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-key]");
+  if (!button) return;
+  button.disabled = true;
+  const url = `/api/rules/${encodeURIComponent(button.dataset.key)}/${button.dataset.decision}`;
+  const response = await fetch(url, { method: "POST", credentials: "same-origin" });
+  if (!response.ok) $("#error").textContent = `Décision refusée : HTTP ${response.status}`;
+  load();
+});
+load();
+</script>
+</body>
+</html>

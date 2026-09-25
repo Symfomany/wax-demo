@@ -452,7 +452,7 @@ def test_targeted_run_from_api(client):
 
 def test_prompt_editing_api(client):
     prompts = {p["name"] for p in client.get("/api/prompts").json()}
-    assert prompts == {"scout", "critic", "editor", "router", "chat-system", "grill", "review", "news-search",
+    assert prompts == {"scout", "critic", "claims", "editor", "router", "chat-system", "grill", "review", "news-search",
                        "events-search", "media-search"}
     original = client.get("/api/prompts/critic").json()
     assert original["overridden"] is False and original["required"] == ["signals"]
@@ -649,3 +649,22 @@ def test_assistant_streams_claude_answer_with_news_context(client):
     assert call["messages"] == ["Quoi de neuf ?"] and call["web"] is True and "Opus is out" in call["context"]
     assert client.post("/api/assistant", json={"messages": []}).status_code == 422
     assert client.get("/api/health").json()["assistant_model"]
+
+
+def test_why_page_and_rule_decisions(client):
+    from app.memory import WatchMemory
+
+    assert "Pourquoi cette veille ?" in client.get("/why").text
+    memory = WatchMemory(client.app.state.store)
+    for _ in range(3):
+        memory.count_outcome(["hype"], approved=False)
+    memory.suggest_rules(3)
+
+    why = client.get("/api/why").json()
+    assert {"profile", "records", "tags", "ranking", "evidence_rules", "last_digest"} <= set(why)
+    assert [r["status"] for r in why["records"] if r["kind"] == "rule"] == ["suggested"]
+
+    assert client.post("/api/rules/exclude:hype/accept").json()["status"] == "active"
+    assert memory.active_exclusions() == ["hype"]
+    assert client.post("/api/rules/exclude:absent/accept").status_code == 404
+    assert client.post("/api/rules/exclude:hype/maybe").status_code == 400

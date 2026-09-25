@@ -14,7 +14,8 @@ _{{ date_long | capitalize }}_
 
 > **En bref** — {{ digest.executive_summary }}
 
-**{{ items | length }} signal(aux) retenu(s)** · {{ rejected | length }} écarté(s) · {{ collected_total }} document(s) collecté(s) · modèle `{{ model }}`
+**{{ items | length }} signal(aux) retenu(s)** · {{ rejected | length }} écarté(s) · {{ collected_total }} document(s) collecté(s) · modèle `{{ model }}`{% if confidence_avg is not none %} · confiance moyenne {{ confidence_avg }}/100{% endif %}{% if profile_version %} · profil `{{ profile_version }}`{% endif %}
+
 
 {% if keywords %}
 **Mots-clés :** {% for keyword in keywords %}`{{ keyword }}`{% if not loop.last %} · {% endif %}{% endfor %}
@@ -40,8 +41,36 @@ _Aucun signal retenu sur la période._
 {{ item.source_label }} · {{ item.date_short }} · [Lire la source ↗]({{ item.url }})
 
 {{ item.summary }}
+{% if item.confidence is not none %}
+
+🛡️ **Confiance {{ item.confidence }}/100 ({{ item.confidence_label }})** — {{ item.confidence_reasons | join(" · ") }}
+{% endif %}
+{% if item.facts %}
+
+**📌 Faits (avec preuve)**
+
+{% for fact in item.facts %}
+- {{ fact.status_icon }} _{{ fact.status_label }}, {{ fact.confidence }}/100_ — {{ fact.text }}
+  > « {{ fact.evidence[0].quote }} » — [source]({{ fact.evidence[0].url }}){% for other in fact.evidence[1:] %} · [corroboration {{ loop.index }}]({{ other.url }}){% endfor %}
+{% if fact.missing_labels %}
+  ⚠️ Benchmark : protocole incomplet ({{ fact.missing_labels | join(", ") }} non précisé(s))
+{% endif %}
+{% endfor %}
+{% endif %}
+{% if item.analysis %}
+
+🧠 **Analyse (interprétation) :** {{ item.analysis }}
+{% endif %}
+{% if item.hypothesis %}
+
+❓ **Hypothèse (non vérifiée) :** {{ item.hypothesis }}
+{% endif %}
 
 > 💡 **Pourquoi c'est important :** {{ item.why_it_matters }}
+{% if item.impact_reasons %}
+
+🎯 **Pour toi :** {{ item.impact_reasons | join(" · ") }}
+{% endif %}
 {% if item.score is not none %}
 
 📊 Classement {{ "%.0f" | format(item.score) }}/100 — {{ item.rank_reasons | join(" · ") }}
@@ -60,6 +89,14 @@ _Aucun signal retenu sur la période._
 {% for item in items %}| {{ loop.index }} | [{{ item.title | replace("|", "∣") }}]({{ item.url }}) | {{ item.source_label }} | {{ item.date_short }} |
 {% endfor %}
 
+{% if contradictions %}
+## ⚔️ Contradictions entre sources
+
+{% for c in contradictions %}
+- **{{ c.claim }}** — « {{ c.quote }} » contre « {{ c.other_quote }} » ([autre source]({{ c.other_url }})) : {{ c.reason }}.
+{% endfor %}
+
+{% endif %}
 {% if rejected %}
 ## 🚫 Écartés par le Critic
 
@@ -73,7 +110,8 @@ _Aucun signal retenu sur la période._
 
 - **Collecte :** {% for name, count in collected.items() %}{{ name }} +{{ count }}{% if not loop.last %} · {% endif %}{% else %}mémoire existante (pas de collecte){% endfor %}
 
-- **Chaîne :** supervisor → research (Scouts parallèles) → review (Critic) → editorial (Editor + guards) → validation humaine.
+- **Chaîne :** supervisor → research (Scouts parallèles, sélection diversifiée) → review (Critic) → evidence (claims, citations, corroboration, contradictions) → editorial (Editor + guards) → validation humaine.
+- **Confiance :** citation retrouvée mot pour mot (+40), source primaire (+25) ou secondaire (+5), corroboration (+15/source), protocole de benchmark incomplet (−15), contradiction (−30) ; une source secondaire seule n'est jamais « confirmée ».
 - **Garanties :** URLs, titres et dates recopiés depuis les sources collectées ; digest validé par Pydantic ; guards de publication passés.
 {% if errors %}- **Incidents :** {{ errors | join(" ; ") }}
 {% endif %}

@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
-AgentName = Literal["collector", "prefilter", "quality", "research", "review", "editorial"]
+AgentName = Literal["collector", "prefilter", "quality", "research", "review", "evidence", "editorial"]
 Status = Literal["pending", "running", "done", "failed", "skipped"]
 
 
@@ -98,7 +98,7 @@ class TaskGraph(BaseModel):
 COLLECTORS = ("rss", "arxiv", "github_releases", "github_mcp")
 
 
-def default_plan(collect: bool = True, collectors: tuple[str, ...] = COLLECTORS) -> TaskGraph:
+def default_plan(collect: bool = True, collectors: tuple[str, ...] = COLLECTORS, evidence: bool = True) -> TaskGraph:
     collect_ids = [f"collect:{name}" for name in collectors] if collect else []
     tasks = [
         Task(id=task_id, agent="collector", params={"source": task_id.split(":", 1)[1]}, optional=True)
@@ -110,6 +110,10 @@ def default_plan(collect: bool = True, collectors: tuple[str, ...] = COLLECTORS)
         Task(id="quality", agent="quality", deps=["prefilter"]),
         Task(id="research", agent="research", deps=["quality"]),
         Task(id="review", agent="review", deps=["research"]),
-        Task(id="editorial", agent="editorial", deps=["review"]),
     ]
+    if evidence:
+        # Claims et preuves (sous-graphe evidence) ; optionnelle : en échec, l'Editor rédige
+        # sans faits structurés (confiance « non évaluée ») au lieu d'arrêter le run.
+        tasks.append(Task(id="evidence", agent="evidence", deps=["review"], optional=True))
+    tasks.append(Task(id="editorial", agent="editorial", deps=["evidence" if evidence else "review"]))
     return TaskGraph(tasks=tasks)

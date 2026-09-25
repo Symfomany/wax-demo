@@ -16,6 +16,7 @@ traces, et les pièges rencontrés. Versions utilisées : `langgraph` 1.2.12,
 | Veille (principal) | `app/workflow/graph.py` | Supervisor + Task Graph, collecte, agents, validation humaine, publication, mémoire |
 | `research` | `app/workflow/subagents.py` | Map-reduce de Scouts (un par lot de documents) |
 | `review` | `app/workflow/subagents.py` | Pré-contrôle déterministe puis Critic LLM si nécessaire |
+| `evidence` | `app/workflow/subagents.py`, `app/workflow/evidence.py` | Claims → ancrage des citations → corroboration → contradictions → score de confiance |
 | `editorial` | `app/workflow/subagents.py` | Editor → guards → réparation bornée |
 | Chat | `app/chat/agent.py` | route → act → respond → guard |
 
@@ -28,6 +29,7 @@ graph TD;
   supervisor -.-> prefilter;   prefilter --> supervisor;
   supervisor -.-> research;    research --> supervisor;
   supervisor -.-> review;      review --> supervisor;
+  supervisor -.-> evidence;    evidence --> supervisor;
   supervisor -.-> editorial;   editorial --> supervisor;
   supervisor -.-> approval;
   supervisor -.-> blocked;     blocked --> __end__;
@@ -38,7 +40,9 @@ graph TD;
 ```
 
 Pointillés : routage conditionnel (`Command(goto=…)` ou `add_conditional_edges`). Traits pleins :
-arêtes fixes. S'y ajoutent trois nœuds `__error_handler__research|review|editorial`.
+arêtes fixes. S'y ajoutent quatre nœuds `__error_handler__research|review|evidence|editorial`.
+La tâche `evidence` est **optionnelle** dans le Task Graph : en échec, l'Editor rédige sans faits
+structurés (confiance « non évaluée ») ; `EVIDENCE_ENABLED=false` la retire du plan.
 
 ### Sous-agents
 
@@ -49,6 +53,9 @@ graph TD;
   end
   subgraph review
     v0([start]) --> precheck; precheck -.-> critic; precheck -.-> decide; critic --> decide; decide --> v1([end])
+  end
+  subgraph evidence
+    c0([start]) --> claim_extract --> claim_ground --> cross_source_verify --> contradiction_detect --> evidence_score --> c1([end])
   end
   subgraph editorial
     e0([start]) --> editor; editor --> guards; guards -.-> repair; repair --> guards; guards -.-> e1([end])
@@ -61,6 +68,26 @@ graph TD;
 graph TD;
   __start__ --> route --> act --> respond --> guard --> __end__;
 ```
+
+### Claims et preuves (`evidence`)
+
+Seul `claim_extract` appelle le LLM (un lot de `EVIDENCE_BATCH_SIZE` signaux à la fois, sortie
+`ClaimsOutput` validée par Pydantic) ; le reste est déterministe :
+
+- `claim_ground` : la citation doit figurer mot pour mot dans l'extrait (`quote_in_text`) et les
+  chiffres de l'affirmation dans la citation ; sinon `non_etaye`, jamais publié. Protocole des
+  benchmarks (matériel, modèle, batch, contexte, version, méthode) gardé champ par champ s'il est
+  retrouvé dans la source. Un signal sans fait étayé reçoit un fait extractif (première phrase citée).
+- `cross_source_verify` : corroboration par un autre hôte (candidats + doublons écartés par `quality`,
+  relus en SQLite) ; une source `primary = false` (sources.toml) n'est jamais « confirmée » seule.
+- `contradiction_detect` : même sujet, chiffres incompatibles → `Contradiction`, affichée dans le rapport.
+- `evidence_score` : confiance 0-100 par claim et par signal, avec le détail des points.
+
+L'Editor reçoit les faits (statut, confiance, citation) et rend `summary` (faits), `analysis`
+(interprétation) et `hypothesis` (non vérifié) séparés ; les faits du digest sont recopiés par le
+code. Guards ajoutés : `guard_evidence` (pas de fait sans preuve, pas de « confirmé » secondaire) et
+`guard_numbers` (tout chiffre de la prose doit figurer dans la source → réparation). Les claims
+d'un run publié sont archivés dans la table `claims` (v10).
 
 ## 2. L'état
 

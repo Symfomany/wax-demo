@@ -57,6 +57,11 @@ def fake_ollama(
             ]
             return json.dumps({"picks": picks})
         ids = [int(n) for n in re.findall(r"signal_id=(\d+)", prompt)]
+        if title == "ClaimsOutput":
+            # Citation exacte de l'extrait des documents de make_document (ancrage réussi)
+            claims = [{"signal_id": n, "text": "Note technique sur la quantization FP8.", "kind": "fait",
+                       "quote": "FP8 quantization and vLLM serving on consumer GPUs"} for n in ids]
+            return json.dumps({"claims": claims})
         if title == "CriticOutput":
             verdicts = [{"signal_id": n, "verdict": verdict(n), "rationale": "ok"} for n in ids]
             return json.dumps({"verdicts": verdicts})

@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from app.config import PROJECT_ROOT
 from app.harness.skills import Skill
 from app.llm import StructuredLLM
+from app.profile import ImpactProfile
 from app.schemas import Document
 
 
@@ -41,6 +42,10 @@ class WatchState(TypedDict, total=False):
     signals: list[dict]
     critiques: list[dict]
     accepted: list[dict]
+    # Sous-graphe evidence : claims étayés ou non, contradictions, confiance par URL de signal
+    claims: list[dict]
+    contradictions: list[dict]
+    evidence: dict[str, dict]
     digest: dict
     violations: list[str]
     repair_round: int
@@ -77,6 +82,17 @@ class HarnessContext:
     dedup_threshold: float = 0.7
     quality_pool_factor: int = 3
     rank_weights: dict[str, float] = field(default_factory=dict)
+    diversity_penalty: float = 8.0
+    # Claims et preuves : flux secondaires (sources.toml, primary = false), budgets du sous-graphe
+    secondary_sources: set[str] = field(default_factory=set)
+    evidence_batch_size: int = 3
+    evidence_max_claims: int = 3
+    evidence_excerpt_chars: int = 1200
+    # Profil d'impact (profiles/*.toml) et mémoire typée
+    profile: ImpactProfile | None = None
+    lesson_ttl_days: int = 180
+    rule_min_rejections: int = 3
+    rule_ttl_days: int = 30
     now: Callable[[], datetime] = field(default=lambda: datetime.now(timezone.utc))
 
 
@@ -117,6 +133,15 @@ class ReviewUpdate(_Contract):
     status: dict[str, str]
     critiques: list[dict]
     accepted: list[dict]
+
+
+class EvidenceUpdate(_Contract):
+    status: dict[str, str]
+    claims: list[dict]
+    contradictions: list[dict]
+    evidence: dict[str, dict]
+    errors: list[str] = []
+    trace: list[str] = []
 
 
 class EditorialUpdate(_Contract):

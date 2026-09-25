@@ -1,0 +1,65 @@
+# Profil d'impact de la veille (versionné dans Git) : « pourquoi c'est important pour moi ? »
+# Incrémenter `version` à chaque changement de fond : chaque digest enregistre
+# « nom@vversion#empreinte » du profil utilisé (Digest.profile_version).
+name = "julien"
+version = 1
+
+[identity]
+role = "Python / GenAI / LLM infrastructure engineer"
+language = "fr"
+
+[priorities]
+topics = [
+  "LLM inference",
+  "vLLM",
+  "TensorRT-LLM",
+  "SGLang",
+  "llama.cpp",
+  "MCP",
+  "agentic systems",
+  "RAG evaluation",
+  "GPU optimization",
+  "Kubernetes",
+  "open-weight models",
+]
+
+[hardware]
+gpus = ["NVIDIA RTX 3070 Ti 8 GB"]
+platforms = ["WSL2", "Linux", "Jetson Orin 8 GB"]
+
+[preferences]
+favor = [
+  "open source",
+  "reproducible benchmark",
+  "local inference",
+  "Python ecosystem",
+  "self-hosted",
+]
+avoid = [
+  "generic tutorials",
+  "marketing-only announcements",
+  "unverifiable performance claims",
+]
+
+# Termes recherchés dans le titre, le résumé et les tags pour chaque libellé ci-dessus
+# (sinon le libellé lui-même). Mots entiers, insensibles à la casse.
+[match]
+"LLM inference" = ["inference", "serving", "inférence"]
+"open-weight models" = ["open-weight", "open weights", "open-weights", "open model"]
+"agentic systems" = ["agent", "agents", "agentic", "multi-agent"]
+"MCP" = ["mcp", "model context protocol"]
+"RAG evaluation" = ["rag", "retrieval-augmented", "retrieval augmented"]
+"GPU optimization" = ["cuda", "kernel", "kernels", "fp8", "fp4", "quantization", "kv cache", "gpu"]
+"TensorRT-LLM" = ["tensorrt-llm", "tensorrt llm", "trt-llm"]
+"Kubernetes" = ["kubernetes", "k8s", "llm-d"]
+"NVIDIA RTX 3070 Ti 8 GB" = ["rtx", "consumer gpu", "consumer gpus", "8 gb", "8gb", "vram"]
+"Jetson Orin 8 GB" = ["jetson", "orin", "edge", "embedded"]
+"WSL2" = ["wsl", "wsl2"]
+"open source" = ["open source", "open-source", "apache 2.0", "apache-2.0", "mit license"]
+"reproducible benchmark" = ["reproducible", "reproduce", "benchmark methodology", "open benchmark"]
+"local inference" = ["local inference", "on-device", "gguf", "ollama", "llama.cpp", "quantized", "int4"]
+"Python ecosystem" = ["python", "pypi", "pip install", "pytorch"]
+"self-hosted" = ["self-hosted", "self hosted", "on-prem", "on-premises"]
+"generic tutorials" = ["tutorial", "beginner", "introduction to", "getting started", "101"]
+"marketing-only announcements" = ["webinar", "customer story", "partnership", "sponsored"]
+"unverifiable performance claims" = ["up to 10x", "industry-leading", "best-in-class", "world's fastest"]

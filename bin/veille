@@ -68,6 +68,8 @@ Outils
   report                       Régénère le rapport daté (Markdown + HTML) de la dernière veille
   notion                       Publie la page Notion des 10 dernières veilles
   memory                       Mémoire de veille (leçons, centres d'intérêt, sources)
+  why [--json]                 Pourquoi cette veille ? (profil d'impact, mémoire typée, règles)
+  rules [--accept|--dismiss K] Règles suggérées après des rejets récurrents
   test                         Lance les tests (pytest -q)
 
 Exemple : LLM_MODEL=gemma-3-4b-it veille cycle -k quantization --max-age 7
@@ -295,6 +297,8 @@ main() {
     report)  app report "$@" ;;
     notion)  app notion-sync ;;
     memory)  app memory "$@" ;;
+    why)     app why "$@" ;;
+    rules)   app rules "$@" ;;
     test)    cd "$ROOT" && "$PYTHON" -m pytest -q "$@" ;;
     *)       usage >&2; die "commande inconnue : $command" ;;
   esac

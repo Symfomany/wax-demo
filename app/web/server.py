@@ -35,6 +35,7 @@ from app.news import CrawlReport, NewsError, SearchReport
 from app.review import FetchError, Page, ReviewContext, build_review_graph, stream_review, transcript_objections
 from app.web.auth import SESSION_COOKIE
 from app.web.runs import RunManager
+from app.why import why_payload
 
 STATIC = Path(__file__).resolve().parent / "static"
 TOKEN_COOKIE = "veille_token"
@@ -1019,6 +1020,27 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             "notion": storage.current_notion_page(app.state.connection),
         }
 
+    # --- « Pourquoi cette veille ? » : profil, mémoire typée, règles, ranking ----------------
+
+    @app.get("/why")
+    def why_page():
+        return FileResponse(STATIC / "why.html")
+
+    @app.get("/api/why")
+    def why():
+        return why_payload(app.state.connection, app.state.store)
+
+    @app.post("/api/rules/{key}/{decision}")
+    def decide_rule(key: str, decision: str):
+        """Accepter (règle active) ou écarter une règle suggérée après des rejets récurrents."""
+        if decision not in ("accept", "dismiss"):
+            raise HTTPException(400, "Décision attendue : accept | dismiss")
+        try:
+            record = WatchMemory(app.state.store).decide_rule(key, decision == "accept")
+        except KeyError:
+            raise HTTPException(404, "Règle inconnue")
+        return record.model_dump(mode="json")
+
     @app.post("/api/notion/sync")
     def notion():
         if deps.notion_sync is None:
@@ -1045,7 +1067,7 @@ def build_diagrams(kind: str, services: ChatServices, connection) -> dict[str, s
     from app.llm import StructuredLLM
     from app.workflow.graph import build_graph
     from app.workflow.state import HarnessContext
-    from app.workflow.subagents import build_editorial, build_quality, build_research, build_review
+    from app.workflow.subagents import build_editorial, build_evidence, build_quality, build_research, build_review
 
     context = HarnessContext(
         llm=StructuredLLM(lambda messages, schema: "{}", model="diagramme"),
@@ -1056,6 +1078,7 @@ def build_diagrams(kind: str, services: ChatServices, connection) -> dict[str, s
         "quality": build_quality(context).get_graph().draw_mermaid(),
         "research": build_research(context).get_graph().draw_mermaid(),
         "review": build_review(context).get_graph().draw_mermaid(),
+        "evidence": build_evidence(context).get_graph().draw_mermaid(),
         "editorial": build_editorial(context).get_graph().draw_mermaid(),
     }
 

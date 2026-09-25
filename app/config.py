@@ -45,6 +45,21 @@ class Settings(BaseSettings):
     # Poids du ranking hybride, JSON (ex. {"llm": 0.6, "freshness": 0.1}) ; clés : llm, freshness,
     # profile, source, corroboration. Les clés absentes gardent leur valeur par défaut.
     rank_weights: dict[str, float] = Field(default_factory=dict)
+    # Sélection diversifiée : pénalité (points /100) par signal déjà retenu de la même source,
+    # moitié par thème partagé ; 0 = simple top-k du ranking.
+    diversity_penalty: float = Field(8.0, ge=0, le=50)
+    # Claims et preuves (sous-graphe evidence) : signaux par appel LLM, claims par signal,
+    # caractères d'extrait transmis (et référence de l'ancrage des citations)
+    evidence_enabled: bool = True
+    evidence_batch_size: int = Field(3, ge=1, le=8)
+    evidence_max_claims: int = Field(3, ge=1, le=6)
+    evidence_excerpt_chars: int = Field(1200, ge=300, le=6000)
+    # Profil d'impact versionné (TOML suivi par Git) ; fichier absent = pas de profil
+    impact_profile_path: Path = PROJECT_ROOT / "profiles/julien.toml"
+    # Mémoire typée : durée de vie d'une leçon humaine ; règles suggérées après N rejets d'un thème
+    memory_lesson_ttl_days: int = Field(180, ge=1, le=3650)
+    rule_suggestion_min_rejections: int = Field(3, ge=2, le=50)
+    rule_suggestion_ttl_days: int = Field(30, ge=1, le=365)
 
     github_token: str | None = None
     github_api_url: str | None = None  # défaut du serveur MCP : api.github.com

@@ -9,8 +9,10 @@ pas du modèle. Chaque décision porte sa raison, affichée dans la trace et le 
 - doublons : même URL canonique (utm, www, version arXiv) ou titres proches (Jaccard) ;
   un doublon d'un item déjà publié est écarté, sinon le cluster garde son meilleur représentant
   et compte ses sources (corroboration) ;
-- ranking hybride : score LLM (pertinence, nouveauté, confiance) + fraîcheur + profil + autorité
-  de la source + corroboration − pénalités, avec le détail de chaque composante.
+- ranking hybride : score LLM (pertinence, nouveauté, confiance) + fraîcheur + profil (mots-clés et
+  profil d'impact versionné, app/profile.py) + autorité de la source + corroboration − pénalités
+  (bruit léger, « à éviter » du profil), avec le détail de chaque composante ;
+- sélection diversifiée : top-k glouton pénalisant une source ou un thème déjà retenus.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from datetime import datetime
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from app.harness.hooks import normalize_title
+from app.profile import ImpactProfile, assess
 from app.schemas import Document, Signal
 
 
@@ -46,9 +49,10 @@ def noise_check(document: Document, exclusions: list[str]) -> tuple[str | None, 
     text = document.title.lower()
     if "github-mcp" in document.tags:
         text += f" {document.summary[:400].lower()}"
+    tags = {t.lower() for t in document.tags[1:]}  # nom du flux ou du dépôt : cible des règles acceptées
     for word in exclusions:
         word = word.strip().lower()
-        if word and re.search(rf"(?<![a-z0-9]){re.escape(word)}(?![a-z0-9])", text):
+        if word and (word in tags or re.search(rf"(?<![a-z0-9]){re.escape(word)}(?![a-z0-9])", text)):
             return f"exclu par le profil ou une leçon : « {word} »", []
     for pattern, reason in HARD_NOISE:
         if pattern.search(document.title):
@@ -174,7 +178,7 @@ class RankInput:
 
 
 def hybrid_rank(items: list[RankInput], now: datetime, max_age_days: int, keywords: list[str],
-                weights: dict[str, float] | None = None) -> list[Signal]:
+                weights: dict[str, float] | None = None, profile: ImpactProfile | None = None) -> list[Signal]:
     """Signaux triés par score hybride (0-100), chacun avec sa décomposition et ses raisons."""
     weights = DEFAULT_WEIGHTS | (weights or {})
     wanted = [k.strip().lower() for k in keywords if k and k.strip()]
@@ -200,9 +204,15 @@ def hybrid_rank(items: list[RankInput], now: datetime, max_age_days: int, keywor
 
         text = f"{document.title} {document.summary} {' '.join(signal.tags)}".lower()
         matched = [k for k in wanted if re.search(rf"(?<![a-z0-9]){re.escape(k)}(?![a-z0-9])", text)]
-        parts["profile"] = weights["profile"] * min(1.0, len(matched) / 2)
-        if matched:
-            reasons.append(f"profil : {', '.join(matched[:4])} (+{100 * parts['profile']:.0f})")
+        # Profil : le meilleur des mots-clés (Grill-me, focus, thèmes appris) et du profil d'impact
+        impact = assess(profile, text)
+        parts["profile"] = weights["profile"] * max(min(1.0, len(matched) / 2), impact.score)
+        if matched or impact.score:
+            labels = list(dict.fromkeys([*matched[:4], *impact.topics[:3], *impact.hardware[:2]]))
+            reasons.append(f"profil : {', '.join(labels[:5])} (+{100 * parts['profile']:.0f})")
+        if impact.avoid:
+            parts["avoid"] = -NOISE_PENALTY * len(impact.avoid)
+            reasons.append(f"profil, à éviter : {', '.join(impact.avoid)} ({100 * parts['avoid']:.0f})")
 
         key = source_key(document)
         parts["source"] = weights["source"] * SOURCE_AUTHORITY.get(key, 0.5)
@@ -221,5 +231,40 @@ def hybrid_rank(items: list[RankInput], now: datetime, max_age_days: int, keywor
             "score": score,
             "score_breakdown": {k: round(100 * v, 1) for k, v in parts.items()},
             "rank_reasons": reasons,
+            "impact_reasons": impact.reasons(),
         }))
     return sorted(ranked, key=lambda s: s.score or 0, reverse=True)
+
+
+# --- Sélection diversifiée --------------------------------------------------------------
+
+
+def diversify(signals: list[Signal], limit: int, penalty: float) -> list[Signal]:
+    """Sélection gloutonne (type MMR) : score − pénalité par signal déjà retenu de la même source
+    (flux, dépôt) et − pénalité/2 par thème partagé. Le score affiché ne change pas ; la raison si."""
+    if penalty <= 0:
+        return signals[:limit]
+    remaining, chosen = list(signals), []
+    feeds: dict[str, int] = {}
+    topics: dict[str, int] = {}
+
+    def feed(signal: Signal) -> str:
+        return (signal.tags[1] if len(signal.tags) > 1 else signal.source).lower()
+
+    def themes(signal: Signal) -> set[str]:
+        return {t.lower() for t in signal.tags[2:]}
+
+    def malus(signal: Signal) -> float:
+        return penalty * feeds.get(feed(signal), 0) + penalty / 2 * sum(topics.get(t, 0) for t in themes(signal))
+
+    while remaining and len(chosen) < limit:
+        best = max(remaining, key=lambda s: (s.score or 0) - malus(s))
+        remaining.remove(best)
+        if cost := malus(best):
+            best = best.model_copy(update={"rank_reasons": [
+                *best.rank_reasons, f"diversité : source ou thème déjà retenus (−{cost:.0f} pour la sélection)"]})
+        chosen.append(best)
+        feeds[feed(best)] = feeds.get(feed(best), 0) + 1
+        for theme in themes(best):
+            topics[theme] = topics.get(theme, 0) + 1
+    return chosen

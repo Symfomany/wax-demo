@@ -33,7 +33,8 @@ def test_all_prompts_render():
     for name, values in {
         "scout": {"criteria": "c", "memory": "m", "max_picks": 3, "documents": "d"},
         "critic": {"signals": "s"},
-        "editor": {"signals": "s", "memory": "m", "corrections": "c"},
+        "claims": {"signals": "s", "max_claims": 3},
+        "editor": {"signals": "s", "memory": "m", "corrections": "c", "profile": "p"},
     }.items():
         assert "$" not in render_prompt(name, **values)
 

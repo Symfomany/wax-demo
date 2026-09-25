@@ -62,7 +62,7 @@ def test_supervisor_fans_out_collectors_then_delegates_in_dag_order(connection, 
 
     assert result["trace"][0] == "fan-out : collect:rss, collect:github_releases, collect:arxiv"
     delegations = [line.split()[1] for line in result["trace"] if line.startswith("délègue")]
-    assert delegations == ["prefilter", "quality", "research", "review", "editorial"]
+    assert delegations == ["prefilter", "quality", "research", "review", "evidence", "editorial"]
     assert set(result["status"].values()) == {"done"}
     assert result["collected"] == {"rss": 3, "github_releases": 3, "arxiv": 1}
 

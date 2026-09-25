@@ -92,7 +92,7 @@ def rule_route(message: str) -> ChatDecision | None:
 TOOL_ENGAGEMENT: dict[str, dict[str, list[str]]] = {
     "search_watch": {"data": ["SQLite FTS5 (documents)"]},
     "latest_digests": {"data": ["digests publiés"]},
-    "run_watch": {"agents": ["supervisor", "collector", "scout", "critic", "editor"],
+    "run_watch": {"agents": ["supervisor", "collector", "scout", "critic", "fact-checker", "editor"],
                   "skills": ["veille-tech"], "mcp": ["github-scout"]},
     "github_search": {"skills": ["github-scout"], "mcp": ["github-scout"]},
     "memory_status": {"data": ["Store LangGraph (mémoire)"]},

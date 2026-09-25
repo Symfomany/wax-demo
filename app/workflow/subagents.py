@@ -1,9 +1,12 @@
 """Sous-agents : sous-graphes LangGraph avec leur propre état.
 
 - quality   : bruit → doublons → sélection (règles déterministes, sans LLM).
-- research  : map-reduce — un Scout par lot de documents (Send, parallèle), puis ranking hybride.
+- research  : map-reduce — un Scout par lot de documents (Send, parallèle), puis ranking hybride
+              et sélection diversifiée.
 - review    : pré-contrôle déterministe → Critic LLM (seulement si nécessaire) → décision.
-- editorial : Editor → guards → boucle de réparation conditionnelle bornée.
+- evidence  : claim_extract (LLM, par lots) → claim_ground → cross_source_verify →
+              contradiction_detect → evidence_score (déterministes).
+- editorial : Editor (faits, analyse, hypothèse) → guards → boucle de réparation bornée.
 
 Chaque sous-graphe a son propre schéma d'état : il ne renvoie au graphe parent
 que ce que le nœud d'adaptation en extrait (pas de fuite de clés à réducteur).
@@ -19,22 +22,41 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from app.harness.guards import sanitize_untrusted
-from app.harness.hooks import document_risks, run_publish_guards
+from app.harness.hooks import document_risks, guard_numbers, run_publish_guards, unsourced_numbers
 from app.harness.prompts import render_prompt
 from app.llm import BudgetExceeded, LLMOutputError
 from app.schemas import (
+    Claim,
+    ClaimDraft,
+    ClaimsOutput,
+    Contradiction,
     CriticOutput,
     Critique,
     Digest,
     DigestItem,
     Document,
     EditorOutput,
+    Evidence,
     ScoutOutput,
     Signal,
+)
+from app.workflow.evidence import (
+    PROTOCOL_LABELS,
+    STATUS_LABELS,
+    contradictions,
+    corroborations,
+    document_text,
+    extractive_claim,
+    ground_claim,
+    is_primary,
+    other_documents,
+    score_claim,
+    signal_confidence,
 )
 from app.workflow.quality import (
     RankInput,
     cluster_documents,
+    diversify,
     hybrid_rank,
     noise_check,
     published_duplicate,
@@ -207,8 +229,10 @@ def build_research(context: HarnessContext):
             )
             inputs[str(document.url)] = RankInput(signal, document, info.get("sources", 1), info.get("flags", []))
         ranked = hybrid_rank(list(inputs.values()), context.now(), context.max_age_days,
-                             state.get("keywords", []), context.rank_weights)[: context.max_signals]
-        return {"signals": [signal.model_dump(mode="json") for signal in ranked]}
+                             state.get("keywords", []), context.rank_weights, context.profile)
+        # Sélection diversifiée : pas six signaux du même flux ou du même thème.
+        selected = diversify(ranked, context.max_signals, context.diversity_penalty)
+        return {"signals": [signal.model_dump(mode="json") for signal in selected]}
 
     builder = StateGraph(ResearchState)
     builder.add_node("scout_batch", scout_batch)
@@ -294,6 +318,134 @@ def build_review(context: HarnessContext):
     return builder.compile()
 
 
+# --- Evidence : claims → ancrage → corroboration → contradictions → score ---------------
+
+
+class EvidenceState(TypedDict, total=False):
+    candidates: list[dict]
+    accepted: list[dict]
+    others: list[dict]  # doublons écartés par quality, relus en SQLite pour la corroboration
+    drafts: list[dict]
+    errors: Annotated[list[str], operator.add]
+    claims: list[dict]
+    corroborating: dict[str, list[dict]]
+    contradicting: dict[str, list[str]]
+    contradictions: list[dict]
+    evidence: dict[str, dict]
+
+
+def build_evidence(context: HarnessContext):
+    def sources(state: EvidenceState) -> tuple[list[Signal], dict[str, Document]]:
+        documents = {item["url"]: Document.model_validate(item) for item in state["candidates"]}
+        return [Signal.model_validate(item) for item in state["accepted"]], documents
+
+    def claim_extract(state: EvidenceState) -> dict:
+        """Un appel LLM par lot de signaux (un seul à la fois : Jetson) ; un lot en échec est ignoré."""
+        signals, documents = sources(state)
+        drafts, errors = [], []
+        size = context.evidence_batch_size
+        for start in range(0, len(signals), size):
+            listing = "\n\n".join(
+                f"[signal_id={index}] {signal.title} ({signal.source}, {_date(signal.published_at)})\n"
+                f"Extrait : {document_text(documents[str(signal.url)], context.evidence_excerpt_chars)}"
+                for index, signal in enumerate(signals[start : start + size], start=start + 1)
+            )
+            try:
+                output = context.llm.generate(
+                    render_prompt("claims", signals=listing, max_claims=context.evidence_max_claims), ClaimsOutput
+                )
+            except (LLMOutputError, BudgetExceeded) as error:
+                errors.append(f"evidence lot {start // size + 1} : {error}")
+                continue
+            per_signal: dict[int, int] = {}
+            for draft in output.claims:
+                # Guard : un signal_id hors du lot est ignoré ; claims bornés par signal.
+                if start < draft.signal_id <= start + size and draft.signal_id <= len(signals):
+                    per_signal[draft.signal_id] = per_signal.get(draft.signal_id, 0) + 1
+                    if per_signal[draft.signal_id] <= context.evidence_max_claims:
+                        drafts.append(draft.model_dump())
+        return {"drafts": drafts, "errors": errors}
+
+    def claim_ground(state: EvidenceState) -> dict:
+        """Citation retrouvée mot pour mot, chiffres de l'affirmation présents dans la citation ;
+        un signal sans aucune affirmation étayée reçoit un fait extractif (première phrase citée)."""
+        signals, documents = sources(state)
+        claims: list[Claim] = []
+        for index, signal in enumerate(signals, start=1):
+            document = documents[str(signal.url)]
+            text = document_text(document, context.evidence_excerpt_chars)
+            primary = is_primary(document, context.secondary_sources)
+            mine = [ClaimDraft.model_validate(d) for d in state.get("drafts", []) if d["signal_id"] == index]
+            grounded = []
+            for number, draft in enumerate(mine, start=1):
+                claim = ground_claim(f"S{index}-C{number}", draft, document, text, primary)
+                if claim.status != "non_etaye" and (extra := unsourced_numbers(claim.text, claim.evidence[0].quote)):
+                    claim = claim.model_copy(update={"status": "non_etaye", "evidence": [],
+                                                     "reasons": [f"chiffre absent de la citation : {', '.join(extra)}"]})
+                grounded.append(claim)
+            if not any(c.status != "non_etaye" for c in grounded):
+                if fallback := extractive_claim(f"S{index}-C0", document, text, primary):
+                    grounded.append(fallback)
+            claims += grounded
+        return {"claims": [claim.model_dump(mode="json") for claim in claims]}
+
+    def others(state: EvidenceState) -> list:
+        documents = [Document.model_validate(item) for item in [*state["candidates"], *state.get("others", [])]]
+        return other_documents(documents, context.evidence_excerpt_chars, context.secondary_sources)
+
+    def cross_source_verify(state: EvidenceState) -> dict:
+        pool = others(state)
+        corroborating = {}
+        for item in state["claims"]:
+            claim = Claim.model_validate(item)
+            if claim.status != "non_etaye":
+                corroborating[claim.id] = [e.model_dump(mode="json") for e in corroborations(claim, pool)]
+        return {"corroborating": corroborating}
+
+    def contradiction_detect(state: EvidenceState) -> dict:
+        pool = others(state)
+        found, contradicting = [], {}
+        for item in state["claims"]:
+            claim = Claim.model_validate(item)
+            for other, sentence in contradictions(claim, pool):
+                contradicting.setdefault(claim.id, []).append(str(other.document.url))
+                found.append(Contradiction(
+                    claim_id=claim.id, claim=claim.text, quote=claim.evidence[0].quote,
+                    other_url=other.document.url, other_quote=sentence,
+                    reason="même sujet, chiffres incompatibles",
+                ).model_dump(mode="json"))
+        return {"contradicting": contradicting, "contradictions": found}
+
+    def evidence_score(state: EvidenceState) -> dict:
+        scored: list[Claim] = []
+        for item in state["claims"]:
+            claim = Claim.model_validate(item)
+            against = state.get("contradicting", {}).get(claim.id, [])
+            support = [Evidence.model_validate(e) for e in state.get("corroborating", {}).get(claim.id, [])
+                       if e["url"] not in against]
+            scored.append(score_claim(claim, support, len(against)).model_copy(update={"contradicts": against}))
+        evidence = {}
+        for signal in [Signal.model_validate(item) for item in state["accepted"]]:
+            mine = [c for c in scored if str(c.signal_url) == str(signal.url)]
+            dropped = sum(1 for c in mine if c.status == "non_etaye")
+            confidence, reasons = signal_confidence(mine, dropped)
+            evidence[str(signal.url)] = {"confidence": confidence, "reasons": reasons}
+        return {"claims": [claim.model_dump(mode="json") for claim in scored], "evidence": evidence}
+
+    builder = StateGraph(EvidenceState)
+    for name, node in (("claim_extract", claim_extract), ("claim_ground", claim_ground),
+                       ("cross_source_verify", cross_source_verify), ("contradiction_detect", contradiction_detect),
+                       ("evidence_score", evidence_score)):
+        builder.add_node(name, node)
+    builder.add_edge(START, "claim_extract")
+    builder.add_edge("claim_extract", "claim_ground")
+    builder.add_edge("claim_ground", "cross_source_verify")
+    builder.add_edge("cross_source_verify", "contradiction_detect")
+    builder.add_edge("contradiction_detect", "evidence_score")
+    builder.add_edge("evidence_score", END)
+    return builder.compile()
+
+
 # --- Editorial : Editor → guards → réparation bornée -----------------------------
 
 
@@ -302,9 +454,29 @@ class EditorialState(TypedDict, total=False):
     accepted: list[dict]
     rejected_count: int
     memory: str
+    claims: list[dict]
+    contradictions: list[dict]
+    evidence: dict[str, dict]
     digest: dict
     violations: list[str]
     repair_round: int
+
+
+def _facts_listing(facts: list[Claim], contradictions: list[dict]) -> str:
+    """Faits structurés transmis à l'Editor : statut, confiance, citation, protocole manquant."""
+    if not facts:
+        return "Faits vérifiés : aucun (s'en tenir à l'extrait)."
+    lines = ["Faits vérifiés :"]
+    for fact in facts:
+        missing = (f" ; protocole incomplet : {', '.join(PROTOCOL_LABELS[m] for m in fact.missing_protocol)}"
+                   if fact.missing_protocol else "")
+        lines.append(f"- [{STATUS_LABELS[fact.status]}, {fact.kind}, {fact.confidence}/100{missing}] "
+                     f"{fact.text} — « {fact.evidence[0].quote} »")
+    ids = {fact.id for fact in facts}
+    for item in contradictions:
+        if item["claim_id"] in ids:
+            lines.append(f"- CONTRADICTION : « {item['quote']} » contre « {item['other_quote']} »")
+    return "\n".join(lines)
 
 
 def build_editorial(context: HarnessContext):
@@ -312,19 +484,31 @@ def build_editorial(context: HarnessContext):
         now = context.now()
         documents = {item["url"]: Document.model_validate(item) for item in state["candidates"]}
         accepted = [Signal.model_validate(item) for item in state["accepted"]]
+        claims = [Claim.model_validate(item) for item in state.get("claims", [])]
+        evidence = state.get("evidence", {})
+        contradictions_ = state.get("contradictions", [])
         output = EditorOutput(executive_summary="Aucun signal validé sur la période.", items=[])
 
+        # Seuls les faits étayés atteignent l'Editor et le digest, les plus sûrs d'abord.
+        facts = {
+            str(signal.url): sorted((c for c in claims if str(c.signal_url) == str(signal.url)
+                                     and c.status != "non_etaye"), key=lambda c: -c.confidence)
+            for signal in accepted
+        }
         if accepted:
             listing = "\n\n".join(
                 f"[signal_id={index}] {signal.title} ({signal.source}, {_date(signal.published_at)})\n"
                 f"Pourquoi (Scout) : {signal.why_it_matters}\n"
-                f"Extrait source : {_excerpt(documents[str(signal.url)], 700)}"
+                + (f"Pour toi : {'; '.join(signal.impact_reasons)}\n" if signal.impact_reasons else "")
+                + f"{_facts_listing(facts[str(signal.url)], contradictions_)}\n"
+                f"Extrait source : {_excerpt(documents[str(signal.url)], 400 if facts[str(signal.url)] else 700)}"
                 for index, signal in enumerate(accepted, start=1)
             )
             output = context.llm.generate(
                 render_prompt(
                     "editor", signals=listing, memory=state.get("memory", "Aucun."),
                     corrections=corrections,
+                    profile=context.profile.prompt_text() if context.profile else "Aucun profil déclaré.",
                 ),
                 EditorOutput,
             )
@@ -333,6 +517,7 @@ def build_editorial(context: HarnessContext):
         items = []
         for index, signal in enumerate(accepted, start=1):
             text = written.get(index)
+            proof = evidence.get(str(signal.url), {})
             items.append(
                 DigestItem(
                     title=signal.title,
@@ -345,6 +530,13 @@ def build_editorial(context: HarnessContext):
                     tags=signal.tags,
                     score=signal.score,
                     rank_reasons=signal.rank_reasons,
+                    # Faits recopiés par le code depuis le sous-graphe evidence, jamais par le LLM.
+                    facts=facts[str(signal.url)],
+                    analysis=text.analysis.strip() if text else "",
+                    hypothesis=text.hypothesis.strip() if text else "",
+                    confidence=proof.get("confidence"),
+                    confidence_reasons=proof.get("reasons", []),
+                    impact_reasons=signal.impact_reasons,
                 )
             )
         digest = Digest(
@@ -353,6 +545,9 @@ def build_editorial(context: HarnessContext):
             executive_summary=output.executive_summary,
             items=items,
             rejected_count=state.get("rejected_count", 0),
+            contradictions=[c for c in contradictions_
+                            if any(c["claim_id"] == f.id for fs in facts.values() for f in fs)],
+            profile_version=context.profile.label if context.profile else None,
         )
         return {"digest": digest.model_dump(mode="json")}
 
@@ -362,7 +557,12 @@ def build_editorial(context: HarnessContext):
     def guards(state: EditorialState) -> dict:
         known_urls = {item["url"] for item in state["candidates"]}
         digest = Digest.model_validate(state["digest"])
-        return {"violations": run_publish_guards(digest, known_urls, context.now())}
+        texts = {}
+        for item in state["candidates"]:
+            document = Document.model_validate(item)
+            texts[item["url"]] = f"{document.title}\n{document.summary}\n{document.content}"
+        return {"violations": [*run_publish_guards(digest, known_urls, context.now()),
+                               *guard_numbers(digest, texts)]}
 
     def route(state: EditorialState) -> str:
         repairable = [v for v in state["violations"] if not v.startswith("Digest vide")]

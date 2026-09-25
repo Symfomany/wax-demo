@@ -50,6 +50,18 @@ article.signal { background: var(--paper); border: 1px solid var(--line); border
 .signal .summary { margin: 0 0 .9em; }
 .why { background: var(--ok-soft); border-radius: 10px; padding: 10px 14px; font-size: .95rem; }
 .why b { color: var(--ok); }
+.conf { display: inline-block; font-size: .8rem; font-weight: 700; border-radius: 999px; padding: 1px 10px; }
+.conf.élevée { background: var(--ok-soft); color: var(--ok); }
+.conf.moyenne, .conf.non { background: var(--accent-soft); color: var(--accent); }
+.conf.faible { background: var(--warn-soft); color: var(--warn); }
+.facts { list-style: none; padding: 0; margin: .6em 0 .9em; display: grid; gap: 8px; font-size: .93rem; }
+.facts li { border-left: 3px solid var(--line); padding: 2px 0 2px 12px; }
+.facts li.confirme { border-color: var(--ok); } .facts li.conteste { border-color: var(--warn); }
+.facts blockquote { margin: .2em 0 0; color: var(--muted); font-style: italic; }
+.facts .status { font-size: .78rem; color: var(--muted); }
+.interp { font-size: .93rem; margin: 0 0 .7em; padding: 8px 12px; border: 1px dashed var(--line); border-radius: 10px; }
+.impact { font-size: .88rem; color: var(--muted); margin-top: 8px; }
+.contra li { margin: .5em 0; font-size: .92rem; }
 .signal .chips { margin-top: 12px; }
 .signal .chip { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
 .table-wrap { overflow-x: auto; }
@@ -78,6 +90,7 @@ footer { margin-top: 3em; font-size: .8rem; color: var(--muted); border-top: 1px
   <div class="kpis">
     <div class="kpi"><b>{{ items | length }}</b><span>signaux retenus</span></div>
     <div class="kpi"><b>{{ rejected | length }}</b><span>écartés par le Critic</span></div>
+    <div class="kpi"><b>{{ confidence_avg if confidence_avg is not none else "—" }}</b><span>confiance moyenne /100</span></div>
     <div class="kpi"><b>{{ collected_total }}</b><span>documents collectés</span></div>
   </div>
   {% if keywords %}
@@ -99,7 +112,16 @@ footer { margin-top: 3em; font-size: .8rem; color: var(--muted); border-top: 1px
     <div class="meta"><span class="badge">{{ item.source_label }}</span><span>{{ item.date_short }}</span><span>#{{ loop.index }}</span></div>
     <h3><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a></h3>
     <p class="summary">{{ item.summary }}</p>
+    {% if item.confidence is not none %}<details><summary><span class="conf {{ item.confidence_label.split()[0] }}">🛡️ Confiance {{ item.confidence }}/100 · {{ item.confidence_label }}</span></summary><ul>{% for reason in item.confidence_reasons %}<li>{{ reason }}</li>{% endfor %}</ul></details>{% endif %}
+    {% if item.facts %}<ul class="facts">{% for fact in item.facts %}
+      <li class="{{ fact.status }}"><span class="status">{{ fact.status_icon }} {{ fact.status_label }} · {{ fact.kind }} · {{ fact.confidence }}/100</span><br>{{ fact.text }}
+        <blockquote>« {{ fact.evidence[0].quote }} » — <a href="{{ fact.evidence[0].url }}" target="_blank" rel="noopener">source</a>{% for other in fact.evidence[1:] %} · <a href="{{ other.url }}" target="_blank" rel="noopener">corroboration {{ loop.index }}</a>{% endfor %}</blockquote>
+        {% if fact.missing_labels %}<span class="status">⚠️ Benchmark : protocole incomplet ({{ fact.missing_labels | join(", ") }})</span>{% endif %}</li>
+    {% endfor %}</ul>{% endif %}
+    {% if item.analysis %}<p class="interp">🧠 <b>Analyse (interprétation) :</b> {{ item.analysis }}</p>{% endif %}
+    {% if item.hypothesis %}<p class="interp">❓ <b>Hypothèse (non vérifiée) :</b> {{ item.hypothesis }}</p>{% endif %}
     <div class="why"><b>Pourquoi c'est important —</b> {{ item.why_it_matters }}</div>
+    {% if item.impact_reasons %}<div class="impact">🎯 Pour toi : {{ item.impact_reasons | join(" · ") }}</div>{% endif %}
     {% if item.score is not none %}<details class="rank"><summary>📊 Classement {{ "%.0f" | format(item.score) }}/100</summary><ul>{% for reason in item.rank_reasons %}<li>{{ reason }}</li>{% endfor %}</ul></details>{% endif %}
     {% if item.tags %}<div class="chips">{% for tag in item.tags %}<span class="chip">{{ tag }}</span>{% endfor %}</div>{% endif %}
   </article>
@@ -115,6 +137,15 @@ footer { margin-top: 3em; font-size: .8rem; color: var(--muted); border-top: 1px
     </tbody>
   </table></div>
 
+  {% if contradictions %}
+  <h2>Contradictions entre sources</h2>
+  <ul class="contra">
+  {% for c in contradictions %}
+    <li><b>{{ c.claim }}</b> — « {{ c.quote }} » contre « {{ c.other_quote }} » (<a href="{{ c.other_url }}" target="_blank" rel="noopener">autre source</a>) : {{ c.reason }}.</li>
+  {% endfor %}
+  </ul>
+  {% endif %}
+
   {% if rejected %}
   <h2>Écartés par le Critic</h2>
   <ul class="rejected">
@@ -127,7 +158,8 @@ footer { margin-top: 3em; font-size: .8rem; color: var(--muted); border-top: 1px
   <h2>Méthodologie</h2>
   <div class="method">
     <p><b>Collecte :</b> {% for name, count in collected.items() %}{{ name }} +{{ count }}{% if not loop.last %} · {% endif %}{% else %}mémoire existante (pas de collecte){% endfor %}.
-    Chaîne : supervisor → research (Scouts parallèles) → review (Critic) → editorial (Editor + guards) → validation humaine.
+    Chaîne : supervisor → research (Scouts parallèles, sélection diversifiée) → review (Critic) → evidence (claims, citations, corroboration, contradictions) → editorial (Editor + guards) → validation humaine.
+    Confiance : citation retrouvée (+40), source primaire (+25) ou secondaire (+5), corroboration (+15/source), protocole de benchmark incomplet (−15), contradiction (−30).{% if profile_version %} Profil d'impact <code>{{ profile_version }}</code>.{% endif %}
     URLs, titres et dates sont recopiés depuis les sources collectées ; le digest est validé par Pydantic.</p>
     {% if errors %}<p><b>Incidents :</b> {{ errors | join(" ; ") }}</p>{% endif %}
     {% if trace %}<details><summary>Trace du supervisor</summary><ul>{% for line in trace %}<li>{{ line }}</li>{% endfor %}</ul></details>{% endif %}

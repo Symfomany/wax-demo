@@ -25,7 +25,9 @@ def test_default_plan_is_a_valid_dag():
     plan = default_plan()
     order = plan.topological_order()
     assert order.index("prefilter") > max(order.index(t) for t in order if t.startswith("collect:"))
-    assert order[-3:] == ["research", "review", "editorial"]
+    assert order[-4:] == ["research", "review", "evidence", "editorial"]
+    assert plan.by_id("evidence").optional  # en échec : l'Editor rédige sans faits structurés
+    assert default_plan(evidence=False).by_id("editorial").deps == ["review"]
 
 
 def test_cycles_and_unknown_dependencies_are_rejected():

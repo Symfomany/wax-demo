@@ -26,7 +26,8 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Validation humaine : `python -m app.main resume <run_id> --approved|--rejected --note "..."`
 - Plan d'exécution : `python -m app.main plan --langgraph`
 - Recherche GitHub via MCP : `python -m app.main github "llm inference" --limit 5`
-- Mémoire : `python -m app.main memory [--export]`
+- Mémoire : `python -m app.main memory [--export]` · règles suggérées : `rules [--accept|--dismiss CLÉ]`
+- Pourquoi cette veille ? : `python -m app.main why [--json]`, page `/why` (profil, mémoire typée, règles, ranking)
 - Login web : `WEB_USERNAME` / `WEB_PASSWORD` (≥ 8 car., min, maj, chiffre, spécial ; sinon refus de démarrer) ;
   générer : `python -m app.main web-password [--write-env]` ; TUI et scripts en HTTP Basic
 - Interface web de chat : `python -m app.main web` (http://127.0.0.1:8000) ; en arrière-plan :
@@ -53,6 +54,11 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
   Qualité : sous-graphe `quality` (bruit → doublons → sélection, sans LLM) et ranking hybride explicable
   (`app/workflow/quality.py`, score /100 + raisons dans le digest ; `DEDUP_THRESHOLD`, `RANK_WEIGHTS`).
   Sous-agents (sous-graphes) : `app/workflow/subagents.py` ; prompts : `app/prompts/*.md`.
+  Claims et preuves : sous-graphe `evidence` (`app/workflow/evidence.py`, prompt `claims.md`) : citation
+  vérifiée mot pour mot, protocole des benchmarks, source secondaire jamais « confirmée » seule
+  (`primary = false` dans sources.toml), contradictions affichées, confiance /100 ; table `claims` (v10).
+  L'Editor sépare faits / analyse / hypothèse ; `guard_numbers` bloque un chiffre absent de la source.
+  Sélection diversifiée des signaux (`DIVERSITY_PENALTY`).
   Le LLM ne renvoie que des identifiants ; URL, titre et date sont recopiés par
   le code depuis les documents collectés.
 - Guards : `app/harness/guards.py` (MCP, injections, contrats d'état) et
@@ -74,6 +80,9 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Prompts éditables : surcharges dans `data/prompts/` (`app/harness/prompts.py`), jamais les fichiers du dépôt.
 - Traces du graphe : table `traces` (v4), page `/trace/<id>` ; liens Langfuse déterministes (`app/observability.py`).
 - Grill-me : `app/grill.py` (entretien par `interrupt()`), profil dans le Store (`WatchMemory.interests`).
+- Profil d'impact versionné : `profiles/julien.toml` (`app/profile.py`, `IMPACT_PROFILE_PATH`) → ranking,
+  Editor, « Pour toi » par item, `Digest.profile_version`. Mémoire typée (`MemoryRecord` : type, provenance,
+  confiance, expiration) et règles suggérées après rejets récurrents (`app/memory.py`), page `/why` (`app/why.py`).
 - Knowledge : `knowledge/*.md` (glossaire, règles métiers par domaine, prompts ; format dans `knowledge/README.md`),
   chargés par `app/knowledge.py` ; téléversements validés dans `data/knowledge/` (hors Git), jamais dans `knowledge/`.
 - Review : `app/review.py` (agent Reviewer fetch → analyze → guard → save ; SSRF bloquée, citations vérifiées

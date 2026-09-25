@@ -76,7 +76,7 @@ def run(
         n for n in COLLECTORS
         if n in context.collectors and (mcp or n != "github_mcp") and (not source or n in source)
     )
-    plan = default_plan(collect=collect, collectors=names)
+    plan = default_plan(collect=collect, collectors=names, evidence=settings.evidence_enabled)
     options = {"keywords": keyword, "match_all": match_all, "max_age_days": max_age, "max_documents": max_docs}
     options = {key: value for key, value in options.items() if value}
 
@@ -182,6 +182,57 @@ def memory(export: bool = typer.Option(False, help="Exporter vers la mémoire Cl
         if export:
             path = watch_memory.export_markdown(settings.claude_memory_path)
             print(f"[green]Mémoire Claude Code exportée : {path}[/green]")
+
+
+@cli.command()
+def why(as_json: bool = typer.Option(False, "--json", help="Sortie JSON brute.")):
+    """Pourquoi cette veille ? Profil d'impact, mémoire typée, règles, ranking (aussi sur /why)."""
+    from app.why import why_payload
+
+    connection = storage.connect(settings.database_path)
+    with open_store() as store:
+        payload = why_payload(connection, store)
+    if as_json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+        return
+    profile = payload["profile"]
+    print(f"[bold]Profil d'impact :[/bold] {profile['label'] if profile else 'aucun'}")
+    if profile:
+        print("  Priorités : " + ", ".join(profile["priorities"]["topics"]))
+        print("  Matériel : " + ", ".join([*profile["hardware"]["gpus"], *profile["hardware"]["platforms"]]))
+    table = Table("Type", "Statut", "Contenu", "Provenance", "Confiance", "Expire")
+    for record in payload["records"]:
+        table.add_row(record["kind"], record["status"], record["content"][:70], record["provenance"],
+                      f"{record['confidence']:.2f}", (record["expires_at"] or "—")[:10])
+    print(table)
+    for item in (payload["last_digest"] or {}).get("items", []):
+        print(f"• {item['title'][:80]} — score {item['score']}, confiance {item['confidence']}")
+        for reason in item.get("impact_reasons") or []:
+            print(f"    🎯 {reason}")
+
+
+@cli.command()
+def rules(
+    accept: str = typer.Option(None, help="Accepter une règle suggérée (clé, ex. exclude:robotics)."),
+    dismiss: str = typer.Option(None, help="Écarter une règle suggérée."),
+):
+    """Règles suggérées après des rejets récurrents : lister, accepter ou écarter."""
+    with open_store() as store:
+        memory = WatchMemory(store)
+        if accept or dismiss:
+            try:
+                record = memory.decide_rule(accept or dismiss, accept is not None)
+            except KeyError:
+                print(f"[red]Règle inconnue : {accept or dismiss}[/red]")
+                raise typer.Exit(1)
+            print(f"[green]{record.key} → {record.status}[/green]")
+            if settings.claude_memory_path:
+                memory.export_markdown(settings.claude_memory_path)
+            return
+        table = Table("Clé", "Statut", "Règle", "Provenance", "Confiance")
+        for record in memory.rules():
+            table.add_row(record.key, record.status, record.content, record.provenance, f"{record.confidence:.2f}")
+        print(table)
 
 
 @cli.command()

@@ -188,6 +188,22 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX benchmarks_category ON benchmarks(category);
     """,
+    # v10 — claims et preuves d'un run (sous-graphe evidence) : audit des faits publiés ou écartés
+    """
+    CREATE TABLE claims (
+        run_id TEXT NOT NULL,
+        claim_id TEXT NOT NULL,
+        signal_url TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        confidence INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (run_id, claim_id)
+    );
+    CREATE INDEX claims_signal ON claims(signal_url);
+    """,
 ]
 
 
@@ -288,6 +304,21 @@ def recent_documents(connection: sqlite3.Connection, limit: int = 60) -> list[Do
     ]
 
 
+@locked
+def documents_by_urls(connection: sqlite3.Connection, urls: Iterable[str], limit: int = 40) -> list[Document]:
+    """Documents collectés pour ces URLs (doublons écartés par quality : corroboration), en nombre borné."""
+    wanted = list(dict.fromkeys(urls))[:limit]
+    if not wanted:
+        return []
+    rows = connection.execute(
+        f"SELECT source, title, url, published_at, summary, content, tags_json FROM documents "
+        f"WHERE url IN ({', '.join('?' * len(wanted))})",
+        wanted,
+    ).fetchall()
+    return [Document(source=r[0], title=r[1], url=r[2], published_at=r[3], summary=r[4], content=r[5],
+                     tags=json.loads(r[6])) for r in rows]
+
+
 # --- Mémoire de veille -----------------------------------------------------
 
 
@@ -331,6 +362,35 @@ def record_digest(
     )
     connection.commit()
     return digest_id
+
+
+@locked
+def save_claims(connection: sqlite3.Connection, run_id: str, claims: Iterable[dict]) -> int:
+    """Claims d'un run (étayés ou non), en une transaction ; une reprise remplace les précédents."""
+    rows = [(run_id, c["id"], c["signal_url"], c["kind"], c["status"], c["confidence"], c["text"],
+             json.dumps(c, ensure_ascii=False)) for c in claims]
+    connection.executemany(
+        "INSERT OR REPLACE INTO claims (run_id, claim_id, signal_url, kind, status, confidence, text, record_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
+    connection.commit()
+    return len(rows)
+
+
+@locked
+def list_claims(connection: sqlite3.Connection, run_id: str | None = None, signal_url: str | None = None,
+                limit: int = 200) -> list[dict]:
+    clauses, params = [], []
+    if run_id:
+        clauses.append("run_id = ?")
+        params.append(run_id)
+    if signal_url:
+        clauses.append("signal_url = ?")
+        params.append(signal_url)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = connection.execute(
+        f"SELECT run_id, record_json FROM claims {where} ORDER BY created_at DESC, claim_id LIMIT ?",
+        [*params, limit]).fetchall()
+    return [json.loads(row[1]) | {"run_id": row[0]} for row in rows]
 
 
 @locked
@@ -391,7 +451,7 @@ def cache_set(connection: sqlite3.Connection, key: str, model: str, response_jso
 def memory_stats(connection: sqlite3.Connection) -> dict[str, int]:
     tables = [
         "documents", "digests", "published_items", "feedback", "llm_cache", "runs",
-        "conversations", "notion_pages", "traces", "reviews", "news", "events", "media", "benchmarks",
+        "conversations", "notion_pages", "traces", "reviews", "news", "events", "media", "benchmarks", "claims",
     ]
     return {
         table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]

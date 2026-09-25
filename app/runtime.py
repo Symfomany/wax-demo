@@ -12,11 +12,13 @@ from app.config import settings
 from app.harness.skills import load_skill
 from app.llm import get_llm
 from app.notion import fetch_og_images, sync_notion
+from app.profile import load_profile
 from app.workflow.graph import build_graph
 from app.workflow.state import HarnessContext
 
 
 def make_context(connection, human_approval: bool, collectors=None) -> HarnessContext:
+    sources = load_sources(settings.sources_path)
     return HarnessContext(
         llm=get_llm(connection),
         connection=connection,
@@ -39,8 +41,23 @@ def make_context(connection, human_approval: bool, collectors=None) -> HarnessCo
         reports_dir=settings.reports_dir,
         templates_dir=settings.templates_dir,
         notion_sync=notion_sync(),
-        exclude_keywords=load_sources(settings.sources_path).get("github_mcp", {}).get("exclude_keywords", []),
+        exclude_keywords=sources.get("github_mcp", {}).get("exclude_keywords", []),
+        diversity_penalty=settings.diversity_penalty,
+        secondary_sources=secondary_sources(sources),
+        evidence_batch_size=settings.evidence_batch_size,
+        evidence_max_claims=settings.evidence_max_claims,
+        evidence_excerpt_chars=settings.evidence_excerpt_chars,
+        profile=load_profile(settings.impact_profile_path),
+        lesson_ttl_days=settings.memory_lesson_ttl_days,
+        rule_min_rejections=settings.rule_suggestion_min_rejections,
+        rule_ttl_days=settings.rule_suggestion_ttl_days,
     )
+
+
+def secondary_sources(sources: dict) -> set[str]:
+    """Flux déclarés `primary = false` dans sources.toml : jamais « confirmé » sans source primaire."""
+    return {entry["name"].lower() for kind in ("rss", "blog") for entry in sources.get(kind, [])
+            if entry.get("primary") is False and entry.get("name")}
 
 
 def notion_sync():

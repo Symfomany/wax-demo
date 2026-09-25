@@ -326,3 +326,23 @@ def test_v9_benchmarks_catalog_keeps_cached_detail(connection):
     assert [b["key"] for b in storage.list_benchmarks(connection, query="mise à")] == ["draco"]
     assert storage.memory_stats(connection)["benchmarks"] == 2
     assert storage.get_benchmark(connection, "absent") is None
+
+
+def test_v10_adds_claims_to_a_v9_database_and_round_trips(tmp_path):
+    path = tmp_path / "v9.db"
+    legacy = sqlite3.connect(path)
+    legacy.executescript("".join(storage.MIGRATIONS[:9]) + "PRAGMA user_version = 9;")
+    legacy.close()
+
+    connection = storage.connect(path)
+
+    assert storage.schema_version(connection) == len(storage.MIGRATIONS) >= 10
+    claim = {"id": "S1-C1", "signal_url": "https://example.org/a", "kind": "chiffre", "status": "confirme",
+             "confidence": 80, "text": "Mémoire divisée par deux", "evidence": [{"quote": "halves memory"}]}
+    assert storage.save_claims(connection, "run-1", [claim, claim | {"id": "S1-C2", "status": "non_etaye"}]) == 2
+    storage.save_claims(connection, "run-1", [claim | {"confidence": 90}])  # reprise : remplacement
+
+    claims = storage.list_claims(connection, run_id="run-1")
+    assert [(c["id"], c["confidence"]) for c in claims] == [("S1-C1", 90), ("S1-C2", 80)]
+    assert storage.list_claims(connection, signal_url="https://example.org/b") == []
+    assert storage.memory_stats(connection)["claims"] == 2

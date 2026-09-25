@@ -18,6 +18,7 @@ from uuid import uuid4
 from langgraph.types import Command
 
 from app import storage
+from app.config import settings
 from app.workflow.graph import initial_state
 from app.workflow.tasks import COLLECTORS, default_plan
 
@@ -65,6 +66,11 @@ def translate(chunk: dict) -> list[dict]:
             events.append({"type": "agent", "node": node, "text": f"{len(update.get('signals', []))} signal(aux) proposé(s)"})
         elif node == "review":
             events.append({"type": "agent", "node": node, "text": f"{len(update.get('accepted', []))} signal(aux) accepté(s)"})
+        elif node == "evidence":
+            claims = update.get("claims", [])
+            grounded = sum(1 for claim in claims if claim["status"] != "non_etaye")
+            events.append({"type": "agent", "node": node, "text": f"{grounded}/{len(claims)} affirmation(s) étayée(s)"
+                           + (f", {len(update['contradictions'])} contradiction(s)" if update.get("contradictions") else "")})
         elif node == "editorial":
             events.append({"type": "agent", "node": node, "text": "digest rédigé"
                            + (f", {len(update['violations'])} violation(s)" if update.get("violations") else "")})
@@ -95,7 +101,8 @@ class RunManager:
             name for name in COLLECTORS
             if name in wanted and (options.get("mcp", True) or name != "github_mcp")
         )
-        plan = default_plan(collect=options.get("collect", True), collectors=collectors)
+        plan = default_plan(collect=options.get("collect", True), collectors=collectors,
+                            evidence=settings.evidence_enabled)
         run_options = {key: options[key] for key in ("keywords", "match_all", "max_age_days", "max_documents")
                        if options.get(key)}
         record.options = run_options | {"sources": list(collectors)}
@@ -213,8 +220,9 @@ def run_step_detail(node: str, update: dict) -> str:
 
 
 AGENT_OF_NODE = {"noise": "quality", "dedup": "quality", "scout_batch": "scout", "critic": "critic", "editor": "editor", "repair": "editor",
-                 "collector": "collector", "supervisor": "supervisor", "reflect": "reflect"}
-PROMPT_OF_NODE = {"scout_batch": "scout.md", "critic": "critic.md", "editor": "editor.md", "repair": "editor.md"}
+                 "claim_extract": "fact-checker", "collector": "collector", "supervisor": "supervisor", "reflect": "reflect"}
+PROMPT_OF_NODE = {"scout_batch": "scout.md", "critic": "critic.md", "claim_extract": "claims.md", "editor": "editor.md",
+                  "repair": "editor.md"}
 
 
 def run_engagement(record: RunRecord) -> dict:

@@ -4,7 +4,8 @@
                         ├─ prefilter ───────────┤
                         ├─ quality   (sous-graphe : bruit → doublons → sélection) ┤
                         ├─ research  (sous-graphe map-reduce) ─┤
-                        ├─ review    (sous-graphe conditionnel) ┤→ supervisor
+                        ├─ review    (sous-graphe conditionnel) ┤
+                        ├─ evidence  (sous-graphe : claims → ancrage → corroboration → contradictions → score) ┤→ supervisor
                         ├─ editorial (sous-graphe + réparation) ┘
                         ├─ approval (interrupt humain) → publish | reject → reflect → END
                         ├─ blocked (guards) → END
@@ -34,6 +35,7 @@ from app.schemas import Digest, Document
 from app.workflow.state import (
     CollectorUpdate,
     EditorialUpdate,
+    EvidenceUpdate,
     HarnessContext,
     PrefilterUpdate,
     QualityUpdate,
@@ -42,7 +44,7 @@ from app.workflow.state import (
     WatchState,
 )
 from app.workflow.quality import DEFAULT_EXCLUSIONS
-from app.workflow.subagents import build_editorial, build_quality, build_research, build_review
+from app.workflow.subagents import build_editorial, build_evidence, build_quality, build_research, build_review
 from app.workflow.tasks import TaskGraph
 
 # Erreurs transitoires (Ollama ou réseau) : relancées par LangGraph.
@@ -51,13 +53,14 @@ AGENT_RETRY = RetryPolicy(
     initial_interval=1.0,
     retry_on=(httpx.TransportError, ConnectionError, TimeoutError),
 )
-AGENT_NODES = ("research", "review", "editorial")
+AGENT_NODES = ("research", "review", "evidence", "editorial")
 
 
 def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None = None):
     quality_graph = build_quality(context)
     research_graph = build_research(context)
     review_graph = build_review(context)
+    evidence_graph = build_evidence(context)
     editorial_graph = build_editorial(context)
 
     # --- Supervisor -----------------------------------------------------------
@@ -194,8 +197,11 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
     @node_contract(QualityUpdate)
     def quality(state: WatchState, store: BaseStore) -> dict:
         """Bruit et quasi-doublons écartés avant le Scout (moins d'appels LLM, digest plus net)."""
-        interests = WatchMemory(store).interests() or {}
-        exclusions = list(dict.fromkeys([*DEFAULT_EXCLUSIONS, *interests.get("exclusions", [])]))
+        memory = WatchMemory(store)
+        interests = memory.interests() or {}
+        # Exclusions : défauts + profil Grill-me + règles acceptées après des rejets récurrents
+        exclusions = list(dict.fromkeys([*DEFAULT_EXCLUSIONS, *interests.get("exclusions", []),
+                                         *memory.active_exclusions()]))
         result = quality_graph.invoke(
             {
                 "candidates": state["candidates"],
@@ -245,12 +251,37 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
             "accepted": result["accepted"],
         }
 
+    @node_contract(EvidenceUpdate)
+    def evidence(state: WatchState) -> dict:
+        """Claims et preuves : l'Editor recevra des faits structurés, sourcés et scorés."""
+        quality = state.get("quality", {})
+        duplicates = [url for item in state["accepted"] for url in quality.get(item["url"], {}).get("duplicates", [])]
+        result = evidence_graph.invoke({
+            "candidates": state["candidates"],
+            "accepted": state["accepted"],
+            "others": [doc.model_dump(mode="json") for doc in storage.documents_by_urls(context.connection, duplicates)],
+        })
+        claims = result.get("claims", [])
+        grounded = sum(1 for claim in claims if claim["status"] != "non_etaye")
+        return {
+            "status": {"evidence": "done"},
+            "claims": claims,
+            "contradictions": result.get("contradictions", []),
+            "evidence": result.get("evidence", {}),
+            "errors": result.get("errors", []),
+            "trace": [f"evidence : {grounded}/{len(claims)} affirmation(s) étayée(s), "
+                      f"{len(result.get('contradictions', []))} contradiction(s)"],
+        }
+
     @node_contract(EditorialUpdate)
     def editorial(state: WatchState, store: BaseStore) -> dict:
         result = editorial_graph.invoke(
             {
                 "candidates": state["candidates"],
                 "accepted": state["accepted"],
+                "claims": state.get("claims", []),
+                "contradictions": state.get("contradictions", []),
+                "evidence": state.get("evidence", {}),
                 "rejected_count": len(state["signals"]) - len(state["accepted"]),
                 "memory": WatchMemory(store).prompt_context(),
             }
@@ -304,6 +335,7 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
             errors=state.get("errors", []),
         )
         outputs, errors = run_publishers(publication, default_publishers(context.notion_sync))
+        storage.save_claims(context.connection, state["run_id"], state.get("claims", []))  # audit
         storage.set_run_status(
             context.connection, state["run_id"], "published", _stats(state) | {"outputs": outputs}
         )
@@ -317,13 +349,19 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
         """Agent mémoire : consolide les leçons du run dans le Store LangGraph."""
         memory = WatchMemory(store)
         approved = bool(state.get("approval"))
-        memory.add_lesson(state.get("note", ""), approved, state["run_id"])
+        memory.add_lesson(state.get("note", ""), approved, state["run_id"], ttl_days=context.lesson_ttl_days)
         storage.add_feedback(context.connection, state["run_id"], approved, state.get("note", ""))
         for item in state["digest"]["items"]:
             memory.reinforce_tags(item.get("tags", []), weight=1 if approved else -1)
+        memory.count_outcome([tag for item in state["digest"]["items"] for tag in item.get("tags", [])], approved)
+        trace = ["mémoire consolidée"]
+        if not approved:
+            # Rejets récurrents d'un même thème → règle suggérée (active seulement après accord humain).
+            suggested = memory.suggest_rules(context.rule_min_rejections, context.rule_ttl_days)
+            trace += [f"règle suggérée : {rule.content}" for rule in suggested]
         if context.claude_memory_path:
             memory.export_markdown(context.claude_memory_path)
-        return {"trace": ["mémoire consolidée"]}
+        return {"trace": trace}
 
     def blocked(state: WatchState) -> dict:
         storage.set_run_status(
@@ -347,7 +385,7 @@ def build_graph(checkpointer, context: HarnessContext, store: BaseStore | None =
     builder.add_node("collector", collector)
     builder.add_node("prefilter", prefilter)
     builder.add_node("quality", quality)
-    for name, node in zip(AGENT_NODES, (research, review, editorial)):
+    for name, node in zip(AGENT_NODES, (research, review, evidence, editorial)):
         builder.add_node(name, node, retry_policy=AGENT_RETRY, error_handler=agent_failed)
     builder.add_node("approval", approval)
     builder.add_node("publish", publish)
@@ -377,6 +415,8 @@ def _stats(state: WatchState) -> dict:
         "candidates": len(state.get("candidates", [])),
         "signals": len(state.get("signals", [])),
         "accepted": len(state.get("accepted", [])),
+        "claims": sum(1 for claim in state.get("claims", []) if claim["status"] != "non_etaye"),
+        "contradictions": len(state.get("contradictions", [])),
         "errors": len(state.get("errors", [])),
         "trace": state.get("trace", []),
     }
