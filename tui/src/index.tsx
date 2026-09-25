@@ -46,4 +46,4 @@ async function ensureServer(): Promise<string> {
 const base = await ensureServer()
 const screen = (SCREENS.find((s) => s.id === process.env.VEILLE_SCREEN)?.id ?? "home") as ScreenId
 const renderer = await createCliRenderer({ exitOnCtrlC: false, targetFps: 30 })
-createRoot(renderer).render(<App api={createApi(base)} initialScreen={screen} />)
+createRoot(renderer).render(<App api={createApi(base, fetch, process.env.WEB_API_TOKEN)}initialScreen={screen} />)

@@ -171,6 +171,23 @@ def test_index_serves_the_chat_interface(client):
     assert "Votre veille LLM / GenAI" in page.text and "/api/chat" in page.text
 
 
+def test_api_token_guards_the_api_but_not_the_page(isolated_settings, monkeypatch):
+    monkeypatch.setattr(settings, "web_api_token", "s3cret")
+    deps = WebDeps(router_llm=chat_router(), chat_model=lambda: None, graph_factory=lambda: None,
+                   notion_sync=None, github_search=None)
+    with TestClient(create_app(deps)) as anonymous:
+        assert anonymous.get("/").status_code == 200
+        assert anonymous.get("/api/health").status_code == 200  # sonde de bin/veille et de la TUI
+        assert anonymous.get("/api/reports").status_code == 401
+        assert anonymous.post("/api/runs", json={}).status_code == 401
+        assert anonymous.get("/api/reports", headers={"Authorization": "Bearer faux"}).status_code == 401
+        assert anonymous.get("/api/reports", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+        assert anonymous.get("/?token=faux", follow_redirects=False).status_code == 401
+        login = anonymous.get("/?token=s3cret", follow_redirects=False)
+        assert login.status_code == 303 and "httponly" in login.headers["set-cookie"].lower()
+        assert anonymous.get("/api/reports").status_code == 200  # cookie posé par la connexion
+
+
 def test_health_reports_components(client):
     health = client.get("/api/health").json()
     assert set(health) >= {"ollama", "model", "model_available", "tracing", "notion", "memory"}
