@@ -1,0 +1,21 @@
+# Cron quotidien de la veille (benchmarks, actus, événements) : démon APScheduler, 7 h par défaut.
+# Installation (systemd utilisateur) :
+#   mkdir -p ~/.config/systemd/user && cp systemd/veille-cron.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now veille-cron.service
+#   loginctl enable-linger "$USER"   # tourne même sans session ouverte
+# Suivi : bin/veille cron status · journalctl --user -u veille-cron -f · data/cron.log
+
+[Unit]
+Description=Veille LLM/GenAI : cron quotidien (benchmarks, actus, événements)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/wax-demo
+ExecStart=%h/wax-demo/.venv/bin/python -m app.main cron start
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=default.target

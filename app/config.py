@@ -123,6 +123,23 @@ class Settings(BaseSettings):
     # Vidéos et podcasts (onglet 🎬) : fenêtre de recherche, entrées lues par flux [[media]]
     media_search_days: int = Field(14, ge=1, le=90)
     media_per_source: int = Field(12, ge=1, le=50)
+    # Cron quotidien (python -m app.main cron start) : benchmarks, actus, événements via bin/veille
+    cron_hour: int = Field(7, ge=0, le=23)
+    cron_minute: int = Field(0, ge=0, le=59)
+    cron_timezone: str = "Europe/Paris"
+    # JSON, ex. ["benchmarks", "news-crawl"] ; tâches : benchmarks, news-crawl, news-search, events-crawl,
+    # events-search, news-screenshots
+    cron_tasks: list[str] = Field(default_factory=lambda: [
+        "benchmarks", "news-crawl", "news-search", "events-crawl", "events-search", "news-screenshots"])
+    cron_task_timeout: int = Field(900, ge=30, le=7200)  # secondes par commande
+    cron_retries: int = Field(2, ge=0, le=5)  # nouveaux essais après un échec
+    cron_retry_delay: int = Field(60, ge=1, le=3600)  # secondes, doublé à chaque essai
+    cron_min_interval_hours: float = Field(20, ge=0, le=24 * 7)  # tâche réussie plus récemment : sautée
+    cron_offline_retry_minutes: int = Field(15, ge=1, le=720)
+    cron_offline_max_retries: int = Field(8, ge=0, le=100)
+    cron_state_path: Path = Path("data/cron-state.json")
+    cron_log_path: Path = Path("data/cron.log")
+    cron_executable: Path = PROJECT_ROOT / "bin" / "veille"
     web_host: str = "127.0.0.1"
     web_port: int = 8000
     # Jeton exigé sur l'API web (Authorization: Bearer, ou cookie posé par /?token=…) ;
