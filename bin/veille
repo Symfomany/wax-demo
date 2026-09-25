@@ -63,6 +63,12 @@ Serveur web
   tui-build [cible]            Compile la TUI en exécutable autonome tui/dist/veille-tui (cible : bun-linux-arm64
                                pour la Jetson) ; ensuite : tui/dist/veille-tui [écran], sans Bun ni node_modules
 
+Cron quotidien (APScheduler, 7 h par défaut : CRON_HOUR, CRON_MINUTE, CRON_TASKS…)
+  cron start                   Démon au premier plan (service : systemd/veille-cron.service)
+  cron once [-t TÂCHE] [--force]
+                               Un cycle maintenant : benchmarks, actus (crawl + web), événements (ics + web)
+  cron status                  Prochain passage, dernier succès de chaque tâche (journal : data/cron.log)
+
 Outils
   doctor                       Diagnostic (Ollama, modèle, GPU, MCP, migrations)
   report                       Régénère le rapport daté (Markdown + HTML) de la dernière veille
@@ -284,6 +290,7 @@ main() {
     events)  app events "$@" ;;
     media)   app media "$@" ;;
     benchmarks|bench) app benchmarks "$@" ;;
+    cron)    app cron "$@" ;;
     web)     app web "$@" ;;
     web-password) app web-password "$@" ;;
     start)   start_server "$@" ;;

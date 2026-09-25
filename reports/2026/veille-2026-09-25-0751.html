@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="generator" content="LLM Watch Harness">
+<meta name="keywords" content="vllm, quantisation, moe, optimisation, kimi">
+<title>Veille LLM / GenAI — 25/09/2026</title>
+<style>
+:root {
+  --bg: #f6f5f1; --paper: #ffffff; --ink: #1b1a17; --muted: #6b675e; --line: #e6e2d8;
+  --accent: #5b4bdb; --accent-soft: #eeecfd; --ok: #2e7d4f; --ok-soft: #e3f3e8; --warn: #9a6a10; --warn-soft: #faf0d9;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #131316; --paper: #1c1c21; --ink: #ecebf1; --muted: #a3a1ad; --line: #30303a;
+          --accent: #a197ff; --accent-soft: #2a2748; --ok: #74cf98; --ok-soft: #1b3325; --warn: #e6b85c; --warn-soft: #362b14; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.7 var(--sans); }
+a { color: var(--accent); text-underline-offset: 3px; }
+.page { max-width: 820px; margin: 0 auto; padding: calc(40px + env(safe-area-inset-top, 0px)) 20px calc(64px + env(safe-area-inset-bottom, 0px)); }
+header .kicker { font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+header h1 { font-family: var(--serif); font-size: clamp(2rem, 5vw, 2.8rem); line-height: 1.15; margin: .3em 0 .2em; letter-spacing: -.01em; }
+header .date { color: var(--muted); }
+.lead { font-family: var(--serif); font-size: 1.22rem; line-height: 1.6; border-left: 3px solid var(--accent); padding: .2em 0 .2em 1em; margin: 1.6em 0; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 1.6em 0; }
+.kpi { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.kpi b { display: block; font-size: 1.6rem; line-height: 1.1; }
+.kpi span { color: var(--muted); font-size: .8rem; }
+.kpi code { font: 600 .85rem var(--mono); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: .4em 0; }
+.chip { font-size: .8rem; padding: 2px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+h2 { font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 3em 0 1em; padding-bottom: .5em; border-bottom: 1px solid var(--line); }
+.top { counter-reset: top; list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.top li { counter-increment: top; background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 14px 56px; position: relative; }
+.top li::before { content: counter(top); position: absolute; left: 16px; top: 14px; width: 28px; height: 28px; border-radius: 50%;
+                  background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: .85rem; }
+.top a { font-weight: 700; text-decoration: none; }
+.top p { margin: .3em 0 0; color: var(--muted); font-size: .95rem; }
+article.signal { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 22px 24px; margin: 0 0 18px; }
+.signal .meta { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: .82rem; color: var(--muted); }
+.signal .badge { font-weight: 700; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; }
+.signal h3 { font-family: var(--serif); font-size: 1.35rem; line-height: 1.3; margin: .45em 0 .4em; }
+.signal h3 a { color: var(--ink); text-decoration: none; }
+.signal h3 a:hover { color: var(--accent); }
+.signal .summary { margin: 0 0 .9em; }
+.why { background: var(--ok-soft); border-radius: 10px; padding: 10px 14px; font-size: .95rem; }
+.why b { color: var(--ok); }
+.signal .chips { margin-top: 12px; }
+.signal .chip { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; background: var(--paper); border-radius: 12px; overflow: hidden; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.rejected li { margin: .4em 0; font-size: .92rem; }
+.rejected code { font: .8rem var(--mono); background: var(--warn-soft); color: var(--warn); padding: 1px 6px; border-radius: 5px; }
+.method { font-size: .9rem; color: var(--muted); }
+details { margin-top: .8em; }
+summary { cursor: pointer; }
+footer { margin-top: 3em; font-size: .8rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 1em; }
+@media print { body { background: #fff; } article.signal, .top li, .kpi { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="kicker">Veille LLM / GenAI · rapport daté</div>
+    <h1>Veille LLM / GenAI — 25/09/2026</h1>
+    <div class="date">Vendredi 25 septembre 2026 · modèle <code>ministral-3:3b</code></div>
+  </header>
+
+  <p class="lead">Les avancées récentes en inférence de modèles LLMs misent sur des optimisations matérielles ciblées (MXFP8, MTP, MoE) et des architectures asynchrones pour les serveurs grand public (RTX, Apple Silicon). Les gains de performance, comme ceux atteints avec Kimi K3 (2,8×) ou les optimisations INT4 pour Kimi K2.x, s’appuient sur des kernels CUDA et des mécanismes de batching avancés. Le watermarking intégré renforce la robustesse des systèmes en production.</p>
+
+  <div class="kpis">
+    <div class="kpi"><b>5</b><span>signaux retenus</span></div>
+    <div class="kpi"><b>0</b><span>écartés par le Critic</span></div>
+    <div class="kpi"><b>0</b><span>documents collectés</span></div>
+  </div>
+  <div class="chips" aria-label="Mots-clés"><span class="chip">vllm</span><span class="chip">quantisation</span><span class="chip">moe</span><span class="chip">optimisation</span><span class="chip">kimi</span></div>
+
+  <h2>À retenir</h2>
+  <ol class="top">
+    <li><a href="https://github.com/vllm-project/vllm/releases/tag/v0.30.0" target="_blank" rel="noopener">vllm-project/vllm: v0.30.0</a><p>Testez ces optimisations avec des modèles Flash sur vos GPU consumer (RTX) pour évaluer leur impact sur les latences et le throughput en contexte d&#39;inférence concurrentielle.</p></li>
+    <li><a href="https://vllm.ai/blog/2026-09-22-vllm-metal-v0-28-0" target="_blank" rel="noopener">Announcing vllm-metal: Concurrent Serving on Apple Silicon</a><p>Adoptez cette extension pour évaluer la compatibilité et les performances de vos applications embarquées ou grand public sur Apple Silicon, en surveillant la stabilité des flux multi-agent.</p></li>
+    <li><a href="https://vllm.ai/blog/2026-09-15-novita-chord-w4a16-moe" target="_blank" rel="noopener">vLLM x Novita AI: Chord, Faster INT4 MoE for Kimi K2.x. Up to 1.3x on H200, 2.15x on Untuned B300</a><p>Intégrez ce kernel dans vos serveurs vLLM pour benchmarker les performances MoE sur vos GPU consumer (B300/H200) et valider son impact sur les workloads mixtes.</p></li>
+  </ol>
+
+  <h2>Signaux</h2>
+  <article class="signal" id="signal-1">
+    <div class="meta"><span class="badge">🐙 GitHub</span><span>22/09/2026</span><span>#1</span></div>
+    <h3><a href="https://github.com/vllm-project/vllm/releases/tag/v0.30.0" target="_blank" rel="noopener">vllm-project/vllm: v0.30.0</a></h3>
+    <p class="summary">vLLM 0.30.0 intègre des optimisations matérielles pour les modèles Flash (comme DeepSeek-V4.1) avec stockage KV en MXFP8 sur SM100, DeepGEMM Mega-mHC, et des mécanismes asynchrones (Engram prefetch + DP sharding). Ces améliorations visent les serveurs GPU consumer et les architectures RTX, en ciblant des gains de performance spécifiques à ces environnements.</p>
+    <div class="why"><b>Pourquoi c'est important —</b> Testez ces optimisations avec des modèles Flash sur vos GPU consumer (RTX) pour évaluer leur impact sur les latences et le throughput en contexte d&#39;inférence concurrentielle.</div>
+  </article>
+  <article class="signal" id="signal-2">
+    <div class="meta"><span class="badge">📰 Blog officiel</span><span>22/09/2026</span><span>#2</span></div>
+    <h3><a href="https://vllm.ai/blog/2026-09-22-vllm-metal-v0-28-0" target="_blank" rel="noopener">Announcing vllm-metal: Concurrent Serving on Apple Silicon</a></h3>
+    <p class="summary">vLLM-metal étend la pile de serveurs vLLM à Apple Silicon, avec un paged batching optimisé pour les GPU consumer (MTP, accélération M5) et une latence réduite sous charge d&#39;agents concurrents.</p>
+    <div class="why"><b>Pourquoi c'est important —</b> Adoptez cette extension pour évaluer la compatibilité et les performances de vos applications embarquées ou grand public sur Apple Silicon, en surveillant la stabilité des flux multi-agent.</div>
+  </article>
+  <article class="signal" id="signal-3">
+    <div class="meta"><span class="badge">📰 Blog officiel</span><span>15/09/2026</span><span>#3</span></div>
+    <h3><a href="https://vllm.ai/blog/2026-09-15-novita-chord-w4a16-moe" target="_blank" rel="noopener">vLLM x Novita AI: Chord, Faster INT4 MoE for Kimi K2.x. Up to 1.3x on H200, 2.15x on Untuned B300</a></h3>
+    <p class="summary">Chord, un kernel MoE W4A16 CUDA open-source, offre des gains de 1,3× sur H200 et 2,15× sur B300 pour Kimi K2.x, avec une approche compatible Humming et indexée.</p>
+    <div class="why"><b>Pourquoi c'est important —</b> Intégrez ce kernel dans vos serveurs vLLM pour benchmarker les performances MoE sur vos GPU consumer (B300/H200) et valider son impact sur les workloads mixtes.</div>
+<div class="chips"><span class="chip">vLLM</span><span class="chip">quantisation</span><span class="chip">MoE</span></div>  </article>
+  <article class="signal" id="signal-4">
+    <div class="meta"><span class="badge">📰 Blog officiel</span><span>13/09/2026</span><span>#4</span></div>
+    <h3><a href="https://vllm.ai/blog/2026-09-13-kimi-k3-performance-optimization" target="_blank" rel="noopener">Kimi K3 Performance Optimizations in vLLM: The Road to 2.8× Throughput</a></h3>
+    <p class="summary">Des optimisations multi-facteurs (scheduling, KDA prefix caching, ReplaySSM, MoE, GPU kernels) atteignent un gain de 2,8× en throughput pour Kimi K3 dans vLLM.</p>
+    <div class="why"><b>Pourquoi c'est important —</b> Migrez vos serveurs vLLM vers Kimi K3 pour comparer ces gains avec vos propres configurations et identifier les bottlenecks matériels résiduels.</div>
+<div class="chips"><span class="chip">vLLM</span><span class="chip">optimisation</span></div>  </article>
+  <article class="signal" id="signal-5">
+    <div class="meta"><span class="badge">📰 Blog officiel</span><span>24/09/2026</span><span>#5</span></div>
+    <h3><a href="https://vllm.ai/blog/2026-09-24-watermarking-in-vllm" target="_blank" rel="noopener">Watermarking in vLLM</a></h3>
+    <p class="summary">vLLM intègre un watermarking textuel optimisé pour GPU, avec détection statistique et protection contre les contextes répétés, améliorant la robustesse des systèmes en production.</p>
+    <div class="why"><b>Pourquoi c'est important —</b> Surveillez l’impact de ce watermarking sur vos pipelines d’inférence pour valider sa capacité à détecter et filtrer les contenus non autorisés sans altérer les performances.</div>
+  </article>
+
+  <h2>Ressources</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>#</th><th>Ressource</th><th>Source</th><th>Date</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><a href="https://github.com/vllm-project/vllm/releases/tag/v0.30.0" target="_blank" rel="noopener">vllm-project/vllm: v0.30.0</a></td><td>🐙 GitHub</td><td>22/09/2026</td></tr>
+      <tr><td>2</td><td><a href="https://vllm.ai/blog/2026-09-22-vllm-metal-v0-28-0" target="_blank" rel="noopener">Announcing vllm-metal: Concurrent Serving on Apple Silicon</a></td><td>📰 Blog officiel</td><td>22/09/2026</td></tr>
+      <tr><td>3</td><td><a href="https://vllm.ai/blog/2026-09-15-novita-chord-w4a16-moe" target="_blank" rel="noopener">vLLM x Novita AI: Chord, Faster INT4 MoE for Kimi K2.x. Up to 1.3x on H200, 2.15x on Untuned B300</a></td><td>📰 Blog officiel</td><td>15/09/2026</td></tr>
+      <tr><td>4</td><td><a href="https://vllm.ai/blog/2026-09-13-kimi-k3-performance-optimization" target="_blank" rel="noopener">Kimi K3 Performance Optimizations in vLLM: The Road to 2.8× Throughput</a></td><td>📰 Blog officiel</td><td>13/09/2026</td></tr>
+      <tr><td>5</td><td><a href="https://vllm.ai/blog/2026-09-24-watermarking-in-vllm" target="_blank" rel="noopener">Watermarking in vLLM</a></td><td>📰 Blog officiel</td><td>24/09/2026</td></tr>
+    </tbody>
+  </table></div>
+
+
+  <h2>Méthodologie</h2>
+  <div class="method">
+    <p><b>Collecte :</b> rss +0 · arxiv +0 · github_releases +0 · github_mcp +0.
+    Chaîne : supervisor → research (Scouts parallèles) → review (Critic) → editorial (Editor + guards) → validation humaine.
+    URLs, titres et dates sont recopiés depuis les sources collectées ; le digest est validé par Pydantic.</p>
+<details><summary>Trace du supervisor</summary><ul><li>fan-out : collect:rss, collect:arxiv, collect:github_releases, collect:github_mcp</li><li>délègue prefilter → prefilter</li><li>délègue research → research</li><li>délègue review → review</li><li>délègue editorial → editorial</li><li>plan terminé → validation</li></ul></details>  </div>
+
+  <footer>Rapport généré le 2026-09-25T07:51:45.117046Z par LLM Watch Harness · run <code>f43b616b-5f7b-44e2-95a0-02a2b1718916</code> · chaque affirmation renvoie à sa source.</footer>
+</div>
+</body>
+</html>

@@ -41,6 +41,8 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Événements IA : `python -m app.main events search|crawl|list`, onglet 📅 (export `/api/events.ics`)
 - Vidéos & podcasts : `python -m app.main media search|crawl|list`, onglet 🎬
 - Benchmarks (BenchLM.ai) : `python -m app.main benchmarks crawl|list|show <clé>`, onglet 📊
+- Cron quotidien (7 h, APScheduler) : `python -m app.main cron start|once|status` (`bin/veille cron …`,
+  service `systemd/veille-cron.service`) : benchmarks, actus, événements via `bin/veille`
 - Sources par URL (vérifiées) : `python -m app.main source add <URL>` · `source list` · `source remove <type> <valeur>`
 - TUI (OpenTUI + React, Bun local) : `bin/veille tui [écran]` ; tests `cd tui && ./node_modules/.bin/bun test` ;
   exécutable autonome : `bin/veille tui-build [bun-linux-arm64]` → `tui/dist/veille-tui [écran]`
@@ -95,6 +97,8 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
   prompt `app/prompts/media_search.md`.
 - Benchmarks : `app/benchmarks.py` (catalogue BenchLM via `__NEXT_DATA__`, détail à la demande en cache ;
   analyse déterministe : leader, meilleur modèle à poids ouverts, saturation, provenance, fraîcheur), table `benchmarks` (v9).
+- Cron : `app/scheduler.py` (tâches = commandes `bin/veille`, fraîcheur `CRON_MIN_INTERVAL_HOURS`, essais,
+  rattrapage, report hors ligne, verrou) ; état `data/cron-state.json`, journal `data/cron.log` (hors Git).
 - Aperçus des actus : `app/screenshots.py` via MCP Playwright (`@playwright/mcp@0.0.82`, `SCREENSHOT_ENABLED`),
   images dans `data/screenshots/` (hors Git) ; aussi déclaré pour Claude Code dans `.mcp.json`.
 - Login web : `app/web/auth.py` (sessions HMAC, anti-force brute), page `app/web/static/login.html`.
