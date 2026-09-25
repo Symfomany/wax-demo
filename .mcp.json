@@ -1,15 +1,15 @@
 {
   "mcpServers": {
     "github-scout": {
-      "command": "/home/boyer/llm-harness/.venv/bin/python",
-      "args": ["/home/boyer/llm-harness/app/mcp_servers/github_server.py"],
+      "command": "/home/boyer/wax-demo/.venv/bin/python",
+      "args": ["/home/boyer/wax-demo/app/mcp_servers/github_server.py"],
       "env": {
         "GITHUB_TOKEN": "${GITHUB_TOKEN:-}"
       }
     },
     "notion-veille": {
-      "command": "/home/boyer/llm-harness/.venv/bin/python",
-      "args": ["/home/boyer/llm-harness/app/mcp_servers/notion_server.py"],
+      "command": "/home/boyer/wax-demo/.venv/bin/python",
+      "args": ["/home/boyer/wax-demo/app/mcp_servers/notion_server.py"],
       "env": {
         "NOTION_TOKEN": "${NOTION_TOKEN:-}"
       }

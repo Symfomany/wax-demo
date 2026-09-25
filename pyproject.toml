@@ -8,6 +8,7 @@ dependencies = [
     "feedparser",
     "httpx",
     "jinja2",
+    "langchain",
     "langchain-anthropic",
     "langchain-core",
     "langchain-mcp-adapters",
@@ -28,6 +29,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
