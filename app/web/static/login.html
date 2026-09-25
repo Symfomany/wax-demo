@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Connexion · Veille AI</title>
+<style>
+:root {
+  --bg: #f6f5f1; --panel: #ffffff; --panel-2: #f1efe9; --line: #e4e1d8; --text: #1c1b19; --muted: #6d6a62;
+  --accent: #5b4bdb; --accent-soft: #ecebfd; --bad: #b3372f; --bad-soft: #f9e2e0; --warn: #9a6a10; --warn-soft: #f8edd4;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121216; --panel: #1b1b21; --panel-2: #24242c; --line: #30303a; --text: #ecebf2; --muted: #a09fae;
+    --accent: #9b90ff; --accent-soft: #29264a; --bad: #f08a80; --bad-soft: #3c1f1c; --warn: #e6b85c; --warn-soft: #372c14; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121216; --panel: #1b1b21; --panel-2: #24242c; --line: #30303a; --text: #ecebf2; --muted: #a09fae;
+  --accent: #9b90ff; --accent-soft: #29264a; --bad: #f08a80; --bad-soft: #3c1f1c; --warn: #e6b85c; --warn-soft: #372c14; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 var(--sans); display: grid; place-items: center; padding: 16px;
+       background-image: radial-gradient(circle at 15% 10%, var(--accent-soft), transparent 45%), radial-gradient(circle at 85% 90%, var(--accent-soft), transparent 40%); }
+button, input { font: inherit; color: inherit; }
+.card { width: min(400px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 22px; padding: 30px 28px 24px;
+        box-shadow: 0 30px 80px rgba(20,20,30,.12); animation: rise .35s cubic-bezier(.2,.9,.3,1.15); }
+@keyframes rise { from { transform: translateY(14px); opacity: 0; } }
+.logo { width: 52px; height: 52px; border-radius: 15px; display: grid; place-items: center; color: #fff; font-size: 1.5rem; margin-bottom: 14px;
+        background: linear-gradient(135deg, var(--accent), #c05bd6); }
+h1 { margin: 0 0 4px; font-size: 1.4rem; letter-spacing: -.01em; }
+.tag { display: inline-block; margin: 0 0 10px; font-size: .74rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+p.sub { margin: 0 0 22px; color: var(--muted); font-size: .9rem; }
+label { display: block; font-size: .75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 14px 0 5px; }
+.field { display: flex; align-items: center; border: 1px solid var(--line); background: var(--panel-2); border-radius: 12px; }
+.field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.field input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; padding: 11px 13px; }
+.field button { border: 0; background: none; cursor: pointer; padding: 0 12px; color: var(--muted); font-size: .8rem; font-weight: 600; }
+.submit { width: 100%; margin-top: 22px; border: 0; border-radius: 12px; padding: 12px; font-weight: 700; color: #fff; cursor: pointer;
+          background: linear-gradient(135deg, var(--accent), #c05bd6); display: flex; justify-content: center; align-items: center; gap: 10px; }
+.submit:disabled { opacity: .7; cursor: progress; }
+.spin { width: 15px; height: 15px; border-radius: 50%; border: 2px solid #fff6; border-top-color: #fff; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error { margin-top: 14px; padding: 9px 12px; border-radius: 10px; font-size: .86rem; background: var(--bad-soft); color: var(--bad); }
+.error.warn { background: var(--warn-soft); color: var(--warn); }
+.caps { margin-top: 6px; font-size: .78rem; color: var(--warn); }
+.foot { margin-top: 18px; text-align: center; font-size: .76rem; color: var(--muted); }
+.shake { animation: shake .35s; }
+@keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body>
+<form class="card" id="form" autocomplete="on">
+  <div class="logo" aria-hidden="true">✦</div>
+  <h1>Veille AI</h1>
+  <div class="tag">For Wax Conference</div>
+  <p class="sub">Accès protégé : connectez-vous pour ouvrir le panneau de veille.</p>
+  <label for="username">Identifiant</label>
+  <div class="field"><input id="username" name="username" autocomplete="username" required autofocus></div>
+  <label for="password">Mot de passe</label>
+  <div class="field"><input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="button" id="reveal" aria-label="Afficher le mot de passe">Afficher</button></div>
+  <div class="caps" id="caps" hidden>⇪ Verrouillage majuscules activé</div>
+  <button class="submit" id="submit" type="submit">Se connecter</button>
+  <div class="error" id="error" role="alert" hidden></div>
+  <div class="foot">Identifiants définis dans <code>.env</code> (WEB_USERNAME, WEB_PASSWORD)</div>
+</form>
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  try { const t = localStorage.getItem("veille-theme"); if (t && t !== "system") document.documentElement.setAttribute("data-theme", t); } catch {}
+  // Retour après connexion : chemin relatif uniquement (pas de redirection ouverte).
+  const next = new URLSearchParams(location.search).get("next") || "/";
+  const target = /^\/(?!\/)/.test(next) && !next.includes("\\") ? next : "/";
+  $("#reveal").addEventListener("click", () => {
+    const shown = $("#password").type === "text";
+    $("#password").type = shown ? "password" : "text"; $("#reveal").textContent = shown ? "Afficher" : "Masquer";
+  });
+  $("#password").addEventListener("keyup", (e) => { $("#caps").hidden = !e.getModifierState?.("CapsLock"); });
+  $("#form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const button = $("#submit"), error = $("#error");
+    button.disabled = true; button.innerHTML = '<span class="spin"></span> Connexion…'; error.hidden = true;
+    try {
+      const response = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: $("#username").value, password: $("#password").value }) });
+      const body = await response.json().catch(() => ({}));
+      if (response.ok) { location.replace(target); return; }
+      error.className = response.status === 429 ? "error warn" : "error";
+      error.textContent = typeof body.detail === "string" ? body.detail : "Connexion impossible.";
+      error.hidden = false; $("#password").value = ""; $("#password").focus();
+      $("#form").classList.remove("shake"); void $("#form").offsetWidth; $("#form").classList.add("shake");
+    } catch { error.textContent = "Serveur injoignable."; error.hidden = false; }
+    button.disabled = false; button.textContent = "Se connecter";
+  });
+})();
+</script>
+</body>
+</html>

@@ -57,7 +57,11 @@ def translate(chunk: dict) -> list[dict]:
             events.append({"type": "collect", "source": source, "count": count})
         for error in update.get("errors", []):
             events.append({"type": "warning", "text": error})
-        if node == "research":
+        if node == "quality":
+            for item in update.get("filtered", [])[:12]:
+                events.append({"type": "filtered", "kind": item["kind"], "title": item["title"],
+                               "reason": item["reason"]})
+        elif node == "research":
             events.append({"type": "agent", "node": node, "text": f"{len(update.get('signals', []))} signal(aux) proposé(s)"})
         elif node == "review":
             events.append({"type": "agent", "node": node, "text": f"{len(update.get('accepted', []))} signal(aux) accepté(s)"})
@@ -199,6 +203,8 @@ def run_step_detail(node: str, update: dict) -> str:
         return f"{len(update['accepted'])} accepté(s)"
     if "violations" in update:
         return f"{len(update['violations'])} violation(s)"
+    if "kept" in update:
+        return f"{len(update['kept'])} gardé(s)" + (f", {len(update['filtered'])} écarté(s)" if update.get("filtered") else "")
     if "picks" in update:
         return f"{len(update['picks'])} choix du Scout"
     if update.get("errors"):
@@ -206,7 +212,7 @@ def run_step_detail(node: str, update: dict) -> str:
     return ""
 
 
-AGENT_OF_NODE = {"scout_batch": "scout", "critic": "critic", "editor": "editor", "repair": "editor",
+AGENT_OF_NODE = {"noise": "quality", "dedup": "quality", "scout_batch": "scout", "critic": "critic", "editor": "editor", "repair": "editor",
                  "collector": "collector", "supervisor": "supervisor", "reflect": "reflect"}
 PROMPT_OF_NODE = {"scout_batch": "scout.md", "critic": "critic.md", "editor": "editor.md", "repair": "editor.md"}
 

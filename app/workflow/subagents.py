@@ -1,6 +1,7 @@
 """Sous-agents : sous-graphes LangGraph avec leur propre état.
 
-- research  : map-reduce — un Scout par lot de documents (Send, parallèle), puis classement.
+- quality   : bruit → doublons → sélection (règles déterministes, sans LLM).
+- research  : map-reduce — un Scout par lot de documents (Send, parallèle), puis ranking hybride.
 - review    : pré-contrôle déterministe → Critic LLM (seulement si nécessaire) → décision.
 - editorial : Editor → guards → boucle de réparation conditionnelle bornée.
 
@@ -31,6 +32,14 @@ from app.schemas import (
     ScoutOutput,
     Signal,
 )
+from app.workflow.quality import (
+    RankInput,
+    cluster_documents,
+    hybrid_rank,
+    noise_check,
+    published_duplicate,
+    published_index,
+)
 from app.workflow.state import HarnessContext
 
 
@@ -42,6 +51,70 @@ def _excerpt(document: Document, limit: int) -> str:
     return sanitize_untrusted(document.summary, limit)
 
 
+# --- Quality : bruit → doublons → sélection ------------------------------------
+
+
+class QualityState(TypedDict, total=False):
+    candidates: list[dict]
+    exclusions: list[str]
+    published: list[list[str]]  # [url, titre] des items déjà publiés
+    max_documents: int
+    kept: list[dict]
+    flags: dict[str, list[str]]
+    filtered: Annotated[list[dict], operator.add]
+    quality: dict[str, dict]
+
+
+def build_quality(context: HarnessContext):
+    def noise(state: QualityState) -> dict:
+        kept, flags, filtered = [], {}, []
+        for item in state["candidates"]:
+            document = Document.model_validate(item)
+            reason, found = noise_check(document, state.get("exclusions", []))
+            if reason:
+                filtered.append({"url": item["url"], "title": document.title, "kind": "bruit", "reason": reason})
+                continue
+            kept.append(item)
+            if found:
+                flags[item["url"]] = found
+        return {"kept": kept, "flags": flags, "filtered": filtered}
+
+    def dedup(state: QualityState) -> dict:
+        published = published_index([(url, title) for url, title in state.get("published", [])])
+        documents, filtered = [], []
+        for item in state["kept"]:
+            document = Document.model_validate(item)
+            if title := published_duplicate(document, published, context.dedup_threshold):
+                filtered.append({"url": item["url"], "title": document.title, "kind": "doublon",
+                                 "reason": f"déjà publié : « {title[:90]} »"})
+            else:
+                documents.append(document)
+        quality, kept = {}, []
+        for cluster in cluster_documents(documents, context.dedup_threshold):
+            url = str(cluster.representative.url)
+            kept.append(cluster.representative.model_dump(mode="json"))
+            quality[url] = {"sources": len(cluster.sources), "flags": state.get("flags", {}).get(url, []),
+                            "duplicates": [str(d.url) for d in cluster.members]}
+            filtered += [{"url": str(d.url), "title": d.title, "kind": "doublon",
+                          "reason": f"doublon de « {cluster.representative.title[:90]} »"} for d in cluster.members]
+        return {"kept": kept, "quality": quality, "filtered": filtered}
+
+    def select(state: QualityState) -> dict:
+        # Le pool du prefilter est déjà équilibré par source (tourniquet) : on garde sa tête.
+        kept = state["kept"][: state.get("max_documents") or context.max_documents]
+        return {"kept": kept, "quality": {item["url"]: state["quality"][item["url"]] for item in kept}}
+
+    builder = StateGraph(QualityState)
+    builder.add_node("noise", noise)
+    builder.add_node("dedup", dedup)
+    builder.add_node("select", select)
+    builder.add_edge(START, "noise")
+    builder.add_edge("noise", "dedup")
+    builder.add_edge("dedup", "select")
+    builder.add_edge("select", END)
+    return builder.compile()
+
+
 # --- Research : map-reduce de Scouts ---------------------------------------
 
 
@@ -49,6 +122,8 @@ class ResearchState(TypedDict, total=False):
     candidates: list[dict]
     min_relevance: int
     memory: str
+    quality: dict[str, dict]  # sous-graphe quality : corroboration et bruit léger par URL
+    keywords: list[str]  # profil Grill-me + focus du run + thèmes appris : composante « profil »
     picks: Annotated[list[dict], operator.add]
     errors: Annotated[list[str], operator.add]
     signals: list[dict]
@@ -108,31 +183,31 @@ def build_research(context: HarnessContext):
         return {"picks": picks}
 
     def rank(state: ResearchState) -> dict:
+        """Ranking hybride explicable : score LLM + fraîcheur + profil + source + corroboration."""
         documents = [Document.model_validate(item) for item in state["candidates"]]
-        signals: dict[str, Signal] = {}
+        quality = state.get("quality") or {}
+        inputs: dict[str, RankInput] = {}
         for pick in state.get("picks", []):
             if pick["relevance"] < state["min_relevance"]:
                 continue
             document = documents[pick["index"]]
-            signals.setdefault(
-                str(document.url),
-                Signal(
-                    title=document.title,
-                    url=document.url,
-                    source=document.source,
-                    published_at=document.published_at,
-                    relevance=pick["relevance"],
-                    novelty=pick["novelty"],
-                    confidence=pick["confidence"],
-                    why_it_matters=pick["why_it_matters"],
-                    tags=[*document.tags[:2], *pick["tags"][:3]],
-                ),
+            if str(document.url) in inputs:
+                continue
+            info = quality.get(str(document.url), {})
+            signal = Signal(
+                title=document.title,
+                url=document.url,
+                source=document.source,
+                published_at=document.published_at,
+                relevance=pick["relevance"],
+                novelty=pick["novelty"],
+                confidence=pick["confidence"],
+                why_it_matters=pick["why_it_matters"],
+                tags=[*document.tags[:2], *pick["tags"][:3]],
             )
-        ranked = sorted(
-            signals.values(),
-            key=lambda s: (2 * s.relevance + s.novelty + s.confidence),
-            reverse=True,
-        )[: context.max_signals]
+            inputs[str(document.url)] = RankInput(signal, document, info.get("sources", 1), info.get("flags", []))
+        ranked = hybrid_rank(list(inputs.values()), context.now(), context.max_age_days,
+                             state.get("keywords", []), context.rank_weights)[: context.max_signals]
         return {"signals": [signal.model_dump(mode="json") for signal in ranked]}
 
     builder = StateGraph(ResearchState)
@@ -268,6 +343,8 @@ def build_editorial(context: HarnessContext):
                     summary=text.summary if text else documents[str(signal.url)].summary[:300],
                     why_it_matters=text.why_it_matters if text else signal.why_it_matters,
                     tags=signal.tags,
+                    score=signal.score,
+                    rank_reasons=signal.rank_reasons,
                 )
             )
         digest = Digest(

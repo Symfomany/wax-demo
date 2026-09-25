@@ -2,6 +2,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 from uuid import uuid4
 
 import httpx
@@ -256,6 +257,16 @@ def doctor():
         ".env ignoré par Git",
         gitignore.exists() and ".env" in gitignore.read_text().splitlines(),
     )
+    if settings.web_login_enabled:
+        from app.web.auth import AuthConfigError
+        from app.web.server import build_authenticator
+
+        try:
+            check("Connexion web (login)", True, f"utilisateur {build_authenticator().username}")
+        except AuthConfigError as error:
+            check("Connexion web (login)", False, str(error))
+    elif settings.web_host not in ("127.0.0.1", "localhost", "::1"):
+        check("Connexion web (login)", False, f"interface exposée sur {settings.web_host} sans WEB_USERNAME / WEB_PASSWORD")
     if settings.notion_enabled:
         from app.notion import check_access
 
@@ -585,6 +596,207 @@ def news_list(
     print(_news_table(storage.list_news(connection, source=source or None, limit=limit)))
 
 
+@news_cli.command("screenshots")
+def news_screenshots(limit: int = typer.Option(settings.screenshot_max_per_run, help="Pages capturées au plus.")):
+    """Aperçus des actus sans image : captures par le serveur MCP Playwright (@playwright/mcp)."""
+    from app.screenshots import ScreenshotError, capture_news
+
+    connection = storage.connect(settings.database_path)
+    candidates = [n for n in storage.list_news(connection, limit=200) if not n.get("image") and not n.get("screenshot")]
+    try:
+        report = capture_news(candidates, limit=limit)
+    except ScreenshotError as error:
+        print(f"[red]✗ {error}[/red]")
+        raise typer.Exit(1)
+    by_id = {n["id"]: n for n in candidates}
+    storage.save_news(connection, [{k: v for k, v in by_id[i].items() if k != "fetched_at"}
+                                   | {"screenshot": f"/api/news/{i}/screenshot"} for i in report.saved])
+    print(f"[green]✓ {len(report.saved)} aperçu(s)[/green] · {report.skipped} déjà illustrée(s)")
+    for url, error in report.errors.items():
+        print(f"[red]✗ {url}[/red] : {error}")
+
+
+def _radar_context(topics: str) -> tuple[str, str]:
+    from app.news import interest_topics
+
+    with open_store() as store:
+        memory = WatchMemory(store)
+        wanted, _ = interest_topics(memory.interests())
+        context = memory.prompt_context()
+    if topics.strip():
+        wanted = "\n".join(f"- {t.strip()}" for t in topics.split(",") if t.strip())
+    return wanted, context
+
+
+def _claude(function, **kwargs):
+    from app.news import NewsError, explain_api_error
+
+    try:
+        return function(**kwargs)
+    except NewsError as error:
+        print(f"[red]✗ {error}[/red]")
+    except Exception as error:  # noqa: BLE001 — erreur de l'API Claude, message actionnable
+        print(f"[red]✗ {explain_api_error(error)}[/red]")
+    raise typer.Exit(1)
+
+
+events_cli = typer.Typer(help="Événements IA : conférences, meetups, webinaires (flux .ics + recherche web Claude).")
+cli.add_typer(events_cli, name="events")
+
+
+def _events_table(items: list[dict]) -> Table:
+    table = Table("Date", "Type", "Événement", "Lieu", "URL")
+    for item in items:
+        when = item.get("starts_on") or "à confirmer"
+        if item.get("ends_on") and item["ends_on"] != item.get("starts_on"):
+            when += f" → {item['ends_on']}"
+        table.add_row(when, item["kind"], item["title"], "en ligne" if item.get("online") else item.get("location", ""),
+                      item["url"])
+    return table
+
+
+@events_cli.command("search")
+def events_search(
+    topics: str = typer.Argument("", help="Sujets séparés par des virgules (vide : profil Grill-me)."),
+    horizon: int = typer.Option(settings.events_horizon_days, help="Jours à venir couverts."),
+):
+    """Événements à venir par l'API Claude (web_search) ; dates gardées seulement si présentes dans la page."""
+    from app.events import search_events
+
+    wanted, context = _radar_context(topics)
+    print(f"[cyan]📅 {settings.news_model} + web_search ({horizon} j à venir)…[/cyan]")
+    report = _claude(search_events, topics=wanted, memory=context, horizon=horizon)
+    storage.save_events(storage.connect(settings.database_path), [item.record() for item in report.items])
+    print(_events_table([item.record() for item in report.items]))
+    print(f"{len(report.items)} événement(s) · {report.unverified_dates} date(s) non retrouvée(s) dans la page"
+          + (f" · {len(report.rejected)} écarté(s)" if report.rejected else ""))
+
+
+@events_cli.command("crawl")
+def events_crawl():
+    """Lit les calendriers .ics déclarés dans sources.toml (sections events)."""
+    from app.events import crawl_calendars
+
+    report = crawl_calendars(load_sources(settings.sources_path))
+    storage.save_events(storage.connect(settings.database_path), [item.record() for item in report.items])
+    print(f"[green]✓ {len(report.items)} événement(s)[/green]")
+    for name, error in report.errors.items():
+        print(f"[red]✗ {name}[/red] : {error}")
+
+
+@events_cli.command("list")
+def events_list(when: str = typer.Option("upcoming", help="upcoming | past | all"),
+                limit: int = typer.Option(30, help="Nombre d'événements.")):
+    """Événements enregistrés (à venir d'abord)."""
+    print(_events_table(storage.list_events(storage.connect(settings.database_path), when, limit=limit)))
+
+
+media_cli = typer.Typer(help="Vidéos, podcasts et émissions IA (flux media de sources.toml + recherche web Claude).")
+cli.add_typer(media_cli, name="media")
+
+
+def _media_table(items: list[dict]) -> Table:
+    table = Table("Date", "Type", "Titre", "Chaîne / émission", "URL")
+    for item in items:
+        table.add_row(item.get("published_at") or "—", "🎬" if item["kind"] == "video" else "🎙️", item["title"],
+                      item["source"], item["url"])
+    return table
+
+
+@media_cli.command("search")
+def media_search(
+    topics: str = typer.Argument("", help="Sujets séparés par des virgules (vide : profil Grill-me)."),
+    days: int = typer.Option(settings.media_search_days, help="Fenêtre de recherche en jours."),
+):
+    """Meilleures vidéos et podcasts récents par l'API Claude (web_search)."""
+    from app.media import search_media
+
+    wanted, context = _radar_context(topics)
+    print(f"[cyan]🎬 {settings.news_model} + web_search ({days} j)…[/cyan]")
+    report = _claude(search_media, topics=wanted, memory=context, days=days)
+    storage.save_media(storage.connect(settings.database_path), [item.record() for item in report.items])
+    print(_media_table([item.record() for item in report.items]))
+
+
+@media_cli.command("crawl")
+def media_crawl():
+    """Lit les chaînes et podcasts déclarés dans sources.toml (sections media)."""
+    from app.media import crawl_media
+
+    report = crawl_media(load_sources(settings.sources_path))
+    storage.save_media(storage.connect(settings.database_path), [item.record() for item in report.items])
+    for name, count in report.counts.items():
+        print(f"[green]✓ {name}[/green] : {count}")
+    for name, error in report.errors.items():
+        print(f"[red]✗ {name}[/red] : {error}")
+
+
+@media_cli.command("list")
+def media_list(kind: str = typer.Option("", help="video | podcast"), limit: int = typer.Option(20)):
+    """Derniers médias enregistrés."""
+    print(_media_table(storage.list_media(storage.connect(settings.database_path), kind or None, limit=limit)))
+
+
+bench_cli = typer.Typer(help="Benchmarks LLM : catalogue et classements de BenchLM.ai, analysés.")
+cli.add_typer(bench_cli, name="benchmarks")
+
+
+@bench_cli.command("crawl")
+def benchmarks_crawl():
+    """Actualise le catalogue des benchmarks (une page BenchLM)."""
+    from app.benchmarks import BenchmarkError, crawl_catalog
+    from app.review import FetchError
+
+    try:
+        report = crawl_catalog()
+    except (BenchmarkError, FetchError) as error:
+        print(f"[red]✗ {error}[/red]")
+        raise typer.Exit(1)
+    storage.save_benchmarks(storage.connect(settings.database_path), [item.record() for item in report.items])
+    print(f"[green]✓ {len(report.items)} benchmark(s)[/green] ({report.total_announced} annoncés par BenchLM, "
+          f"{report.period}) — source : {settings.benchmarks_url}/benchmarks")
+
+
+@bench_cli.command("list")
+def benchmarks_list(category: str = typer.Option("", help="agentic, coding, reasoning, knowledge, math…"),
+                    query: str = typer.Argument("", help="Filtre texte.")):
+    """Catalogue des benchmarks enregistrés."""
+    table = Table("Benchmark", "Catégorie", "Année", "Description")
+    for item in storage.list_benchmarks(storage.connect(settings.database_path), category or None, query or None, limit=60):
+        table.add_row(item["name"], item.get("category_name") or item["category"], item.get("year", ""),
+                      item.get("description", "")[:120])
+    print(table)
+
+
+@bench_cli.command("show")
+def benchmarks_show(key: str = typer.Argument(..., help="Clé BenchLM (ex. draco, aahle).")):
+    """Détail d'un benchmark : classement, fiabilité des scores, analyse."""
+    from app.benchmarks import BenchmarkError, analyze, fetch_detail
+    from app.review import FetchError
+
+    connection = storage.connect(settings.database_path)
+    record = storage.get_benchmark(connection, key)
+    if record is None:
+        print("[red]✗ Benchmark inconnu : lancer d'abord « benchmarks crawl ».[/red]")
+        raise typer.Exit(1)
+    key = record["key"]
+    if storage.benchmark_detail_stale(connection, key, settings.benchmarks_detail_ttl_hours):
+        try:
+            storage.save_benchmark_detail(connection, key, fetch_detail(key, record.get("slug")).model_dump())
+            record = storage.get_benchmark(connection, key)
+        except (BenchmarkError, FetchError) as error:
+            print(f"[yellow]⚠ {error}[/yellow]")
+    print(f"[bold]{record['name']}[/bold] — {record.get('full_name', '')}\n{record.get('description', '')}\n{record['url']}")
+    for point in analyze(record, record["detail"])["points"]:
+        print(f"• {point}")
+    if record["detail"]:
+        table = Table("#", "Modèle", "Éditeur", "Type", "Score")
+        rows = sorted((r for r in record["detail"]["leaderboard"] if r.get("score") is not None), key=lambda r: -r["score"])
+        for rank, row in enumerate(rows[:10], start=1):
+            table.add_row(str(rank), row["model"], row["creator"], row["source_type"], f"{row['score']:g}")
+        print(table)
+
+
 @cli.command()
 def knowledge(
     query: str = typer.Argument("", help="Recherche dans la base (terme, domaine…)."),
@@ -679,8 +891,47 @@ def web(
     """Lance l'interface web de chat (http://127.0.0.1:8000)."""
     import uvicorn
 
-    print(f"[green]Interface de veille : http://{host}:{port}[/green]")
+    from app.web.auth import AuthConfigError
+    from app.web.server import build_authenticator
+
+    try:
+        auth = build_authenticator()  # mot de passe faible : refus de démarrer, avant uvicorn
+    except AuthConfigError as error:
+        print(f"[red]✗ {error}[/red]\n[dim]Générer un mot de passe conforme : python -m app.main web-password[/dim]")
+        raise typer.Exit(2)
+    if auth is None and host not in ("127.0.0.1", "localhost", "::1") and not settings.web_api_token:
+        print(f"[yellow]⚠ Interface exposée sur {host} sans login : définir WEB_USERNAME et WEB_PASSWORD.[/yellow]")
+    print(f"[green]Interface de veille : http://{host}:{port}[/green]" + (f" [dim](login : {auth.username})[/dim]" if auth else ""))
     uvicorn.run("app.web.server:app", host=host, port=port, log_level="warning")
+
+
+@cli.command("web-password")
+def web_password(
+    length: int = typer.Option(20, min=12, max=64, help="Longueur du mot de passe."),
+    write_env: bool = typer.Option(False, "--write-env", help="Ajoute WEB_USERNAME et WEB_PASSWORD à .env."),
+    username: str = typer.Option("veille", help="Identifiant (avec --write-env)."),
+):
+    """Génère un mot de passe conforme pour WEB_PASSWORD ; --write-env l'ajoute à .env (sans rien écraser)."""
+    from app.web.auth import generate_password
+
+    password = generate_password(length)
+    if not write_env:
+        print(password)
+        print("[dim]À placer dans .env : WEB_USERNAME=… et WEB_PASSWORD=…, puis bin/veille restart.[/dim]",
+              file=sys.stderr)
+        return
+    env = PROJECT_ROOT / ".env"
+    lines = env.read_text(encoding="utf-8").splitlines() if env.exists() else []
+    if any(re.match(r"\s*(WEB_USERNAME|WEB_PASSWORD)\s*=\s*\S", line) for line in lines):
+        print("[red]✗ WEB_USERNAME ou WEB_PASSWORD déjà renseigné dans .env : rien n'est modifié.[/red]")
+        raise typer.Exit(1)
+    with env.open("a", encoding="utf-8") as handle:
+        handle.write(("\n" if lines and lines[-1].strip() else "")
+                     + f"# Connexion à l'interface web (python -m app.main web-password)\n"
+                     f"WEB_USERNAME={username}\nWEB_PASSWORD={password}\n")
+    env.chmod(0o600)
+    print(f"[green]✓ .env : WEB_USERNAME={username}, WEB_PASSWORD={password}[/green]")
+    print("[dim]Notez-le ; modifiable dans .env. Appliquer : bin/veille restart.[/dim]")
 
 
 if __name__ == "__main__":

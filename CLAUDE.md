@@ -27,6 +27,8 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Plan d'exécution : `python -m app.main plan --langgraph`
 - Recherche GitHub via MCP : `python -m app.main github "llm inference" --limit 5`
 - Mémoire : `python -m app.main memory [--export]`
+- Login web : `WEB_USERNAME` / `WEB_PASSWORD` (≥ 8 car., min, maj, chiffre, spécial ; sinon refus de démarrer) ;
+  générer : `python -m app.main web-password [--write-env]` ; TUI et scripts en HTTP Basic
 - Interface web de chat : `python -m app.main web` (http://127.0.0.1:8000) ; en arrière-plan :
   `bin/veille start|stop|restart|status|logs [-f]` (PID et journal dans `data/web.pid`, `data/web.log`)
 - Rapport daté : `python -m app.main report` · Notion : `python -m app.main notion-sync`
@@ -34,9 +36,13 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Grill-me (profil de centres d'intérêt) : `python -m app.main grill`, skill `grill-me`, `grill-save`
 - Review d'une actu par URL : `python -m app.main review <URL> [--json]`, skill `review-actu`, onglet 🔬 Review
 - Base de connaissances : `python -m app.main knowledge [TERME] [--index] [--add fichier.md]`, onglet 📚 Knowledge
-- Actus en cartes : `python -m app.main news crawl|search ["sujets"]|list`, onglet 🗞️ Actus, bouton 🌐 (clé `CLAUDE_API`)
+- Actus en cartes : `python -m app.main news crawl|search ["sujets"]|list|screenshots`, onglet 🗞️ Actus, bouton 🌐 (clé `CLAUDE_API`)
+- Événements IA : `python -m app.main events search|crawl|list`, onglet 📅 (export `/api/events.ics`)
+- Vidéos & podcasts : `python -m app.main media search|crawl|list`, onglet 🎬
+- Benchmarks (BenchLM.ai) : `python -m app.main benchmarks crawl|list|show <clé>`, onglet 📊
 - Sources par URL (vérifiées) : `python -m app.main source add <URL>` · `source list` · `source remove <type> <valeur>`
-- TUI (OpenTUI + React, Bun local) : `bin/veille tui [écran]` ; tests `cd tui && ./node_modules/.bin/bun test`
+- TUI (OpenTUI + React, Bun local) : `bin/veille tui [écran]` ; tests `cd tui && ./node_modules/.bin/bun test` ;
+  exécutable autonome : `bin/veille tui-build [bun-linux-arm64]` → `tui/dist/veille-tui [écran]`
 - Inspection SQLite : `sqlite3 data/watch.db`
 - Vérification style : `python -m compileall app`
 
@@ -44,6 +50,8 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Sources autorisées : `sources.toml` (skill `ajout-source` pour toute modification ; `app/sources_admin.py`
   l'automatise : détection, vérification, écriture relue par tomllib).
 - Supervisor + Task Graph : `app/workflow/graph.py`, `app/workflow/tasks.py`.
+  Qualité : sous-graphe `quality` (bruit → doublons → sélection, sans LLM) et ranking hybride explicable
+  (`app/workflow/quality.py`, score /100 + raisons dans le digest ; `DEDUP_THRESHOLD`, `RANK_WEIGHTS`).
   Sous-agents (sous-graphes) : `app/workflow/subagents.py` ; prompts : `app/prompts/*.md`.
   Le LLM ne renvoie que des identifiants ; URL, titre et date sont recopiés par
   le code depuis les documents collectés.
@@ -72,6 +80,15 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
   dans la page), table `reviews` (v5), prompt `app/prompts/review.md` ; challenge = outil de chat `challenge_review`.
 - Actus : `app/news.py` (crawl `[[blog]]` HTML + flux `[news].rss` ; recherche web API Claude `web_search`, URL
   gardées seulement si présentes dans les résultats), table `news` (v6), prompt `app/prompts/news_search.md`.
+- Événements : `app/events.py` (recherche web Claude, date gardée seulement si retrouvée dans la page ; flux `.ics`
+  `[[events]]`), table `events` (v7), prompt `app/prompts/events_search.md`.
+- Médias : `app/media.py` (flux `[[media]]` YouTube/podcasts + recherche web Claude), table `media` (v8),
+  prompt `app/prompts/media_search.md`.
+- Benchmarks : `app/benchmarks.py` (catalogue BenchLM via `__NEXT_DATA__`, détail à la demande en cache ;
+  analyse déterministe : leader, meilleur modèle à poids ouverts, saturation, provenance, fraîcheur), table `benchmarks` (v9).
+- Aperçus des actus : `app/screenshots.py` via MCP Playwright (`@playwright/mcp@0.0.82`, `SCREENSHOT_ENABLED`),
+  images dans `data/screenshots/` (hors Git) ; aussi déclaré pour Claude Code dans `.mcp.json`.
+- Login web : `app/web/auth.py` (sessions HMAC, anti-force brute), page `app/web/static/login.html`.
 - Assistant Claude flottant : `app/assistant.py` (API Claude directe, streaming, `/api/assistant`) ; clé `CLAUDE_API`,
   `CLAUDE_WORKSPACE_ID` si la clé n'est rattachée à aucun workspace. Publication d'une review dans Notion :
   `app/notion.py` (`publish_review`, append sur la page de veille active, après confirmation dans l'interface).

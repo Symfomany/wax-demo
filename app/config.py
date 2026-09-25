@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     min_accepted: int = 3
     max_review_rounds: int = 1
     max_repair_rounds: int = 1
+    # Qualité (sous-graphe quality) : titres similaires au-delà de ce seuil = doublons (Jaccard 0-1),
+    # pool du prefilter = max_documents × facteur (bruit et doublons retirés avant le Scout).
+    dedup_threshold: float = Field(0.7, ge=0.3, le=1.0)
+    quality_pool_factor: int = Field(3, ge=1, le=6)
+    # Poids du ranking hybride, JSON (ex. {"llm": 0.6, "freshness": 0.1}) ; clés : llm, freshness,
+    # profile, source, corroboration. Les clés absentes gardent leur valeur par défaut.
+    rank_weights: dict[str, float] = Field(default_factory=dict)
 
     github_token: str | None = None
     github_api_url: str | None = None  # défaut du serveur MCP : api.github.com
@@ -97,11 +104,45 @@ class Settings(BaseSettings):
     news_search_max_uses: int = 5  # recherches web par appel (borne le coût)
     news_search_days: int = 7
     news_per_source: int = 24
+    # Aperçus des actus sans image : captures par le serveur MCP Playwright (Node.js + Chromium requis)
+    screenshot_enabled: bool = False
+    screenshot_mcp_command: str = "npx"
+    screenshot_mcp_args: list[str] = Field(default_factory=lambda: [
+        "-y", "@playwright/mcp@0.0.82", "--headless", "--isolated", "--browser", "chromium", "--block-service-workers",
+        "--output-dir", "data/playwright-mcp"])
+    screenshot_max_per_run: int = Field(6, ge=1, le=40)  # pages capturées par lot (une à la fois)
+    screenshot_timeout: int = Field(45, ge=5, le=300)
+    screenshot_settle_seconds: float = Field(3.0, ge=0, le=20)  # attente du rendu JavaScript avant capture
+    screenshot_dir: Path = Path("data/screenshots")
+    # Événements (onglet 📅) : horizon de recherche, pages d'événements téléchargées en parallèle
+    events_horizon_days: int = Field(120, ge=7, le=365)
+    events_fetch_workers: int = Field(3, ge=1, le=8)
+    # Benchmarks (onglet 📊) : catalogue et classements de BenchLM.ai, détail remis en cache au-delà du délai
+    benchmarks_url: str = "https://benchlm.ai"
+    benchmarks_detail_ttl_hours: int = Field(24, ge=1, le=24 * 30)
+    # Vidéos et podcasts (onglet 🎬) : fenêtre de recherche, entrées lues par flux [[media]]
+    media_search_days: int = Field(14, ge=1, le=90)
+    media_per_source: int = Field(12, ge=1, le=50)
     web_host: str = "127.0.0.1"
     web_port: int = 8000
     # Jeton exigé sur l'API web (Authorization: Bearer, ou cookie posé par /?token=…) ;
     # indispensable dès que l'interface est exposée hors de la machine (Tailscale Funnel, tunnel)
     web_api_token: str | None = None
+    # Verrouillage par login (page /login) : identifiant + mot de passe robuste (≥ WEB_PASSWORD_MIN_LENGTH
+    # caractères, minuscule, majuscule, chiffre, caractère spécial ; sinon le serveur refuse de démarrer).
+    # La TUI et les scripts passent en HTTP Basic avec les mêmes identifiants.
+    web_username: str | None = None
+    web_password: str | None = None
+    web_password_min_length: int = Field(8, ge=8, le=128)
+    web_session_hours: int = Field(12, ge=1, le=24 * 30)
+    # Clé de signature des sessions ; vide : clé aléatoire (reconnexion après chaque redémarrage)
+    web_session_secret: str | None = None
+    web_login_max_failures: int = Field(5, ge=1, le=50)  # puis blocage de l'adresse
+    web_login_lock_seconds: int = Field(300, ge=10, le=86400)
+
+    @property
+    def web_login_enabled(self) -> bool:
+        return bool(self.web_username or self.web_password)
 
     @property
     def notion_enabled(self) -> bool:

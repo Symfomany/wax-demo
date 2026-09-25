@@ -28,6 +28,8 @@ def render_markdown(digest: dict, critiques: list[dict] | None = None) -> str:
                 "",
             ]
         )
+        if item.get("score") is not None:
+            lines.extend([f"*Classement : {item['score']:.0f}/100 — {' · '.join(item.get('rank_reasons', []))}*", ""])
 
     rejected = [c for c in critiques or [] if c["verdict"] != "keep"]
     if rejected:

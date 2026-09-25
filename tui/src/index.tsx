@@ -5,12 +5,15 @@
  */
 import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 import { App } from "./app"
 import { SCREENS, type ScreenId } from "./context"
-import { createApi, serverUrl } from "./lib/api"
+import { ApiError, createApi, loadCredentials, serverUrl } from "./lib/api"
 
-const ROOT = resolve(import.meta.dir, "../..")
+// Racine du projet : VEILLE_ROOT, sinon deux niveaux au-dessus de l'exécutable compilé (tui/dist/veille-tui)
+// ou des sources (tui/src).
+const COMPILED = import.meta.dir.startsWith("/$bunfs") || import.meta.dir.includes("~BUN")
+const ROOT = process.env.VEILLE_ROOT ?? resolve(COMPILED ? dirname(process.execPath) : import.meta.dir, "../..")
 const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 async function healthy(base: string): Promise<boolean> {
@@ -44,6 +47,18 @@ async function ensureServer(): Promise<string> {
 }
 
 const base = await ensureServer()
-const screen = (SCREENS.find((s) => s.id === process.env.VEILLE_SCREEN)?.id ?? "home") as ScreenId
+const wanted = process.env.VEILLE_SCREEN ?? process.argv[2]  // « veille-tui review »
+const screen = (SCREENS.find((s) => s.id === wanted)?.id ?? "home") as ScreenId
+// Login web actif : identifiants de .env (ou de l'environnement), vérifiés avant d'ouvrir l'interface.
+const api = createApi(base, fetch, await loadCredentials(ROOT))
+try {
+  await api.get("/api/me")
+} catch (error) {
+  if (error instanceof ApiError && [401, 429].includes(error.status)) {
+    console.error(`✗ Connexion refusée par ${base} : ${error.message}\n` +
+      "  Renseignez WEB_USERNAME et WEB_PASSWORD (dans .env ou en variables d'environnement).")
+    process.exit(1)
+  }
+}
 const renderer = await createCliRenderer({ exitOnCtrlC: false, targetFps: 30 })
-createRoot(renderer).render(<App api={createApi(base, fetch, process.env.WEB_API_TOKEN)}initialScreen={screen} />)
+createRoot(renderer).render(<App api={api} initialScreen={screen} />)

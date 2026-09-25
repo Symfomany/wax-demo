@@ -42,6 +42,13 @@ Profil, review et connaissances
   news crawl | search ["sujets"] [--days N] | list [-s SOURCE]
                                Actus en cartes : claude.com/blog, OpenAI News, recherche web Claude (CLAUDE_API)
                                Sources de la veille : ajout par URL (blog, flux, dépôt GitHub, arXiv) vérifié
+  news screenshots             Aperçus des actus sans image (serveur MCP Playwright, SCREENSHOT_ENABLED)
+  events search ["sujets"] | crawl | list
+                               Événements IA (web search Claude, dates vérifiées dans la page ; flux .ics)
+  media search ["sujets"] | crawl | list
+  benchmarks crawl | list [texte] | show <clé>
+                               Benchmarks LLM de BenchLM.ai : catalogue, classement, fiabilité des scores
+                               Vidéos, podcasts et émissions IA (web search Claude ; flux [[media]])
 
 Serveur web
   start [--port N] [--host H]  Démarre l'interface web en arrière-plan (défaut http://127.0.0.1:8000)
@@ -50,8 +57,11 @@ Serveur web
   status                       État du serveur : PID, URL, santé (LLM, Notion)
   logs [-f]                    Journal du serveur (data/web.log) ; -f pour le suivre
   web [--port N]               Interface web au premier plan (Ctrl+C pour arrêter)
+  web-password [--write-env]   Génère un mot de passe conforme ; --write-env l'ajoute à .env (login web)
   tui [écran]                  Interface terminal (OpenTUI) ; démarre le serveur au besoin
                                écrans : home chat search review watch knowledge sources reports memory grill
+  tui-build [cible]            Compile la TUI en exécutable autonome tui/dist/veille-tui (cible : bun-linux-arm64
+                               pour la Jetson) ; ensuite : tui/dist/veille-tui [écran], sans Bun ni node_modules
 
 Outils
   doctor                       Diagnostic (Ollama, modèle, GPU, MCP, migrations)
@@ -178,14 +188,23 @@ restart_server() {
   start_server "$@"
 }
 
-run_tui() {
+install_tui() {
   local bun="$ROOT/tui/node_modules/.bin/bun"
   if [[ ! -x "$bun" ]]; then
     command -v npm >/dev/null || die "npm introuvable : installer Node.js, puis relancer « veille tui »"
     echo "Installation de la TUI (npm install dans tui/, une seule fois)…"
     (cd "$ROOT/tui" && npm install --no-audit --no-fund) || die "échec de l'installation de la TUI"
   fi
-  cd "$ROOT/tui" && VEILLE_SCREEN="${1:-home}" exec "$bun" run src/index.tsx
+}
+
+run_tui() {
+  install_tui
+  cd "$ROOT/tui" && VEILLE_SCREEN="${1:-home}" exec "$ROOT/tui/node_modules/.bin/bun" run src/index.tsx
+}
+
+build_tui() {
+  install_tui
+  "$ROOT/tui/scripts/build.sh" "$@"
 }
 
 show_logs() {
@@ -260,12 +279,17 @@ main() {
     knowledge) app knowledge "$@" ;;
     source)  app source "$@" ;;
     news|actus) app news "$@" ;;
+    events)  app events "$@" ;;
+    media)   app media "$@" ;;
+    benchmarks|bench) app benchmarks "$@" ;;
     web)     app web "$@" ;;
+    web-password) app web-password "$@" ;;
     start)   start_server "$@" ;;
     stop)    stop_server ;;
     restart) restart_server "$@" ;;
     status)  server_status ;;
     tui)     run_tui "$@" ;;
+    tui-build) build_tui "$@" ;;
     logs)    show_logs "$@" ;;
     doctor)  app doctor ;;
     report)  app report "$@" ;;

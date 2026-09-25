@@ -46,7 +46,7 @@ def test_ready_tasks_respect_dependencies_and_optional_failures():
     assert [t.id for t in plan.ready(status)] == ["prefilter"]
     assert plan.blocking_failure(status) is None
 
-    status |= {"prefilter": "done", "research": "failed"}
+    status |= {"prefilter": "done", "quality": "done", "research": "failed"}
     assert plan.ready(status) == []
     assert plan.blocking_failure(status).id == "research"
 

@@ -20,6 +20,10 @@
       "env": {
         "NOTION_TOKEN": "${NOTION_TOKEN:-}"
       }
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@0.0.82", "--headless", "--isolated", "--browser", "chromium", "--block-service-workers", "--output-dir", "data/playwright-mcp"]
     }
   }
 }

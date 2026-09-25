@@ -154,6 +154,11 @@ queries = ["llm inference", "agent mcp"]
         "human_approval": True,
         "langfuse_enabled": False,
         "scout_batch_size": 4,
+        # Pas de verrouillage hérité du .env local (testé explicitement)
+        "web_api_token": None,
+        "web_username": None,
+        "web_password": None,
+        "web_session_secret": None,
     }.items():
         monkeypatch.setattr(settings, name, value)
     return tmp_path

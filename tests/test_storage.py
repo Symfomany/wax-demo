@@ -98,6 +98,7 @@ def test_record_digest_feeds_published_memory(connection, tmp_path):
     }
     storage.record_digest(connection, "run-1", digest, tmp_path / "d.md", tmp_path / "d.json")
     assert storage.published_urls(connection) == {"https://example.org/a"}
+    assert storage.published_titles(connection) == [("https://example.org/a", "A")]
 
 
 def test_feedback_and_cache_roundtrip(connection):
@@ -193,7 +194,7 @@ def test_v6_adds_news_to_a_v5_database(tmp_path):
 
     connection = storage.connect(path)
 
-    assert storage.schema_version(connection) == 6
+    assert storage.schema_version(connection) == len(storage.MIGRATIONS)
     assert storage.memory_stats(connection)["reviews"] == 1
     assert storage.memory_stats(connection)["news"] == 0
     columns = {row[1] for row in connection.execute("PRAGMA table_info(news)")}
@@ -255,3 +256,73 @@ def test_published_reviews_are_those_marked_notion(connection):
     storage.save_review(connection, base | {"id": "b", "conversation_id": "c2", "notion": {"page_url": "u", "published_at": "t"}})
     assert [r["id"] for r in storage.published_reviews(connection)] == ["b"]
     assert {r["id"]: r["notion"] for r in storage.list_reviews(connection)}["a"] is None
+
+
+def test_v7_v8_add_events_and_media_to_a_v6_database(tmp_path):
+    path = tmp_path / "v6.db"
+    legacy = sqlite3.connect(path)
+    legacy.executescript("".join(storage.MIGRATIONS[:6]) + "PRAGMA user_version = 6;")
+    legacy.execute("INSERT INTO news (id, url, source, origin, title, record_json) VALUES ('n', 'u', 's', 'rss', 'T', '{}')")
+    legacy.commit()
+    legacy.close()
+
+    connection = storage.connect(path)
+
+    assert storage.schema_version(connection) == len(storage.MIGRATIONS)
+    stats = storage.memory_stats(connection)
+    assert (stats["news"], stats["events"], stats["media"]) == (1, 0, 0)
+    assert {row[1] for row in connection.execute("PRAGMA table_info(events)")} >= {"url", "kind", "starts_on", "record_json"}
+    assert {row[1] for row in connection.execute("PRAGMA table_info(media)")} >= {"url", "kind", "source", "published_at"}
+
+
+def event(url, starts_on, ends_on=None, kind="conference"):
+    return {"id": url[-4:], "url": url, "title": url, "kind": kind, "starts_on": starts_on, "ends_on": ends_on}
+
+
+def test_events_upcoming_past_and_verified_date_kept(connection):
+    storage.save_events(connection, [
+        event("https://e.org/past", "2026-09-01"),
+        event("https://e.org/soon", "2026-10-02"),
+        event("https://e.org/later", "2026-11-20", kind="meetup"),
+        event("https://e.org/running", "2026-09-20", ends_on="2026-09-30"),
+        event("https://e.org/tbd", None),
+    ])
+    upcoming = [e["url"] for e in storage.list_events(connection, today="2026-09-25")]
+    assert upcoming == ["https://e.org/running", "https://e.org/soon", "https://e.org/later", "https://e.org/tbd"]
+    assert [e["url"] for e in storage.list_events(connection, "past", today="2026-09-25")] == ["https://e.org/past"]
+    assert [e["url"] for e in storage.list_events(connection, "all", kind="meetup")] == ["https://e.org/later"]
+
+    # Nouvelle collecte sans date : la date vérifiée précédemment est conservée.
+    storage.save_events(connection, [event("https://e.org/soon", None)])
+    soon = [e for e in storage.list_events(connection, "all") if e["url"] == "https://e.org/soon"][0]
+    assert soon["starts_on"] == "2026-10-02"
+
+
+def test_media_round_trip_and_filters(connection):
+    storage.save_media(connection, [
+        {"id": "1", "url": "https://youtube.com/watch?v=a", "title": "Talk", "kind": "video", "source": "Chan",
+         "published_at": "2026-09-20"},
+        {"id": "2", "url": "https://pod.org/ep1", "title": "Episode", "kind": "podcast", "source": "Pod",
+         "published_at": "2026-09-22"},
+    ])
+    assert [m["title"] for m in storage.list_media(connection)] == ["Episode", "Talk"]
+    assert [m["title"] for m in storage.list_media(connection, kind="video")] == ["Talk"]
+    assert [m["title"] for m in storage.list_media(connection, query="episo")] == ["Episode"]
+    assert {(s["source"], s["count"]) for s in storage.media_sources(connection)} == {("Chan", 1), ("Pod", 1)}
+
+
+def test_v9_benchmarks_catalog_keeps_cached_detail(connection):
+    record = {"key": "draco", "name": "DRACO", "category": "agentic", "year": "2026", "description": "d"}
+    storage.save_benchmarks(connection, [record, record | {"key": "hle", "name": "HLE", "category": "knowledge", "year": "2025"}])
+    assert storage.benchmark_detail_stale(connection, "draco", 24)
+    storage.save_benchmark_detail(connection, "draco", {"key": "draco", "leaderboard": []})
+    assert not storage.benchmark_detail_stale(connection, "draco", 24)
+
+    storage.save_benchmarks(connection, [record | {"description": "mise à jour"}])  # nouveau crawl du catalogue
+
+    draco = storage.get_benchmark(connection, "draco")
+    assert draco["description"] == "mise à jour" and draco["detail"] == {"key": "draco", "leaderboard": []}
+    assert [b["key"] for b in storage.list_benchmarks(connection, category="knowledge")] == ["hle"]
+    assert [b["key"] for b in storage.list_benchmarks(connection, query="mise à")] == ["draco"]
+    assert storage.memory_stats(connection)["benchmarks"] == 2
+    assert storage.get_benchmark(connection, "absent") is None

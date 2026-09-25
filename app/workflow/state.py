@@ -31,6 +31,9 @@ class WatchState(TypedDict, total=False):
     errors: Annotated[list[str], operator.add]
     trace: Annotated[list[str], operator.add]  # décisions du supervisor
     candidates: list[dict]
+    # Sous-graphe quality : URL → {sources, flags, duplicates} ; items écartés avec leur raison
+    quality: dict[str, dict]
+    filtered: list[dict]
     min_relevance: int
     review_round: int
     # Options du run : keywords, match_all, max_age_days, max_documents
@@ -69,6 +72,11 @@ class HarnessContext:
     notion_sync: Callable[[sqlite3.Connection], dict] | None = None
     # Dépôts découverts par MCP à écarter (sources.toml, [github_mcp].exclude_keywords)
     exclude_keywords: list[str] = field(default_factory=list)
+    # Qualité : seuil de similarité des titres (Jaccard), pool du prefilter (× max_documents),
+    # poids du ranking hybride (app/workflow/quality.py, DEFAULT_WEIGHTS)
+    dedup_threshold: float = 0.7
+    quality_pool_factor: int = 3
+    rank_weights: dict[str, float] = field(default_factory=dict)
     now: Callable[[], datetime] = field(default=lambda: datetime.now(timezone.utc))
 
 
@@ -89,6 +97,14 @@ class CollectorUpdate(_Contract):
 class PrefilterUpdate(_Contract):
     status: dict[str, str]
     candidates: list[dict]
+
+
+class QualityUpdate(_Contract):
+    status: dict[str, str]
+    candidates: list[dict]
+    quality: dict[str, dict]
+    filtered: list[dict]
+    trace: list[str] = []
 
 
 class ResearchUpdate(_Contract):

@@ -22,11 +22,25 @@ async function detail(response: Response): Promise<string> {
   return typeof body.detail === "string" ? body.detail : `HTTP ${response.status}`
 }
 
-export function createApi(base: string, fetcher: typeof fetch = fetch, token?: string): VeilleApi {
+/** Identifiants du serveur : jeton WEB_API_TOKEN (Bearer) ou login WEB_USERNAME / WEB_PASSWORD (Basic). */
+export interface Credentials {
+  token?: string
+  username?: string
+  password?: string
+}
+
+export function authorization(credentials: Credentials | string | undefined): string | undefined {
+  const c = typeof credentials === "string" ? { token: credentials } : credentials ?? {}
+  if (c.username && c.password) return `Basic ${Buffer.from(`${c.username}:${c.password}`).toString("base64")}`
+  if (c.token) return `Bearer ${c.token}`
+  return undefined
+}
+
+export function createApi(base: string, fetcher: typeof fetch = fetch, credentials?: Credentials | string): VeilleApi {
   base = base.replace(/\/$/, "")
-  // Jeton WEB_API_TOKEN du serveur, s'il en exige un.
   const headers: Record<string, string> = { "Content-Type": "application/json" }
-  if (token) headers.Authorization = `Bearer ${token}`
+  const auth = authorization(credentials)
+  if (auth) headers.Authorization = auth
   const call = async (method: string, path: string, body?: unknown): Promise<any> => {
     const response = await fetcher(base + path, {
       method,
@@ -71,4 +85,30 @@ export async function serverUrl(root: string): Promise<string> {
     if (await file.exists()) return (await file.text()).trim()
   } catch {}
   return "http://127.0.0.1:8000"
+}
+
+/** Clés d'un fichier .env (KEY=valeur, guillemets simples ou doubles retirés) ; seules `keys` sont lues. */
+export function parseEnv(text: string, keys: string[]): Record<string, string> {
+  const found: Record<string, string> = {}
+  for (const line of text.split("\n")) {
+    const match = line.match(/^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/)
+    if (!match || !keys.includes(match[1])) continue
+    let value = match[2]
+    if (/^(['"]).*\1$/.test(value)) value = value.slice(1, -1)
+    else value = value.replace(/(^|\s+)#.*$/, "")
+    if (value) found[match[1]] = value
+  }
+  return found
+}
+
+/** Identifiants : variables d'environnement, sinon WEB_USERNAME / WEB_PASSWORD / WEB_API_TOKEN du .env du projet. */
+export async function loadCredentials(root: string): Promise<Credentials> {
+  const keys = ["WEB_USERNAME", "WEB_PASSWORD", "WEB_API_TOKEN"]
+  let fromFile: Record<string, string> = {}
+  try {
+    const file = Bun.file(`${root}/.env`)
+    if (await file.exists()) fromFile = parseEnv(await file.text(), keys)
+  } catch {}
+  const pick = (key: string) => process.env[key] || fromFile[key]
+  return { username: pick("WEB_USERNAME"), password: pick("WEB_PASSWORD"), token: pick("WEB_API_TOKEN") }
 }
