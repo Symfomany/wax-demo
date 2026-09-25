@@ -797,6 +797,73 @@ def benchmarks_show(key: str = typer.Argument(..., help="Clé BenchLM (ex. draco
         print(table)
 
 
+cron_cli = typer.Typer(help="Cron quotidien : benchmarks, actus et événements rafraîchis via bin/veille (APScheduler).")
+cli.add_typer(cron_cli, name="cron")
+
+_CRON_STYLE = {"ok": "[green]✓ ok[/green]", "failed": "[red]✗ échec[/red]", "skipped": "[yellow]— sautée[/yellow]"}
+
+
+@cron_cli.command("start")
+def cron_start():
+    """Démon au premier plan : un cycle chaque jour à CRON_HOUR:CRON_MINUTE, rattrapage si manqué."""
+    from app.scheduler import Daemon, configure_logging
+
+    configure_logging()
+    try:
+        Daemon().start()
+    except (KeyboardInterrupt, SystemExit):
+        print("Cron arrêté.")
+
+
+@cron_cli.command("once")
+def cron_once(
+    task: list[str] = typer.Option([], "--task", "-t", help="Tâche à lancer (répétable, défaut : CRON_TASKS)."),
+    force: bool = typer.Option(False, help="Ignorer la fraîcheur (relancer même les tâches à jour)."),
+):
+    """Lance un cycle maintenant (mêmes règles que le démon)."""
+    from app.scheduler import configure_logging, run_cycle
+
+    configure_logging()
+    try:
+        report = run_cycle(task or None, force=force)
+    except ValueError as error:
+        print(f"[red]✗ {error}[/red]")
+        raise typer.Exit(2)
+    if report.busy:
+        print("[yellow]Un cycle est déjà en cours.[/yellow]")
+        raise typer.Exit(1)
+    if report.offline:
+        print("[red]✗ Réseau injoignable : cycle non lancé.[/red]")
+        raise typer.Exit(1)
+    table = Table("Tâche", "Résultat", "Essais", "Durée", "Détail")
+    for result in report.results:
+        table.add_row(result.name, _CRON_STYLE[result.status], str(result.attempts or ""),
+                      f"{result.duration:.0f} s" if result.attempts else "", result.detail)
+    print(table)
+    if not report.ok:
+        raise typer.Exit(1)
+
+
+@cron_cli.command("status")
+def cron_status():
+    """Planning, dernier passage et état de chaque tâche."""
+    from app.scheduler import TASKS, load_state, next_run, selected_tasks, skip_reason, now
+
+    state = load_state()
+    enabled = {task.name for task in selected_tasks()}
+    print(f"Chaque jour à {settings.cron_hour:02d}:{settings.cron_minute:02d} ({settings.cron_timezone}) · "
+          f"prochain : {next_run():%Y-%m-%d %H:%M} · dernier cycle : {state.get('last_cycle', 'jamais')}")
+    table = Table("Tâche", "Commande", "Dernier succès", "Dernier essai", "Au prochain passage")
+    for task in TASKS:
+        entry = state.get("tasks", {}).get(task.name, {})
+        last = f"{_CRON_STYLE.get(entry.get('status'), '')} {entry.get('last_attempt', '')}".strip()
+        planned = ("désactivée (CRON_TASKS)" if task.name not in enabled
+                   else skip_reason(task, {}, now()) or "lancée")
+        table.add_row(task.name, "veille " + " ".join(task.args), entry.get("last_success", "—"), last or "—", planned)
+    print(table)
+    print(f"Journal : {settings.cron_log_path} · état : {settings.cron_state_path}")
+
+
 @cli.command()
 def knowledge(
     query: str = typer.Argument("", help="Recherche dans la base (terme, domaine…)."),

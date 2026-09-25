@@ -19,6 +19,10 @@ data/playwright-mcp/
 data/web.pid
 data/web.url
 data/web.log
+data/cron.log
+data/cron-state.json
+data/cron-state.lock
+data/cron-state.tmp
 output/
 
 # Réglages Claude Code personnels et mémoire générée
