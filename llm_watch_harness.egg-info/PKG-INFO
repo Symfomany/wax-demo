@@ -3,6 +3,7 @@ Name: llm-watch-harness
 Version: 0.5.0
 Requires-Python: >=3.12
 Requires-Dist: anthropic
+Requires-Dist: apscheduler<4,>=3.10
 Requires-Dist: fastapi
 Requires-Dist: feedparser
 Requires-Dist: httpx

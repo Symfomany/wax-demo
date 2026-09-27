@@ -1,4 +1,5 @@
 anthropic
+apscheduler<4,>=3.10
 fastapi
 feedparser
 httpx
