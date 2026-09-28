@@ -1,0 +1,47 @@
+# LLM Watch Harness en conteneurs : interface web + cron quotidien.
+#
+#   docker compose up -d --build        # construit et démarre (redémarrage auto au boot : restart)
+#   docker compose logs -f web          # journal
+#   docker compose exec cron python -m app.main run      # une veille à la main
+#   docker/install-service.sh           # Jetson : démarrage au boot + veille des jours ouvrés (systemd)
+#
+# Choix :
+# - réseau de l'hôte : Ollama (127.0.0.1:11434) et le broker MQTT restent joignables sans les exposer,
+#   et l'interface garde WEB_HOST=127.0.0.1 (accès distant par tunnel SSH, comme en natif) ;
+# - le dépôt est monté sur /app : .env, sources.toml (réécrit par renommage atomique), data/, reports/,
+#   .claude/memory/ restent sur l'hôte ; aucun secret dans l'image ;
+# - Ollama reste natif sur la Jetson (accès GPU direct, un seul modèle chargé).
+x-veille: &veille
+  build:
+    context: .
+    args:
+      UID: ${VEILLE_UID:-1000}
+      GID: ${VEILLE_GID:-1000}
+      WITH_BROWSER: ${VEILLE_WITH_BROWSER:-false}
+  image: llm-watch-harness:latest
+  network_mode: host
+  volumes:
+    - ./:/app
+  environment:
+    TZ: ${TZ:-Europe/Paris}
+  init: true              # relaie les signaux et récolte les sous-processus (bin/veille lancé par le cron)
+  restart: unless-stopped
+  stop_grace_period: 20s
+  logging:                # journaux bornés : ménage le NVMe
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  web:
+    <<: *veille
+    container_name: veille-web
+    command: ["python", "-m", "app.main", "web"]
+
+  cron:
+    <<: *veille
+    container_name: veille-cron
+    command: ["python", "-m", "app.main", "cron", "start"]
+    healthcheck:
+      disable: true

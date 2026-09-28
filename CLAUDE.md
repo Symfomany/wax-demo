@@ -48,6 +48,8 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Benchmarks (BenchLM.ai) : `python -m app.main benchmarks crawl|list|show <clé>`, onglet 📊
 - Cron quotidien (7 h, APScheduler) : `python -m app.main cron start|once|status` (`bin/veille cron …`,
   service `systemd/veille-cron.service`) : benchmarks, actus, événements via `bin/veille`
+- Docker (web + cron, Ollama natif, réseau de l'hôte, dépôt monté) : `docker compose up -d --build` ;
+  démarrage au boot sur la Jetson : `docker/install-service.sh` (systemd, timer lun.–ven. 08:00) ; tests `tests/test_docker.py`
 - Sources par URL (vérifiées) : `python -m app.main source add <URL>` · `source list` · `source remove <type> <valeur>`
 - TUI (OpenTUI + React, Bun local) : `bin/veille tui [écran]` ; tests `cd tui && ./node_modules/.bin/bun test` ;
   exécutable autonome : `bin/veille tui-build [bun-linux-arm64]` → `tui/dist/veille-tui [écran]`

@@ -87,6 +87,30 @@ projet (Python) n'en a pas besoin.
 
 ## 4. Service permanent
 
+### Option recommandée : Docker Compose
+
+Ollama reste natif (GPU) ; l'interface web et le cron tournent dans deux conteneurs (`compose.yaml`,
+`Dockerfile` multi-arch `python:3.12-slim`, dépendances seules dans l'image, dépôt monté sur `/app`).
+
+```bash
+sudo apt install docker.io docker-compose-v2 && sudo usermod -aG docker "$USER"   # une fois
+cp -n .env.example .env        # compléter (WEB_PASSWORD, clés…)
+docker/install-service.sh      # construit l'image, active le démarrage au boot + la veille lun.–ven. 08:00
+```
+
+- **Réseau de l'hôte** : Ollama (`127.0.0.1:11434`) et MQTT restent joignables sans les exposer ;
+  l'interface écoute toujours sur `WEB_HOST` (127.0.0.1 par défaut, tunnel SSH pour l'accès distant).
+- **Au boot** : `veille-docker.service` lance `docker compose up -d` après `docker` et `ollama` ;
+  `restart: unless-stopped` relance un conteneur tombé. Veille planifiée : `veille-run.timer`.
+- **Mise à jour du code** : `git pull && docker compose restart` ; si `pyproject.toml` change :
+  `docker compose up -d --build`.
+- **Aperçus Playwright** (Node.js + Chromium, image plus lourde) : `VEILLE_WITH_BROWSER=true docker compose build`.
+- Compose lit aussi `.env` pour l'interpolation : éviter `$` dans les valeurs (avertissements).
+- Commandes : `docker compose exec cron python -m app.main doctor|pending|resume …`,
+  `docker compose logs -f web cron`, `docker stats` pour la mémoire des conteneurs.
+
+### Option native : systemd + venv
+
 Les unités `systemd/llm-watch.service` et `.timer` fonctionnent telles quelles (adapter le chemin).
 Pour l'interface web :
 
