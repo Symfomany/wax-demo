@@ -6,6 +6,7 @@ base de connaissances et review d'actualités par URL.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
 from collections.abc import Callable
@@ -31,6 +32,8 @@ from app.memory import WatchMemory
 from app.harness.prompts import PromptError, load_prompt, prompt_names, reset_prompt, save_prompt
 from app.reports import list_reports
 from app.assistant import AssistantMessage
+from app.button import LiveBus
+from app.led import LedRing, NullLed
 from app.news import CrawlReport, NewsError, SearchReport
 from app.review import FetchError, Page, ReviewContext, build_review_graph, stream_review, transcript_objections
 from app.web.auth import SESSION_COOKIE
@@ -38,6 +41,7 @@ from app.web.runs import RunManager
 from app.why import why_payload
 
 STATIC = Path(__file__).resolve().parent / "static"
+LIVE_STREAM_SECONDS = 60  # durée d'un flux /api/live avant reconnexion du navigateur
 TOKEN_COOKIE = "veille_token"
 
 
@@ -94,9 +98,12 @@ class WebDeps:
     media_crawl: Callable[[dict], Any] | None = None  # défaut : app.media.crawl_media
     screenshot_capture: Callable[..., Any] | None = None  # défaut : app.screenshots.capture_news (MCP Playwright)
     benchmarks_fetch: Callable[[str], str] | None = None  # défaut : app.news.default_fetch (pages BenchLM)
+    button_listener: Callable[[LiveBus], Callable[[], None]] | None = None  # bus -> arrêt ; production : MQTT
+    led: LedRing | None = None  # anneau LED (MQTT) ; None : aucune animation (tests)
 
 
 def production_deps() -> WebDeps:
+    from app.led import from_settings as led_from_settings
     from app.collectors.github_mcp import discover, stdio_connection
     from app.llm import get_chat_model, get_llm
     from app.mcp_client import run_mcp
@@ -121,6 +128,18 @@ def production_deps() -> WebDeps:
             return publish_review(connection, review_id, settings.notion_token, settings.notion_parent_page_id,
                                   settings.notion_api_url)
 
+    button_listener = None
+    if settings.mqtt_button_enabled:
+        from app.button import ButtonTrigger, start_mqtt_listener
+
+        def button_listener(bus: LiveBus):
+            actions = {a.strip() for a in settings.mqtt_button_actions.split(",") if a.strip()}
+            return start_mqtt_listener(
+                bus, ButtonTrigger(actions, settings.mqtt_button_cooldown), host=settings.mqtt_host,
+                port=settings.mqtt_port, topic=settings.mqtt_button_topic,
+                username=settings.mqtt_username, password=settings.mqtt_password,
+            )
+
     return WebDeps(
         router_llm=get_llm,
         chat_model=get_chat_model,
@@ -128,6 +147,8 @@ def production_deps() -> WebDeps:
         notion_sync=notion_sync(),
         github_search=github_search,
         review_publisher=review_publisher,
+        button_listener=button_listener,
+        led=led_from_settings(),
     )
 
 
@@ -217,7 +238,9 @@ class Decision(BaseModel):
 
 def create_app(deps: WebDeps | None = None) -> FastAPI:
     deps = deps or production_deps()
-    runs = RunManager(deps.graph_factory, min_relevance=settings.min_relevance)
+    led = deps.led or NullLed()
+    runs = RunManager(deps.graph_factory, min_relevance=settings.min_relevance, led=led)
+    live = LiveBus()
     stack = ExitStack()
 
     @asynccontextmanager
@@ -230,12 +253,15 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         app.state.saver = stack.enter_context(
             SqliteSaver.from_conn_string(str(settings.memory_db_path.with_name("chat.db")))
         )
+        if deps.button_listener:
+            stack.callback(deps.button_listener(live))
         yield
         stack.close()
 
     app = FastAPI(title="LLM Watch Harness", lifespan=lifespan)
     diagram_cache: dict[str, dict[str, str]] = {}
     app.state.runs = runs
+    app.state.live = live
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     token = settings.web_api_token
     auth = deps.authenticator if deps.authenticator is not None else build_authenticator()
@@ -356,7 +382,41 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             "screenshots": settings.screenshot_enabled or deps.screenshot_capture is not None,
             "assistant_model": settings.assistant_model,
             "memory": storage.memory_stats(app.state.connection),
+            "button": {"topic": settings.mqtt_button_topic, "prompt": settings.mqtt_button_prompt,
+                       "listeners": live.listeners} if deps.button_listener else None,
         }
+
+    # --- Temps réel (bouton physique) -----------------------------------------------------
+
+    @app.get("/api/live")
+    async def live_stream(request: Request):
+        """Flux SSE des événements temps réel ; le navigateur se reconnecte seul (Last-Event-ID)."""
+        subscription, missed = live.subscribe(request.headers.get("last-event-id", ""))
+        queue = subscription[1]
+
+        async def events():
+            try:
+                yield "retry: 2000\n\n"
+                for event in missed:
+                    yield _live(event)
+                # Flux borné : le navigateur rouvre la connexion, ce qui laisse le serveur s'arrêter vite.
+                deadline = asyncio.get_running_loop().time() + LIVE_STREAM_SECONDS
+                while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
+                    try:
+                        yield _live(await asyncio.wait_for(queue.get(), timeout=min(15, remaining)))
+                    except TimeoutError:
+                        yield ": ping\n\n"  # garde la connexion ouverte à travers les proxys (Tailscale)
+            finally:
+                live.unsubscribe(subscription)
+
+        return StreamingResponse(events(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @app.post("/api/live/button")
+    def simulate_button():
+        """Appui simulé (test sans bouton) : même événement que Zigbee2MQTT."""
+        return live.publish({"type": "button", "action": "single", "topic": "simulation", "battery": None,
+                             "at": None, "simulated": True})
 
     # --- Chat ----------------------------------------------------------------------
 
@@ -400,9 +460,14 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
 
         def events():
             yield _sse({"type": "conversation", "id": conversation_id})
+            led.send("keyword_search")  # Scouty fouille la veille (« Quoi de neuf ? », bouton physique…)
             try:
                 for event in stream_chat(graph, conversation_id, request.message, config, request.review_id):
                     if event["type"] == "final":
+                        if event["sources"]:
+                            led.news_found(len(event["sources"]))
+                        else:
+                            led.send("success")
                         # Parcours du graphe de ce tour : consultable dans un nouvel onglet.
                         title = intent_text(request.message) or request.message
                         quoted = request.message.count("\n>") + request.message.startswith(">")
@@ -413,6 +478,7 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
                                   "langfuse": observability.langfuse_links(trace_id, conversation_id)}
                     yield _sse(event)
             except Exception as error:  # noqa: BLE001 — affiché dans l'interface
+                led.send("error")
                 yield _sse({"type": "error", "text": f"{type(error).__name__} : {error}"})
             finally:
                 observability.flush()
@@ -432,6 +498,7 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             )
         except ValueError as error:
             raise HTTPException(400, str(error))
+        led.news_found(len(results))
         return {"count": len(results), "results": results}
 
     # --- Veilles -------------------------------------------------------------------
@@ -571,7 +638,8 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
 
     def inspect(url: str) -> sources_admin.SourceCandidate:
         try:
-            return (deps.inspect_source or sources_admin.inspect_source)(url)
+            with led.activity("scrape_source", done="success"):
+                return (deps.inspect_source or sources_admin.inspect_source)(url)
         except sources_admin.SourceError as error:
             raise HTTPException(400, str(error))
 
@@ -617,7 +685,8 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         from app.collectors import load_sources
         from app.news import crawl_all
 
-        report = (deps.news_crawl or crawl_all)(load_sources(settings.sources_path))
+        with led.activity("scrape_source", done="success"):
+            report = (deps.news_crawl or crawl_all)(load_sources(settings.sources_path))
         storage.save_news(app.state.connection, [item.record() for item in report.items])
         return {"counts": report.counts, "errors": report.errors, "saved": len(report.items)}
 
@@ -628,7 +697,8 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         from app.news import crawl_older
 
         known = storage.news_urls(app.state.connection)
-        report = (deps.news_older or crawl_older)(load_sources(settings.sources_path), request.page, known)
+        with led.activity("scrape_source", done="success"):
+            report = (deps.news_older or crawl_older)(load_sources(settings.sources_path), request.page, known)
         fresh = [item.record() for item in report.items if str(item.url) not in known]
         storage.save_news(app.state.connection, fresh)
         return {"counts": report.counts, "errors": report.errors, "saved": len(fresh), "page": request.page}
@@ -649,8 +719,9 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         if request.topics.strip():
             topics = "\n".join(f"- {t.strip()}" for t in request.topics.split(",") if t.strip())
         try:
-            report = (deps.news_search or search_news)(topics=topics, exclusions=exclusions,
-                                                       memory=memory.prompt_context(), days=request.days)
+            with led.activity("news_search", done=None):  # puis news_found
+                report = (deps.news_search or search_news)(topics=topics, exclusions=exclusions,
+                                                           memory=memory.prompt_context(), days=request.days)
         except NewsError as error:
             raise HTTPException(400, str(error))
         except Exception as error:  # noqa: BLE001 — erreur API (clé refusée, quota…) affichée telle quelle
@@ -658,6 +729,7 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
 
             raise HTTPException(502, explain_api_error(error))
         storage.save_news(app.state.connection, [item.record() for item in report.items])
+        led.news_found(len(report.items))
         return {"saved": len(report.items), "items": [item.record() for item in report.items],
                 "results_seen": report.results_seen, "rejected": report.rejected,
                 "searches": report.searches, "model": report.model, "topics": report.topics}
@@ -711,7 +783,8 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         from app.news import explain_api_error
 
         try:
-            return function(**kwargs)
+            with led.activity("news_search", done="success"):  # événements, vidéos et podcasts
+                return function(**kwargs)
         except NewsError as error:
             raise HTTPException(400, str(error))
         except Exception as error:  # noqa: BLE001 — erreur API (clé refusée, quota…) affichée telle quelle
@@ -741,7 +814,8 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         from app.collectors import load_sources
         from app.events import crawl_calendars
 
-        report = (deps.events_crawl or crawl_calendars)(load_sources(settings.sources_path))
+        with led.activity("scrape_source", done="success"):
+            report = (deps.events_crawl or crawl_calendars)(load_sources(settings.sources_path))
         storage.save_events(app.state.connection, [item.record() for item in report.items])
         return {"saved": len(report.items), "errors": report.errors}
 
@@ -781,7 +855,8 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         from app.collectors import load_sources
         from app.media import crawl_media
 
-        report = (deps.media_crawl or crawl_media)(load_sources(settings.sources_path))
+        with led.activity("scrape_source", done="success"):
+            report = (deps.media_crawl or crawl_media)(load_sources(settings.sources_path))
         storage.save_media(app.state.connection, [item.record() for item in report.items])
         return {"saved": len(report.items), "counts": report.counts, "errors": report.errors}
 
@@ -807,7 +882,8 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         from app.benchmarks import crawl_catalog
 
         try:
-            report = crawl_catalog(benchmark_fetch())
+            with led.activity("scrape_source", done="success"):
+                report = crawl_catalog(benchmark_fetch())
         except (NewsError, FetchError) as error:
             raise HTTPException(502, str(error))
         storage.save_benchmarks(app.state.connection, [item.record() for item in report.items])
@@ -850,6 +926,7 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             try:
                 session = (inputs.get("previous") or {}).get("id") or trace_seed
                 config = observability.trace_config(session, "review", trace_seed=trace_seed)
+                led.send("review")
                 for event in stream_review(review_graph(), inputs, config):
                     if event["type"] == "review" and event["review"]:
                         record = event["review"]
@@ -862,9 +939,12 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
                         event |= {"trace_url": f"/trace/{trace_seed}",
                                   "langfuse": observability.langfuse_links(trace_seed, session)}
                     yield _sse(event)
+                led.send("success")
             except FetchError as error:
+                led.send("error")
                 yield _sse({"type": "error", "text": str(error)})
             except Exception as error:  # noqa: BLE001 — affiché dans l'interface
+                led.send("error")
                 yield _sse({"type": "error", "text": f"{type(error).__name__} : {error}"})
             finally:
                 observability.flush()
@@ -910,7 +990,8 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         if storage.get_review(app.state.connection, review_id) is None:
             raise HTTPException(404, "Review inconnue")
         try:
-            return deps.review_publisher(app.state.connection, review_id)
+            with led.activity("scrape_source", done="report_published"):
+                return deps.review_publisher(app.state.connection, review_id)
         except RuntimeError as error:
             raise HTTPException(409, str(error))
         except Exception as error:  # noqa: BLE001 — erreur MCP / API Notion affichée
@@ -955,7 +1036,9 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
 
     def grill_step(result: dict, session_id: str) -> dict:
         if "__interrupt__" in result:
+            led.send("grill_me")
             return {"session": session_id, "question": result["__interrupt__"][0].value}
+        led.send("success")
         WatchMemory(app.state.store).export_markdown(settings.claude_memory_path)
         return {"session": session_id, "profile": result["profile"]}
 
@@ -1046,7 +1129,8 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         if deps.notion_sync is None:
             raise HTTPException(400, "Notion non configuré (NOTION_TOKEN, NOTION_PARENT_PAGE_ID).")
         try:
-            return deps.notion_sync(app.state.connection)
+            with led.activity("scrape_source", done="report_published"):
+                return deps.notion_sync(app.state.connection)
         except RuntimeError as error:
             raise HTTPException(502, str(error))
 
@@ -1096,6 +1180,10 @@ def highlight(mermaid: str, nodes: list[str]) -> str:
 
 def _sse(event: dict) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+def _live(event: dict) -> str:
+    return f"id: {event['id']}\nevent: {event['type']}\n{_sse(event)}"
 
 
 def __getattr__(name: str):

@@ -1,3 +1,4 @@
+import functools
 import json
 import re
 import shutil
@@ -23,6 +24,14 @@ from app.workflow.graph import initial_state
 from app.workflow.tasks import COLLECTORS, default_plan
 
 cli = typer.Typer(no_args_is_help=True)
+
+
+@functools.cache
+def _led():
+    """Anneau LED (MQTT) de la commande en cours ; ``LED_ENABLED=false`` : aucune animation."""
+    from app.led import from_settings
+
+    return from_settings()
 
 
 def show_result(result: dict, run_id: str, context) -> None:
@@ -377,7 +386,7 @@ def grill():
     connection = storage.connect(settings.database_path)
     sources = load_sources(settings.sources_path)
     feeds = {s["url"] for s in sources.get("rss", [])} | set(sources.get("arxiv", {}).get("feeds", []))
-    with open_store() as store:
+    with open_store() as store, _led().activity("grill_me", done="success"):
         graph = build_grill_graph(
             GrillContext(llm=get_llm(connection), configured_feeds=feeds), InMemorySaver(), store
         )
@@ -453,7 +462,8 @@ def notion_sync_command():
         print("[red]Notion non configuré : NOTION_TOKEN et NOTION_PARENT_PAGE_ID requis (.env).[/red]")
         raise typer.Exit(1)
     audit: list[str] = []
-    result = sync(storage.connect(settings.database_path), audit_log=audit)
+    with _led().activity("scrape_source", done="report_published"):
+        result = sync(storage.connect(settings.database_path), audit_log=audit)
     for call in audit:
         print(f"[dim]MCP {call}[/dim]")
     print(f"[green]Page Notion ({result['digests']} veille(s), {result['blocks']} blocs) : {result['url']}[/green]")
@@ -594,7 +604,8 @@ def news_crawl():
     """Crawle les pages de blog et les flux d'actus déclarés dans sources.toml, puis enregistre les actus."""
     from app.news import crawl_all
 
-    report = crawl_all(load_sources(settings.sources_path))
+    with _led().activity("scrape_source", done="success"):
+        report = crawl_all(load_sources(settings.sources_path))
     connection = storage.connect(settings.database_path)
     storage.save_news(connection, [item.record() for item in report.items])
     for name, count in report.counts.items():
@@ -621,7 +632,8 @@ def news_search(
         wanted = "\n".join(f"- {t.strip()}" for t in topics.split(",") if t.strip())
     print(f"[cyan]🌐 {settings.news_model} + web_search ({days} j)…[/cyan]")
     try:
-        report = search_news(wanted, exclusions, context, days=days)
+        with _led().activity("news_search", done=None):  # puis news_found
+            report = search_news(wanted, exclusions, context, days=days)
     except NewsError as error:
         print(f"[red]✗ {error}[/red]")
         raise typer.Exit(1)
@@ -632,6 +644,7 @@ def news_search(
         raise typer.Exit(1)
     connection = storage.connect(settings.database_path)
     storage.save_news(connection, [item.record() for item in report.items])
+    _led().news_found(len(report.items))
     print(_news_table([item.record() for item in report.items]))
     print(f"{len(report.items)} actu(s) · {report.searches} recherche(s) · {report.results_seen} résultats lus"
           + (f" · {len(report.rejected)} écartée(s)" if report.rejected else ""))
@@ -683,7 +696,8 @@ def _claude(function, **kwargs):
     from app.news import NewsError, explain_api_error
 
     try:
-        return function(**kwargs)
+        with _led().activity("news_search", done="success"):
+            return function(**kwargs)
     except NewsError as error:
         print(f"[red]✗ {error}[/red]")
     except Exception as error:  # noqa: BLE001 — erreur de l'API Claude, message actionnable
@@ -728,7 +742,8 @@ def events_crawl():
     """Lit les calendriers .ics déclarés dans sources.toml (sections events)."""
     from app.events import crawl_calendars
 
-    report = crawl_calendars(load_sources(settings.sources_path))
+    with _led().activity("scrape_source", done="success"):
+        report = crawl_calendars(load_sources(settings.sources_path))
     storage.save_events(storage.connect(settings.database_path), [item.record() for item in report.items])
     print(f"[green]✓ {len(report.items)} événement(s)[/green]")
     for name, error in report.errors.items():
@@ -774,7 +789,8 @@ def media_crawl():
     """Lit les chaînes et podcasts déclarés dans sources.toml (sections media)."""
     from app.media import crawl_media
 
-    report = crawl_media(load_sources(settings.sources_path))
+    with _led().activity("scrape_source", done="success"):
+        report = crawl_media(load_sources(settings.sources_path))
     storage.save_media(storage.connect(settings.database_path), [item.record() for item in report.items])
     for name, count in report.counts.items():
         print(f"[green]✓ {name}[/green] : {count}")
@@ -799,7 +815,8 @@ def benchmarks_crawl():
     from app.review import FetchError
 
     try:
-        report = crawl_catalog()
+        with _led().activity("scrape_source", done="success"):
+            report = crawl_catalog()
     except (BenchmarkError, FetchError) as error:
         print(f"[red]✗ {error}[/red]")
         raise typer.Exit(1)
@@ -970,12 +987,13 @@ def review(
                                 memory=lambda: WatchMemory(store).prompt_context())
         record = None
         try:
-            for event in stream_review(build_review_graph(context), {"url": url},
-                                       observability.trace_config(url, "review")):
-                if event["type"] == "step":
-                    print(f"[cyan]reviewer[/cyan] {event['node']} : {event['detail']}")
-                else:
-                    record = event["review"]
+            with _led().activity("review", done="success"):
+                for event in stream_review(build_review_graph(context), {"url": url},
+                                           observability.trace_config(url, "review")):
+                    if event["type"] == "step":
+                        print(f"[cyan]reviewer[/cyan] {event['node']} : {event['detail']}")
+                    else:
+                        record = event["review"]
         except FetchError as error:
             print(f"[red]{error}[/red]")
             raise typer.Exit(1)
@@ -1020,7 +1038,8 @@ def web(
     if auth is None and host not in ("127.0.0.1", "localhost", "::1") and not settings.web_api_token:
         print(f"[yellow]⚠ Interface exposée sur {host} sans login : définir WEB_USERNAME et WEB_PASSWORD.[/yellow]")
     print(f"[green]Interface de veille : http://{host}:{port}[/green]" + (f" [dim](login : {auth.username})[/dim]" if auth else ""))
-    uvicorn.run("app.web.server:app", host=host, port=port, log_level="warning")
+    # Arrêt borné : les flux SSE ouverts (/api/live, chat) ne retiennent pas « veille stop ».
+    uvicorn.run("app.web.server:app", host=host, port=port, log_level="warning", timeout_graceful_shutdown=3)
 
 
 @cli.command("web-password")
