@@ -49,6 +49,11 @@ url = "https://vllm.ai/blog/rss.xml"
 name = "The GitHub Blog"
 url = "https://github.blog/feed/"
 
+# Catégorie AI & ML › LLMs du GitHub Blog (affichée dans l'onglet Actus).
+[[rss]]
+name = "GitHub Blog — LLMs"
+url = "https://github.blog/ai-and-ml/llms/feed/"
+
 [[rss]]
 name = "Sebastian Raschka, PhD"
 url = "https://sebastianraschka.com/rss_feed.xml"
@@ -62,7 +67,7 @@ url = "https://claude.com/blog"
 # Onglet 📰 Actus : pages [[blog]] ci-dessus + ces flux [[rss]] (par nom).
 # openai.com/fr-FR/news/ refuse les robots (HTTP 403) : on lit son flux officiel.
 [news]
-rss = ["OpenAI News"]
+rss = ["OpenAI News", "NVIDIA Blog", "Hugging Face Blog", "GitHub Blog — LLMs"]
 
 # Flux d'annonces quotidiennes arXiv (moins sujet au rate-limit que l'API).
 [arxiv]

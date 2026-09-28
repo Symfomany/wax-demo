@@ -24,10 +24,15 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Collecte + workflow : `python -m app.main run` (`--no-collect`, `--no-mcp`, `--approve`,
   veille ciblée : `-k MOT -s SOURCE --max-age N --max-docs N --match-all`)
 - Validation humaine : `python -m app.main resume <run_id> --approved|--rejected --note "..."`
-- Plan d'exécution : `python -m app.main plan --langgraph`
+- Plan d'exécution : `python -m app.main plan --langgraph [--out DOSSIER]` (écrit `task-graph.mmd`, `langgraph.mmd`)
+- Schémas Mermaid : skill `schema-mermaid`, sous-agent `diagrammer` ; validation
+  `.claude/skills/schema-mermaid/scripts/check.sh fichier.md|.mmd` (mermaid-cli épinglé, poste de dev uniquement)
 - Recherche GitHub via MCP : `python -m app.main github "llm inference" --limit 5`
 - Mémoire : `python -m app.main memory [--export]` · règles suggérées : `rules [--accept|--dismiss CLÉ]`
 - Pourquoi cette veille ? : `python -m app.main why [--json]`, page `/why` (profil, mémoire typée, règles, ranking)
+- How to : page `/howto` (menu ☰ › Aide), schémas interactifs pour débutants (graphe, DAG, sous-graphes, chat,
+  garde-fous, harness Claude Code) ; vrais schémas via `/api/howto/diagrams`. Tout nœud ajouté à un graphe doit
+  y être expliqué (`test_howto_page_and_generated_diagrams`).
 - Login web : `WEB_USERNAME` / `WEB_PASSWORD` (≥ 8 car., min, maj, chiffre, spécial ; sinon refus de démarrer) ;
   générer : `python -m app.main web-password [--write-env]` ; TUI et scripts en HTTP Basic
 - Interface web de chat : `python -m app.main web` (http://127.0.0.1:8000) ; en arrière-plan :
@@ -77,7 +82,8 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Chat : agent `app/chat/` (route → act → respond → guard), serveur `app/web/`.
 - Instructions templatées : `templates/claude/` (profil TOML + templates Jinja2).
 - Traçage : `app/observability.py` (Langfuse, LangSmith ; session = run ou conversation).
-- Hooks Claude Code : `.claude/hooks/`, déclarés dans `.claude/settings.json`.
+- Hooks Claude Code : `.claude/hooks/`, déclarés dans `.claude/settings.json`. `.mcp.json` : chemins relatifs
+  à la racine du projet uniquement (même config sur le PC et la Jetson, vérifié par `tests/test_claude_hooks.py`).
 - Fournisseurs LLM : `LLM_PROVIDER` = ollama | openai | anthropic (`app/llm.py`).
 - Prompts éditables : surcharges dans `data/prompts/` (`app/harness/prompts.py`), jamais les fichiers du dépôt.
 - Traces du graphe : table `traces` (v4), page `/trace/<id>` ; liens Langfuse déterministes (`app/observability.py`).

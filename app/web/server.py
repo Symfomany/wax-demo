@@ -1004,6 +1004,18 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         ]
         return found
 
+    @app.get("/howto")
+    def howto_page():
+        return FileResponse(STATIC / "howto.html")
+
+    @app.get("/api/howto/diagrams")
+    def howto_diagrams():
+        """Schémas techniques de la page How to : Task Graph + graphes compilés (veille, chat, review)."""
+        from app.workflow.tasks import default_plan
+
+        return {"task-graph": default_plan().to_mermaid()} | graph_diagrams("run") \
+            | graph_diagrams("chat") | {"reviewer": graph_diagrams("article")["review"]}
+
     def graph_diagrams(kind: str) -> dict[str, str]:
         if kind not in diagram_cache:
             diagram_cache[kind] = build_diagrams(kind, services(), app.state.connection)

@@ -5,6 +5,7 @@
       "Bash(.venv/bin/python -m app.main doctor)",
       "Bash(.venv/bin/python -m app.main memory)",
       "Bash(.venv/bin/python -m app.main plan:*)",
+      "Bash(.claude/skills/schema-mermaid/scripts/check.sh:*)",
       "Bash(python -m compileall:*)",
       "mcp__github-scout__search_repositories",
       "mcp__github-scout__list_releases",

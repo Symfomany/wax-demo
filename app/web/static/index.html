@@ -1615,6 +1615,8 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
     { id: "prompts", icon: "✏️", label: "Prompts", sub: "Prompts des agents (surcharges)", group: "Profil & réglages" },
     { id: "memory", icon: "🧠", label: "Mémoire", sub: "Leçons, thèmes, santé des sources", group: "Profil & réglages" },
     { id: "help", icon: "❓", label: "Aide", sub: "Guide, raccourcis, visite guidée", group: "Aide" },
+    // Page à part, seulement dans le menu : schémas interactifs du fonctionnement (howto.html).
+    { id: "howto", icon: "🧩", label: "How to", sub: "Comment marche l'app, en schémas", group: "Aide", href: "/howto" },
   ];
   const viewOf = (id) => VIEWS.find((v) => v.id === id) || VIEWS[0];
   let currentView = "chat";
@@ -1625,6 +1627,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
     shown.forEach((v, i) => {
       if (v.group !== group) { group = v.group; html += `<div class="drawer-group">${esc(group)}</div>`; }
       const n = VIEWS.indexOf(v) + 1;
+      if (v.href) { html += `<a class="drawer-item" href="${v.href}" style="--i:${i};text-decoration:none;color:inherit"><span class="ico">${v.icon}</span><span><b>${esc(v.label)}</b><small>${esc(v.sub)}</small></span><span class="kbd" aria-hidden="true">↗</span></a>`; return; }
       html += `<button class="drawer-item" data-view="${v.id}" style="--i:${i}" ${v.id === currentView ? 'aria-current="page"' : ""}>
         <span class="ico">${v.icon}</span><span><b>${esc(v.label)}${v.id === "runs" ? '<span class="run-badge" hidden>●</span>' : ""}</b><small>${esc(v.sub)}</small></span>
         ${n <= 9 ? `<span class="kbd" title="Alt+${n}">${n}</span>` : ""}</button>`;
@@ -1655,7 +1658,10 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
   $("#drawer-back").addEventListener("click", closeDrawer);
   $("#drawer-filter").addEventListener("input", (e) => renderNav(e.target.value));
   $("#drawer-filter").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { const first = $("#drawer-nav [data-view]"); if (first) show(first.dataset.view); }
+    if (e.key === "Enter") {
+      const first = $("#drawer-nav [data-view], #drawer-nav a.drawer-item");
+      if (first?.href) location.href = first.href; else if (first) show(first.dataset.view);
+    }
     if (e.key === "ArrowDown") { e.preventDefault(); $("#drawer-nav .drawer-item")?.focus(); }
   });
   $("#drawer-nav").addEventListener("keydown", (e) => {
@@ -2682,7 +2688,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
     renderFilters();
     grid.innerHTML = news.items.length ? news.items.map(newsCard).join("")
       : news.loadingMore ? "" : `<div class="news-empty" style="grid-column:1/-1">🗞️ Aucune actu${$("#news-q").value ? " pour cette recherche" : ""}.<br>
-         <span style="font-size:.86rem">« 🔄 Crawler les blogs » récupère claude.com/blog et OpenAI News ; « 🌐 Mes actus via Claude » lance une recherche web.</span></div>`;
+         <span style="font-size:.86rem">« 🔄 Crawler les blogs » récupère claude.com/blog et les flux officiels (OpenAI, NVIDIA, Hugging Face, GitHub) ; « 🌐 Mes actus via Claude » lance une recherche web.</span></div>`;
     // Clic simple : résumé dans la modale ; Ctrl/⌘-clic : article dans un nouvel onglet.
     grid.querySelectorAll("[data-news]").forEach((card) => card.addEventListener("click", (e) => {
       if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
@@ -3240,9 +3246,9 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
   else if (location.hash === "#grill-start") { show("grill"); startGrill(); }  // lien direct : démarre l'entretien
   else if (location.hash.startsWith("#r=")) { openReview(decodeURIComponent(location.hash.slice(3))); show("review"); }
   else if (location.hash.startsWith("#k=")) openKnowledge(decodeURIComponent(location.hash.slice(3)));
-  else if (VIEWS.some((v) => `#${v.id}` === location.hash)) show(location.hash.slice(1));
+  else if (VIEWS.some((v) => !v.href && `#${v.id}` === location.hash)) show(location.hash.slice(1));
   else markView("chat");
-  addEventListener("hashchange", () => { if (VIEWS.some((v) => `#${v.id}` === location.hash)) show(location.hash.slice(1)); });
+  addEventListener("hashchange", () => { if (VIEWS.some((v) => !v.href && `#${v.id}` === location.hash)) show(location.hash.slice(1)); });
   input.focus();
   // Première visite : visite guidée ; chargement discret des événements pour les rappels du jour.
   let toured = false; try { toured = localStorage.getItem("veille-tour-done") === "1"; } catch {}

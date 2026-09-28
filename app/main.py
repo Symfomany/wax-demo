@@ -126,16 +126,27 @@ def resume(
 
 
 @cli.command()
-def plan(langgraph: bool = typer.Option(False, help="Afficher aussi le graphe LangGraph.")):
+def plan(langgraph: bool = typer.Option(False, help="Afficher aussi le graphe LangGraph."),
+         out: str = typer.Option("", help="Dossier où écrire les diagrammes .mmd (skill schema-mermaid).")):
     """Affiche le Task Graph (Mermaid) et, en option, le graphe LangGraph compilé."""
+    from pathlib import Path
+
     task_graph = default_plan()
+    diagrams = {"task-graph": task_graph.to_mermaid()}
     print("[bold]Ordre topologique :[/bold] " + " → ".join(task_graph.topological_order()))
-    print(task_graph.to_mermaid())
+    print(diagrams["task-graph"])
     if langgraph:
         connection = storage.connect(settings.database_path)
         context = make_context(connection, human_approval=True, collectors={})
         with open_graph(context) as graph:
-            print(graph.get_graph().draw_mermaid())
+            diagrams["langgraph"] = graph.get_graph().draw_mermaid()
+        print(diagrams["langgraph"])
+    if out:
+        folder = Path(out)
+        folder.mkdir(parents=True, exist_ok=True)
+        for name, text in diagrams.items():
+            (folder / f"{name}.mmd").write_text(text + "\n", encoding="utf-8")
+        print(f"[green]{len(diagrams)} diagramme(s) écrit(s) dans {folder}[/green]")
 
 
 @cli.command()

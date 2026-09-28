@@ -130,3 +130,38 @@ def test_guard_asks_before_notion_writes(tool):
 @pytest.mark.parametrize("tool", ["mcp__notion-veille__search_pages", "mcp__notion__API-post-search"])
 def test_guard_allows_notion_reads(tool):
     assert run_hook("guard.py", {"tool_name": tool, "tool_input": {}}) == 0
+
+
+# --- Configuration Claude Code : serveurs MCP, skill et agent Mermaid -----------------------------
+
+ROOT = HOOKS.parent.parent
+
+
+def test_mcp_servers_use_project_relative_paths():
+    """Pas de chemin absolu : la même config sert au PC de dev et à la Jetson."""
+    servers = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    for name, server in servers.items():
+        for part in [server["command"], *server.get("args", [])]:
+            assert not part.startswith(("/", "~")), f"{name} : {part}"
+        for part in server.get("args", []):
+            if part.startswith("app/"):
+                assert (ROOT / part).is_file(), f"{name} : {part} introuvable"
+
+
+def test_mermaid_skill_and_agent_are_declared():
+    skill = (ROOT / ".claude/skills/schema-mermaid/SKILL.md").read_text(encoding="utf-8")
+    agent = (ROOT / ".claude/agents/diagrammer.md").read_text(encoding="utf-8")
+    check = ROOT / ".claude/skills/schema-mermaid/scripts/check.sh"
+
+    assert skill.startswith("---\nname: schema-mermaid\n") and "check.sh" in skill
+    assert agent.startswith("---\nname: diagrammer\n") and "schema-mermaid" in agent
+    assert check.stat().st_mode & 0o111  # exécutable
+    assert "MERMAID_CLI_VERSION:-12.0.0" in check.read_text(encoding="utf-8")  # version épinglée
+
+
+def test_mermaid_check_rejects_unknown_extensions(tmp_path):
+    target = tmp_path / "schema.txt"
+    target.write_text("flowchart LR\n  a --> b\n", encoding="utf-8")
+    result = subprocess.run(["bash", str(ROOT / ".claude/skills/schema-mermaid/scripts/check.sh"), str(target)],
+                            capture_output=True, text=True)
+    assert result.returncode == 1 and "extension attendue" in result.stderr

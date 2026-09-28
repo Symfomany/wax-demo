@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How to · Comment marche la veille</title>
+<script>
+  // Même thème que l'application (clé veille-theme de index.html).
+  try { const t = localStorage.getItem("veille-theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch {}
+</script>
+<style>
+:root { --bg: #f6f5f1; --panel: #fff; --panel-2: #f1efe9; --line: #e4e1d8; --text: #1c1b19; --muted: #6d6a62;
+        --accent: #5b4bdb; --accent-soft: #ecebfd;
+        --llm: #7048e8; --llm-soft: #efe9ff; --det: #1f7a45; --det-soft: #dcf3e4; --ext: #c25e00; --ext-soft: #fff0df;
+        --guard: #c62828; --guard-soft: #fde2e1; --human: #0b6bcb; --human-soft: #e0efff;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #121216; --panel: #1b1b21; --panel-2: #24242c; --line: #30303a; --text: #ecebf2; --muted: #a09fae;
+    --accent: #9b90ff; --accent-soft: #29264a; --llm: #b197fc; --llm-soft: #2c2548; --det: #6fcf97; --det-soft: #1a3326;
+    --ext: #ffb86b; --ext-soft: #3a2a14; --guard: #ff8a80; --guard-soft: #3d1c1c; --human: #74b9ff; --human-soft: #172a40; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #121216; --panel: #1b1b21; --panel-2: #24242c; --line: #30303a; --text: #ecebf2; --muted: #a09fae;
+  --accent: #9b90ff; --accent-soft: #29264a; --llm: #b197fc; --llm-soft: #2c2548; --det: #6fcf97; --det-soft: #1a3326;
+  --ext: #ffb86b; --ext-soft: #3a2a14; --guard: #ff8a80; --guard-soft: #3d1c1c; --human: #74b9ff; --human-soft: #172a40; color-scheme: dark; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 70px; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow-x: hidden; }
+a { color: var(--accent); }
+code { font-family: var(--mono); font-size: .84em; background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
+.page { max-width: 1060px; margin: 0 auto; padding: 0 16px calc(64px + env(safe-area-inset-bottom, 0px)); }
+.muted { color: var(--muted); }
+
+/* --- En-tête + sommaire collant ------------------------------------------------------------ */
+.hero { padding: calc(28px + env(safe-area-inset-top, 0px)) 0 10px; display: grid; gap: 6px; }
+.kicker { font-size: .75rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.hero h1 { font-size: clamp(1.6rem, 4vw, 2.3rem); line-height: 1.15; margin: 0; }
+.hero p { margin: 0; max-width: 720px; }
+.toc { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px);
+       display: flex; gap: 6px; overflow-x: auto; padding: 10px 0; margin: 8px 0 4px; scrollbar-width: none; border-bottom: 1px solid var(--line); }
+.toc::-webkit-scrollbar { display: none; }
+.toc a { flex: none; text-decoration: none; color: var(--text); font-size: .83rem; padding: 5px 12px; border-radius: 999px;
+         border: 1px solid var(--line); background: var(--panel); white-space: nowrap; }
+.toc a.seen { border-color: var(--det); }
+.toc a.seen::after { content: " ✓"; color: var(--det); font-weight: 700; }
+.toc a.here { background: var(--accent); color: #fff; border-color: var(--accent); }
+.toc a.here::after { color: #fff; }
+.progress { font-size: .8rem; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.bar { flex: 1; max-width: 200px; height: 6px; border-radius: 99px; background: var(--panel-2); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--llm)); transition: width .4s; }
+
+/* --- Chapitres ----------------------------------------------------------------------------- */
+section.chap { padding: 34px 0 8px; }
+.chap-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 14px; }
+.num { flex: none; width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; font-size: 1.3rem;
+       background: linear-gradient(135deg, var(--accent), #c05bd6); color: #fff; box-shadow: 0 6px 18px -8px var(--accent); }
+.chap-head h2 { margin: 0; font-size: 1.35rem; line-height: 1.25; }
+.chap-head p { margin: 4px 0 0; color: var(--muted); max-width: 760px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; min-width: 0; }
+.stage { position: relative; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn { font: inherit; font-size: .85rem; border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+       border-radius: 10px; padding: 6px 12px; cursor: pointer; transition: transform .12s, background .2s; }
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 650; }
+select.btn { padding-right: 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: .8rem; color: var(--muted); margin-top: 10px; }
+.tag { display: inline-flex; align-items: center; gap: 4px; font-size: .72rem; font-weight: 650; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.tag.llm { background: var(--llm-soft); color: var(--llm); }
+.tag.det { background: var(--det-soft); color: var(--det); }
+.tag.ext { background: var(--ext-soft); color: var(--ext); }
+.tag.guard { background: var(--guard-soft); color: var(--guard); }
+.tag.human { background: var(--human-soft); color: var(--human); }
+.explain { margin-top: 12px; border-radius: 14px; padding: 12px 14px; background: var(--panel-2); min-height: 70px; animation: pop .3s ease; }
+.explain h4 { margin: 0 0 4px; font-size: 1rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.explain p { margin: 4px 0; }
+.explain .src { font-size: .78rem; color: var(--muted); }
+@keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+
+/* --- 1. La rédaction ----------------------------------------------------------------------- */
+.crew { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 10px; }
+.who { border: 2px solid transparent; background: var(--panel-2); border-radius: 16px; padding: 12px 8px; cursor: pointer; text-align: center;
+       font: inherit; color: var(--text); position: relative; transition: transform .2s, border-color .2s; }
+.who:hover { transform: translateY(-3px) rotate(-1deg); }
+.who[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.who .face { font-size: 2.1rem; display: block; line-height: 1.2; }
+.who b { display: block; font-size: .86rem; margin-top: 4px; }
+.who small { display: block; font-size: .72rem; color: var(--muted); }
+.who .tag { margin-top: 6px; }
+.who:not(:last-child)::after { content: "→"; position: absolute; right: -11px; top: 38%; color: var(--muted); font-weight: 700; }
+.crew-note { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-top: 12px; }
+.fact { border-left: 4px solid var(--accent); padding: 8px 12px; background: var(--panel); border-radius: 0 12px 12px 0; font-size: .9rem; }
+
+/* --- Graphes SVG --------------------------------------------------------------------------- */
+svg.graph { width: 100%; height: auto; display: block; overflow: visible; }
+#star { max-height: 64vh; margin-top: 8px; }
+svg .edge { stroke: var(--line); stroke-width: 2.2; fill: none; transition: stroke .3s; }
+svg .edge.cond { stroke-dasharray: 6 5; }
+svg .edge.lit { stroke: var(--accent); stroke-width: 3; }
+svg .n rect { fill: var(--panel); stroke: var(--line); stroke-width: 2; transition: fill .3s, stroke .3s; rx: 14; }
+svg .n { cursor: pointer; }
+svg .n text { fill: var(--text); font: 600 13px system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+svg .n text.sub { font: 500 10.5px system-ui, sans-serif; fill: var(--muted); }
+svg .n.llm rect { stroke: var(--llm); }
+svg .n.det rect { stroke: var(--det); }
+svg .n.human rect { stroke: var(--human); }
+svg .n.guard rect { stroke: var(--guard); }
+svg .n.boss rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 3; }
+svg .n.active rect { fill: var(--accent); stroke: var(--accent); }
+svg .n.active text { fill: #fff; }
+svg .n.fail rect { fill: var(--guard-soft); stroke: var(--guard); }
+svg .n.warn rect { fill: var(--ext-soft); stroke: var(--ext); }
+svg .n.ok rect { fill: var(--det-soft); stroke: var(--det); }
+svg .n.pause rect { fill: var(--human-soft); stroke: var(--human); animation: pulse 1.2s infinite; }
+svg .n:hover rect { stroke-width: 3; }
+svg .n:focus { outline: none; }
+svg .n:focus-visible rect { stroke: var(--accent); stroke-width: 4; }
+svg .badge rect { fill: var(--text); rx: 9; }
+svg .badge text { fill: var(--bg); font: 700 10.5px system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; }
+svg .token { fill: #ff6b6b; filter: drop-shadow(0 0 6px #ff6b6b); }
+svg .token.ghost { fill: #ffb86b; filter: drop-shadow(0 0 5px #ffb86b); }
+@keyframes pulse { 50% { stroke-width: 5; } }
+.narr { display: flex; gap: 12px; align-items: flex-start; margin-top: 10px; background: var(--panel-2); border-radius: 14px; padding: 12px 14px; min-height: 76px; }
+.narr .step { flex: none; font: 700 .8rem var(--mono); background: var(--accent); color: #fff; border-radius: 8px; padding: 3px 8px; }
+.narr p { margin: 0; }
+
+/* --- 3. DAG -------------------------------------------------------------------------------- */
+.dag { display: flex; align-items: center; gap: 0; overflow-x: auto; padding: 8px 2px 14px; }
+.col { display: grid; gap: 8px; flex: none; }
+.arrow { flex: none; width: 26px; text-align: center; color: var(--muted); font-weight: 700; }
+.task { font: inherit; text-align: left; min-width: 120px; border: 2px solid var(--line); background: var(--panel); color: var(--text);
+        border-radius: 12px; padding: 7px 10px; cursor: pointer; transition: all .25s; position: relative; }
+.task b { display: block; font: 650 .82rem var(--mono); }
+.task small { display: block; font-size: .7rem; color: var(--muted); }
+.task.optional { border-style: dashed; }
+.task.running { border-color: var(--accent); background: var(--accent-soft); animation: wiggle .5s infinite alternate; }
+.task.done { border-color: var(--det); background: var(--det-soft); }
+.task.failed { border-color: var(--guard); background: var(--guard-soft); }
+.task.blocked { opacity: .45; }
+.task.broken::before { content: "💥"; position: absolute; top: -10px; right: -8px; font-size: 1rem; }
+.task.off { display: none; }
+@keyframes wiggle { from { transform: translateY(-1px); } to { transform: translateY(1px); } }
+.wave { font: .82rem var(--mono); color: var(--muted); margin-top: 6px; }
+.verdict { margin-top: 10px; font-weight: 650; }
+
+/* --- 4 & 5. Flux horizontaux -------------------------------------------------------------- */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.flow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; row-gap: 14px; padding: 6px 0; }
+.step-node { font: inherit; border: 2px solid var(--line); background: var(--panel); color: var(--text); border-radius: 14px; padding: 8px 12px;
+             cursor: pointer; text-align: center; min-width: 96px; transition: all .25s; }
+.step-node .e { font-size: 1.3rem; display: block; }
+.step-node b { font: 650 .8rem var(--mono); display: block; }
+.step-node.llm { border-color: var(--llm); }
+.step-node.det { border-color: var(--det); }
+.step-node.guard { border-color: var(--guard); }
+.step-node.ext { border-color: var(--ext); }
+.step-node.human { border-color: var(--human); }
+.step-node.lit { background: var(--accent); color: #fff; transform: scale(1.06); }
+.step-node[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--accent-soft); }
+.link { color: var(--muted); font-weight: 700; }
+.link.loop { color: var(--ext); }
+.stack { display: grid; gap: 4px; }
+.stack .step-node { min-width: 80px; padding: 4px 8px; }
+.toolbox { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tool { font: 600 .75rem var(--mono); padding: 3px 9px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); transition: all .25s; }
+.tool.lit { background: var(--accent); color: #fff; border-color: var(--accent); transform: scale(1.08); }
+.ask { font: inherit; font-size: .85rem; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+.ask:hover { border-color: var(--accent); }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+
+/* --- 6. Oignon des garde-fous ------------------------------------------------------------- */
+.onion-wrap { display: grid; grid-template-columns: minmax(260px, 420px) 1fr; gap: 16px; align-items: center; }
+@media (max-width: 720px) { .onion-wrap { grid-template-columns: 1fr; } }
+svg .ring { cursor: pointer; transition: opacity .3s, transform .3s; transform-origin: 200px 200px; }
+svg .ring circle { stroke: var(--bg); stroke-width: 3; }
+svg .ring:hover { opacity: .85; }
+svg .ring.hit circle { stroke: var(--text); stroke-width: 4; }
+svg .ring.hit { animation: shake .45s; }
+svg .ring text { font: 700 11px system-ui, sans-serif; fill: #1c1b19; text-anchor: middle; pointer-events: none; }
+@keyframes shake { 25% { transform: rotate(2deg); } 75% { transform: rotate(-2deg); } }
+.attacks { display: grid; gap: 6px; }
+.attack { font: inherit; font-size: .88rem; text-align: left; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+          border-radius: 12px; padding: 8px 12px; cursor: pointer; }
+.attack:hover, .attack[aria-pressed="true"] { border-color: var(--guard); background: var(--guard-soft); }
+
+/* --- 7. Claude Code ------------------------------------------------------------------------- */
+.timeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; counter-reset: t; }
+.moment { font: inherit; color: var(--text); text-align: left; border: 2px solid var(--line); background: var(--panel); border-radius: 14px; padding: 10px; cursor: pointer; position: relative; }
+.moment::before { counter-increment: t; content: counter(t); position: absolute; top: -9px; left: -6px; width: 22px; height: 22px; border-radius: 50%;
+                  background: var(--accent); color: #fff; font: 700 .72rem system-ui; display: grid; place-items: center; }
+.moment .e { font-size: 1.4rem; }
+.moment b { display: block; font-size: .84rem; }
+.moment small { font-size: .72rem; color: var(--muted); }
+.moment.hook { border-color: var(--guard); }
+.moment[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.kit { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-top: 14px; }
+.kit .card h3 { margin: 0 0 2px; font-size: 1rem; }
+.kit .card .meta { font-size: .8rem; color: var(--muted); margin: 0 0 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { font: 600 .74rem var(--mono); padding: 2px 8px; border-radius: 7px; background: var(--panel-2); border: 1px solid var(--line); cursor: help; }
+.bridge { margin-top: 12px; border: 2px dashed var(--accent); border-radius: 14px; padding: 12px 14px; }
+
+/* --- 8. Lexique ---------------------------------------------------------------------------- */
+.lex { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.flip { perspective: 800px; contain: paint; height: 128px; border: 0; padding: 0; background: none; cursor: pointer; font: inherit; color: var(--text); }
+.flip .in { position: relative; width: 100%; height: 100%; transition: transform .5s; transform-style: preserve-3d; }
+.flip[aria-pressed="true"] .in { transform: rotateY(180deg); }
+.flip .face, .flip .back { position: absolute; inset: 0; backface-visibility: hidden; border-radius: 14px; border: 1px solid var(--line); display: grid; place-items: center; padding: 10px; }
+.flip .face { background: var(--panel); font-weight: 700; }
+.flip .face span { font-size: 1.8rem; display: block; text-align: center; }
+.flip .back { background: var(--accent-soft); transform: rotateY(180deg); font-size: .8rem; line-height: 1.4; text-align: left; }
+
+/* --- Schéma technique (Mermaid) ---------------------------------------------------------- */
+details.tech { margin-top: 12px; }
+details.tech summary { cursor: pointer; font-size: .85rem; color: var(--muted); }
+details.tech .mm { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-top: 8px; }
+details.tech pre { font: .75rem var(--mono); white-space: pre; margin: 0; }
+.end { text-align: center; padding: 40px 0 0; }
+.end .big { font-size: 3rem; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+@media (max-width: 560px) { .who:not(:last-child)::after { display: none; } .chap-head h2 { font-size: 1.15rem; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="hero">
+    <div class="kicker">🧩 How to · visite de la machinerie</div>
+    <h1>Comment marche cette veille ?</h1>
+    <p class="muted">Huit petits schémas à cliquer pour comprendre ce qui se passe entre « un blog publie un article » et
+      « tu lis un résumé fiable ». Aucune connaissance technique requise. <a href="/">← Retour à l'app</a></p>
+    <div class="progress"><span id="progress-text">0 / 8 chapitres explorés</span><span class="bar"><i id="progress-bar"></i></span></div>
+  </header>
+
+  <nav class="toc" id="toc" aria-label="Chapitres">
+    <a href="#idee">1 · L'idée</a><a href="#veille">2 · Une veille</a><a href="#dag">3 · Le plan (DAG)</a>
+    <a href="#zoom">4 · Les équipes</a><a href="#chat">5 · Chat & agents</a><a href="#garde-fous">6 · Garde-fous</a>
+    <a href="#claude">7 · Claude Code</a><a href="#lexique">8 · Lexique</a>
+  </nav>
+
+  <!-- 1 ======================================================================================= -->
+  <section class="chap" id="idee">
+    <div class="chap-head"><div class="num">📰</div><div>
+      <h2>1. L'idée : une petite rédaction de journal</h2>
+      <p>L'app fonctionne comme une rédaction. Chaque personnage est un morceau de programme. Certains utilisent l'IA
+        (un modèle de langage, souvent local via Ollama), d'autres suivent des règles fixes. Clique sur un personnage.</p>
+    </div></div>
+    <div class="card">
+      <div class="crew" id="crew"></div>
+      <div class="explain" id="crew-explain"></div>
+      <div class="legend"><span class="tag llm">🤖 utilise l'IA</span><span class="tag det">⚙️ règles fixes, sans IA</span>
+        <span class="tag human">🙋 humain</span><span class="tag ext">🔌 service externe</span></div>
+    </div>
+    <div class="crew-note">
+      <div class="fact"><b>L'IA ne peut pas inventer un lien.</b> Elle ne renvoie que des numéros (« le document n°3 est
+        intéressant ») : l'adresse, le titre et la date sont recopiés par le code depuis l'article collecté.</div>
+      <div class="fact"><b>Rien ne part sans toi.</b> La veille s'arrête et attend ta validation avant de publier.
+        Ton commentaire devient une leçon pour la fois suivante.</div>
+      <div class="fact"><b>Petit modèle, gros encadrement.</b> Des règles vérifient tout ce que l'IA écrit : format,
+        liens, dates, chiffres, citations mot pour mot.</div>
+    </div>
+  </section>
+
+  <!-- 2 ======================================================================================= -->
+  <section class="chap" id="veille">
+    <div class="chap-head"><div class="num">🛰️</div><div>
+      <h2>2. Une veille, pas à pas : le graphe et son chef d'orchestre</h2>
+      <p>Le programme est un <b>graphe</b> : des cases (les <i>nœuds</i>) reliées par des flèches. Au centre, le
+        <b>superviseur</b> décide à chaque tour quelle case travaille. Choisis un scénario et appuie sur ▶.</p>
+    </div></div>
+    <div class="card stage">
+      <div class="row" style="margin-bottom:8px">
+        <select class="btn" id="scenario" aria-label="Scénario"></select>
+        <button class="btn primary" id="play">▶ Lecture</button>
+        <button class="btn" id="next">⏭ Étape</button>
+        <button class="btn" id="reset">↺</button>
+        <span class="muted" style="font-size:.8rem">ou clique une case pour savoir ce qu'elle fait</span>
+      </div>
+      <div class="narr" aria-live="polite"><span class="step" id="narr-step">0</span><p id="narr-text">Prêt. Le point rouge représente « la veille en cours » qui voyage de case en case.</p></div>
+      <svg class="graph" id="star" viewBox="0 0 760 560" role="img" aria-label="Graphe principal de la veille"></svg>
+      <div class="legend"><span>━ flèche fixe</span><span>┅ flèche choisie par le superviseur</span>
+        <span class="tag llm">🤖 IA</span><span class="tag det">⚙️ règles</span><span class="tag human">🙋 toi</span></div>
+      <details class="tech" data-diagram="veille"><summary>🔧 Voir le vrai schéma généré par le code (LangGraph)</summary><div class="mm"></div></details>
+    </div>
+  </section>
+
+  <!-- 3 ======================================================================================= -->
+  <section class="chap" id="dag">
+    <div class="chap-head"><div class="num">🗺️</div><div>
+      <h2>3. Le plan : un DAG (liste de tâches avec des flèches)</h2>
+      <p>Avant de démarrer, la veille reçoit un <b>plan</b> : chaque tâche dit de quelles tâches elle dépend. Les flèches
+        vont toujours dans le même sens, sans boucle : c'est un <b>DAG</b> (graphe orienté acyclique). Le superviseur lance
+        chaque tâche dont les dépendances sont finies ; plusieurs peuvent partir en même temps. Clique sur une tâche
+        pour la faire tomber en panne 💥, puis lance la simulation.</p>
+    </div></div>
+    <div class="card">
+      <div class="row" style="margin-bottom:6px">
+        <button class="btn" id="dag-collect" aria-pressed="true">📡 Collecter</button>
+        <button class="btn" id="dag-evidence" aria-pressed="true">🧾 Vérifier les preuves</button>
+        <button class="btn primary" id="dag-run">▶ Simuler</button>
+        <button class="btn" id="dag-reset">↺ Réparer tout</button>
+      </div>
+      <div class="dag" id="dag-board"></div>
+      <div class="wave" id="dag-order"></div>
+      <div class="verdict" id="dag-verdict" aria-live="polite"></div>
+      <div class="legend"><span>▭ bordure pleine : obligatoire</span><span>┅ pointillés : optionnelle (sa panne n'arrête pas tout)</span></div>
+      <details class="tech" data-diagram="task-graph"><summary>🔧 Voir le vrai plan généré par le code</summary><div class="mm"></div></details>
+    </div>
+  </section>
+
+  <!-- 4 ======================================================================================= -->
+  <section class="chap" id="zoom">
+    <div class="chap-head"><div class="num">🔍</div><div>
+      <h2>4. Zoom : chaque grosse case est une petite équipe (sous-graphe)</h2>
+      <p>Cinq cases du graphe cachent leur propre mini-graphe, avec leur propre mémoire de travail : ce sont des
+        <b>sous-graphes</b>, aussi appelés <b>sous-agents</b>. Choisis une équipe, puis ▶ pour la voir travailler.</p>
+    </div></div>
+    <div class="card">
+      <div class="tabs" id="sub-tabs"></div>
+      <div class="flow" id="sub-flow"></div>
+      <div class="row"><button class="btn primary" id="sub-play">▶ Rejouer</button></div>
+      <div class="explain" id="sub-explain"></div>
+      <details class="tech" id="sub-tech"><summary>🔧 Voir le vrai sous-graphe généré par le code</summary><div class="mm"></div></details>
+    </div>
+  </section>
+
+  <!-- 5 ======================================================================================= -->
+  <section class="chap" id="chat">
+    <div class="chap-head"><div class="num">💬</div><div>
+      <h2>5. Le chat et les autres agents</h2>
+      <p>Le chat est un autre graphe, plus court : <b>aiguiller</b> la question vers un outil, <b>agir</b>, <b>répondre</b>,
+        puis <b>vérifier</b>. Clique sur une question pour voir le chemin qu'elle prend.</p>
+    </div></div>
+    <div class="card">
+      <div class="row" id="chat-asks"></div>
+      <div class="flow" id="chat-flow" style="margin-top:12px"></div>
+      <div class="toolbox" id="chat-tools"></div>
+      <div class="explain" id="chat-explain"></div>
+      <details class="tech" data-diagram="chat"><summary>🔧 Voir le vrai graphe du chat</summary><div class="mm"></div></details>
+    </div>
+    <div class="two" style="margin-top:12px">
+      <div class="card">
+        <h3 style="margin:0 0 4px">🔬 Le Reviewer</h3>
+        <p class="muted" style="margin:0 0 8px;font-size:.88rem">Tu lui donnes l'URL d'un article, il en fait une analyse sourcée.</p>
+        <div class="flow" id="reviewer-flow"></div>
+        <div class="explain" id="reviewer-explain"></div>
+        <details class="tech" data-diagram="reviewer"><summary>🔧 Vrai graphe</summary><div class="mm"></div></details>
+      </div>
+      <div class="card">
+        <h3 style="margin:0 0 4px">🎯 Grill-me</h3>
+        <p class="muted" style="margin:0 0 8px;font-size:.88rem">Un entretien, une question à la fois, pour savoir ce qui t'intéresse.</p>
+        <div class="flow" id="grill-flow"></div>
+        <div class="explain" id="grill-explain"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 ======================================================================================= -->
+  <section class="chap" id="garde-fous">
+    <div class="chap-head"><div class="num">🛡️</div><div>
+      <h2>6. Les garde-fous : le « harness » de l'app</h2>
+      <p>Un <b>harness</b> (harnais) est tout ce qu'on met autour de l'IA pour la tenir : consignes, formats imposés,
+        contrôles automatiques, validation humaine. Choisis une bêtise que l'IA pourrait faire et regarde quelle couche
+        l'arrête.</p>
+    </div></div>
+    <div class="card onion-wrap">
+      <svg class="graph" id="onion" viewBox="0 0 400 400" role="img" aria-label="Couches de garde-fous autour de l'IA"></svg>
+      <div>
+        <div class="attacks" id="attacks"></div>
+        <div class="explain" id="onion-explain"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 ======================================================================================= -->
+  <section class="chap" id="claude">
+    <div class="chap-head"><div class="num">🤝</div><div>
+      <h2>7. Claude Code : le harness du développeur</h2>
+      <p>À ne pas confondre avec le chapitre 6. Ici, l'IA ne fait pas la veille : c'est <b>Claude Code</b>, l'assistant
+        qui aide à <i>développer</i> l'app. Le dossier <code>.claude/</code> l'encadre à son tour. Clique sur les
+        moments d'une session de travail.</p>
+    </div></div>
+    <div class="card">
+      <div class="timeline" id="timeline"></div>
+      <div class="explain" id="timeline-explain"></div>
+    </div>
+    <div class="kit" id="kit"></div>
+    <div class="bridge"><b>🌉 Le pont entre les deux mondes :</b> les skills <code>veille-tech</code> et
+      <code>review-actu</code> sont lues par Claude Code <i>et</i> par l'app elle-même (le Scout et le Reviewer les
+      reçoivent dans leurs consignes). La mémoire de veille est aussi exportée dans
+      <code>.claude/memory/veille.md</code> : chaque session Claude Code démarre en connaissant tes préférences.</div>
+  </section>
+
+  <!-- 8 ======================================================================================= -->
+  <section class="chap" id="lexique">
+    <div class="chap-head"><div class="num">📖</div><div>
+      <h2>8. Lexique : retourne les cartes</h2>
+      <p>Les mots qu'on croise partout dans l'app, en une phrase.</p>
+    </div></div>
+    <div class="lex" id="lex"></div>
+    <div class="end"><div class="big" id="end-emoji">🎓</div><p id="end-text" class="muted">Explore les 8 chapitres pour gagner ton diplôme de la veille.</p></div>
+  </section>
+</div>
+
+<script>
+"use strict";
+const $ = (s, root = document) => root.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const KIND = { llm: "🤖 IA", det: "⚙️ règles", human: "🙋 toi", ext: "🔌 externe", guard: "🛡️ garde-fou" };
+const tag = (kind) => `<span class="tag ${kind}">${KIND[kind]}</span>`;
+const src = (text) => `<p class="src">📁 ${text}</p>`;
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const sleep = (ms) => new Promise((r) => setTimeout(r, reduced ? 0 : ms));
+
+// ===== 1. La rédaction ====================================================================
+const CREW = [
+  { face: "📡", name: "Les reporters", code: "collector", kind: "det", text: "Ils font le tour des sources autorisées : flux RSS et pages de blog officiels, arXiv, releases GitHub, et une recherche de nouveaux dépôts GitHub via un serveur MCP. Tout est rangé dans une base SQLite.", file: "app/collectors/ · sources.toml" },
+  { face: "🧹", name: "Le trieur", code: "prefilter + quality", kind: "det", text: "Il jette ce qui est déjà publié, trop vieux, en double ou hors sujet, et équilibre les sources pour qu'arXiv n'écrase pas le reste. Aucune IA : c'est rapide et prévisible.", file: "app/workflow/graph.py · app/workflow/quality.py" },
+  { face: "🔎", name: "Les Scouts", code: "research", kind: "llm", text: "Ils lisent les documents par petits paquets et notent leur intérêt pour toi. Ils répondent uniquement par des numéros de documents et des notes : jamais de lien ni de titre inventés.", file: "app/workflow/subagents.py · app/prompts/scout.md" },
+  { face: "🧐", name: "Le Critic", code: "review", kind: "llm", text: "Il relit chaque sujet retenu avec un œil sévère : est-ce vraiment nouveau, bien sourcé, utile ? Une date dans le futur est rejetée d'office, sans même lui demander.", file: "app/workflow/subagents.py (build_review)" },
+  { face: "🧾", name: "Le fact-checker", code: "evidence", kind: "llm", text: "Il extrait les affirmations (« le modèle X fait 70 % sur tel benchmark ») et vérifie que la citation existe mot pour mot dans la source. Une source secondaire seule ne « confirme » jamais rien.", file: "app/workflow/evidence.py · app/prompts/claims.md" },
+  { face: "✍️", name: "L'Editor", code: "editorial", kind: "llm", text: "Le rédacteur en chef écrit le digest en séparant faits, analyse et hypothèses. Des contrôles automatiques relisent derrière lui : si un chiffre n'est pas dans la source, il doit corriger.", file: "app/workflow/subagents.py (build_editorial)" },
+  { face: "🙋", name: "Toi", code: "approval", kind: "human", text: "La veille se met en pause et te montre le digest. Tu valides ou tu rejettes, avec une note. Cette note devient une leçon que les prochaines veilles recevront.", file: "app/workflow/graph.py (interrupt)" },
+  { face: "📤", name: "La publication", code: "publish + reflect", kind: "ext", text: "Fichiers Markdown et JSON, rapport daté, page Notion. Puis la mémoire se met à jour : thèmes appréciés, leçons, santé des sources.", file: "app/publishers.py · app/notion.py · app/memory.py" },
+];
+function renderCrew(active = 0) {
+  $("#crew").innerHTML = CREW.map((c, i) => `<button class="who" data-i="${i}" aria-pressed="${i === active}"><span class="face">${c.face}</span><b>${esc(c.name)}</b><small>${esc(c.code)}</small>${tag(c.kind)}</button>`).join("");
+  const c = CREW[active];
+  $("#crew-explain").innerHTML = `<h4>${c.face} ${esc(c.name)} ${tag(c.kind)}</h4><p>${esc(c.text)}</p>${src(c.file)}`;
+  $("#crew").querySelectorAll(".who").forEach((b) => b.addEventListener("click", () => renderCrew(Number(b.dataset.i))));
+}
+renderCrew();
+
+// ===== 2. Le graphe principal (étoile autour du superviseur) ==============================
+const NODES = {
+  supervisor: { x: 380, y: 215, e: "🧭", label: "superviseur", sub: "chef d'orchestre", kind: "boss", info: "Il ne travaille pas lui-même : à chaque tour, il lit le plan (chapitre 3) et l'état de la veille, puis envoie le travail à la bonne case. C'est du code simple, pas de l'IA : un petit modèle serait moins fiable pour ce rôle." },
+  collector: { x: 70, y: 215, e: "📡", label: "collector", sub: "collecte", kind: "det", info: "Lancé 4 fois en parallèle, une fois par type de source. Si une source plante, seule sa tâche échoue : les autres continuent." },
+  prefilter: { x: 110, y: 110, e: "🧹", label: "prefilter", sub: "tri rapide", kind: "det", info: "Écarte le déjà-publié, le trop vieux, les doublons exacts ; applique les mots-clés d'une veille ciblée ; équilibre les sources." },
+  quality: { x: 225, y: 45, e: "✨", label: "quality", sub: "sous-graphe", kind: "det", info: "Sous-graphe sans IA : bruit → quasi-doublons → sélection. Voir le chapitre 4." },
+  research: { x: 380, y: 22, e: "🔎", label: "research", sub: "Scouts", kind: "llm", info: "Sous-graphe : plusieurs Scouts en parallèle, puis un classement /100 expliqué. Voir le chapitre 4." },
+  review: { x: 535, y: 45, e: "🧐", label: "review", sub: "Critic", kind: "llm", info: "Sous-graphe : contrôle automatique, puis le Critic seulement si besoin, puis décision." },
+  evidence: { x: 650, y: 110, e: "🧾", label: "evidence", sub: "preuves", kind: "llm", info: "Sous-graphe : affirmations extraites puis vérifiées. Tâche optionnelle : si elle plante, l'Editor écrit quand même, avec une confiance « non évaluée »." },
+  editorial: { x: 690, y: 215, e: "✍️", label: "editorial", sub: "Editor", kind: "llm", info: "Sous-graphe : rédaction → garde-fous → une correction au plus." },
+  approval: { x: 380, y: 355, e: "⏸️", label: "approval", sub: "ta validation", kind: "human", info: "Pause (interrupt) : l'état est sauvegardé (checkpoint), la veille peut attendre des heures ou des jours, puis reprendre exactement là." },
+  blocked: { x: 150, y: 355, e: "⛔", label: "blocked", sub: "garde-fou", kind: "guard", info: "Un garde-fou a trouvé un problème non corrigé : rien n'est publié, le run est marqué « blocked »." },
+  failed: { x: 610, y: 355, e: "💥", label: "failed", sub: "panne", kind: "guard", info: "Une tâche obligatoire a échoué malgré un nouvel essai : arrêt propre, le run est marqué « failed »." },
+  publish: { x: 250, y: 450, e: "📤", label: "publish", sub: "publication", kind: "det", info: "Fichiers Markdown/JSON, rapport daté, Notion. Le digest est revalidé par Pydantic avant d'être écrit." },
+  reject: { x: 510, y: 450, e: "🗑️", label: "reject", sub: "rejet", kind: "det", info: "Rien n'est publié ; le run est marqué « rejected »." },
+  reflect: { x: 380, y: 525, e: "🧠", label: "reflect", sub: "mémoire", kind: "det", info: "Enregistre ta note comme leçon, renforce ou affaiblit les thèmes, et suggère une règle après plusieurs rejets sur un même sujet." },
+};
+const WORKERS = ["collector", "prefilter", "quality", "research", "review", "evidence", "editorial"];
+const EDGES = [
+  ...WORKERS.map((w) => ["supervisor", w, "cond"]),
+  ["supervisor", "approval", "cond"], ["supervisor", "blocked", "cond"], ["supervisor", "failed", "cond"],
+  ["approval", "publish", "cond"], ["approval", "reject", "cond"], ["publish", "reflect"], ["reject", "reflect"],
+];
+const W = 118, H = 46;
+function drawStar() {
+  const svg = $("#star");
+  const edges = EDGES.map(([a, b, cls]) => `<line class="edge ${cls || ""}" data-e="${a}-${b}" x1="${NODES[a].x}" y1="${NODES[a].y}" x2="${NODES[b].x}" y2="${NODES[b].y}"/>`).join("");
+  const nodes = Object.entries(NODES).map(([id, n]) => {
+    const w = id === "supervisor" ? 150 : W, h = id === "supervisor" ? 58 : H;
+    return `<g class="n ${n.kind}" data-n="${id}" tabindex="0" role="button" aria-label="${id}">
+      <rect x="${n.x - w / 2}" y="${n.y - h / 2}" width="${w}" height="${h}"/>
+      <text x="${n.x}" y="${n.y - 7}">${n.e} ${n.label}</text><text class="sub" x="${n.x}" y="${n.y + 12}">${n.sub}</text></g>`;
+  }).join("");
+  const ends = ["blocked", "failed", "reflect"].map((id) => `<text x="${NODES[id].x + W / 2 + 14}" y="${NODES[id].y + 5}" font-size="16">🏁</text>`).join("");
+  svg.innerHTML = `<g>${edges}</g><g>${nodes}</g>${ends}<g id="badges"></g><g id="tokens"></g>`;
+  svg.querySelectorAll(".n").forEach((g) => {
+    const say = () => { const n = NODES[g.dataset.n]; narrate("ℹ️", `<b>${n.e} ${n.label}</b> ${tag(n.kind === "boss" ? "det" : n.kind)} — ${esc(n.info)}`); };
+    g.addEventListener("click", say);
+    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); say(); } });
+  });
+}
+function narrate(step, html) { $("#narr-step").textContent = step; $("#narr-text").innerHTML = html; }
+function setClass(id, cls) {
+  const g = $(`#star [data-n="${id}"]`); if (!g) return;
+  g.classList.remove("active", "fail", "warn", "ok", "pause"); if (cls) g.classList.add(cls);
+}
+function badge(id, text) {
+  const n = NODES[id], w = text.length * 6.5 + 14;
+  $("#badges").insertAdjacentHTML("beforeend", `<g class="badge"><rect x="${n.x + W / 2 - w + 8}" y="${n.y - H / 2 - 12}" width="${w}" height="18"/><text x="${n.x + W / 2 - w / 2 + 8}" y="${n.y - H / 2 - 3}">${esc(text)}</text></g>`);
+}
+async function travel(a, b, ghost = false) {
+  const A = NODES[a], B = NODES[b], dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  dot.setAttribute("r", 9); dot.setAttribute("class", `token${ghost ? " ghost" : ""}`);
+  $("#tokens").appendChild(dot);
+  const line = $(`#star [data-e="${a}-${b}"], #star [data-e="${b}-${a}"]`); line?.classList.add("lit");
+  const t0 = performance.now(), dur = reduced ? 1 : 650;
+  await new Promise((done) => {
+    const tick = (t) => {
+      const k = Math.min(1, (t - t0) / dur), e = k < .5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+      dot.setAttribute("cx", A.x + (B.x - A.x) * e); dot.setAttribute("cy", A.y + (B.y - A.y) * e);
+      k < 1 ? requestAnimationFrame(tick) : done();
+    };
+    requestAnimationFrame(tick);
+  });
+  line?.classList.remove("lit"); dot.remove();
+}
+// Scénarios fidèles au superviseur (app/workflow/graph.py) : chaque étape = [de, vers, texte, effets].
+const go = (w, text, fx) => [["supervisor", w, text, fx], [w, "supervisor", null, null]];
+const BASE = {
+  collect: go("collector", "Le superviseur lit le plan : les 4 collectes n'ont aucune dépendance, elles partent <b>en parallèle</b> (RSS et blogs, arXiv, releases GitHub, découverte GitHub via MCP).", { badge: ["collector", "×4 en parallèle"] }),
+  prefilter: go("prefilter", "Collectes finies → <b>prefilter</b> : déjà publié ? trop vieux ? doublon ? On garde un lot équilibré entre sources."),
+  quality: go("quality", "<b>quality</b> (sous-graphe, sans IA) : on retire le bruit et les quasi-doublons, puis on sélectionne."),
+  research: go("research", "<b>research</b> : des Scouts 🤖 lisent les documents par paquets <b>en parallèle</b> et notent chacun sur 10 ; un classement /100 explique chaque choix."),
+  review: go("review", "<b>review</b> : le Critic 🤖 relit les sujets retenus ; une date future est rejetée d'office, sans IA."),
+  evidence: go("evidence", "<b>evidence</b> : les affirmations sont extraites puis vérifiées <b>mot pour mot</b> dans la source ; les contradictions sont signalées."),
+  editorial: go("editorial", "<b>editorial</b> : l'Editor 🤖 rédige ; les garde-fous vérifient liens, dates, chiffres. S'il y a une erreur : <b>une</b> correction au plus."),
+};
+const pause = [["supervisor", "approval", "Plan terminé, aucun garde-fou déclenché → <b>pause</b> ⏸. La veille attend <b>ta</b> décision ; son état est sauvegardé (checkpoint).", { cls: ["approval", "pause"] }]];
+const SCENARIOS = {
+  normal: { label: "😀 Tout se passe bien", steps: [...BASE.collect, ...BASE.prefilter, ...BASE.quality, ...BASE.research, ...BASE.review, ...BASE.evidence, ...BASE.editorial, ...pause,
+    ["approval", "publish", "Tu valides ✅ → <b>publish</b> : fichiers, rapport daté, page Notion.", { cls: ["approval", "ok"] }],
+    ["publish", "reflect", "<b>reflect</b> : ta note devient une leçon, les thèmes publiés gagnent un point. 🏁 Fin.", { cls: ["reflect", "ok"] }]] },
+  source: { label: "🔌 Une source tombe en panne", steps: [
+    ["supervisor", "collector", "4 collectes en parallèle… mais <b>arXiv</b> ne répond pas.", { badge: ["collector", "arXiv ✗"], cls: ["collector", "warn"] }],
+    ["collector", "supervisor", "La tâche <code>collect:arxiv</code> est <b>optionnelle</b> : elle passe en « failed » sans bloquer les autres. La panne est notée dans la santé des sources."],
+    ...BASE.prefilter, ...BASE.quality, ...BASE.research, ...BASE.review, ...BASE.evidence, ...BASE.editorial, ...pause,
+    ["approval", "publish", "Tu valides : le digest est publié avec les 3 autres sources. 🏁", { cls: ["approval", "ok"] }], ["publish", "reflect", null]] },
+  retry: { label: "🔁 Pas assez de bons sujets", steps: [...BASE.collect, ...BASE.prefilter, ...BASE.quality, ...BASE.research, ...BASE.review,
+    ["supervisor", "research", "Seulement 2 sujets acceptés, il en faut au moins 3 : le superviseur <b>relance research</b> avec un seuil un peu plus bas. <b>Une seule relance</b>, pour ne jamais tourner en rond.", { badge: ["research", "2e tour"] }],
+    ["research", "supervisor", null], ...BASE.review, ...BASE.evidence, ...BASE.editorial, ...pause] },
+  blocked: { label: "⛔ Un garde-fou bloque", steps: [...BASE.collect, ...BASE.prefilter, ...BASE.quality, ...BASE.research, ...BASE.review, ...BASE.evidence,
+    ["supervisor", "editorial", "L'Editor écrit un chiffre absent de la source. Le garde-fou le voit, l'Editor corrige… et se trompe encore.", { cls: ["editorial", "warn"] }],
+    ["editorial", "supervisor", null],
+    ["supervisor", "blocked", "Plan terminé <b>avec des violations</b> → <b>blocked</b>. Rien n'est publié. 🏁", { cls: ["blocked", "fail"] }]] },
+  reject: { label: "🙅 Tu rejettes le digest", steps: [...BASE.collect, ...BASE.prefilter, ...BASE.quality, ...BASE.research, ...BASE.review, ...BASE.evidence, ...BASE.editorial, ...pause,
+    ["approval", "reject", "Tu rejettes avec la note « écarter les tutoriels » → <b>reject</b>.", { cls: ["approval", "fail"] }],
+    ["reject", "reflect", "<b>reflect</b> : la note devient une <b>leçon</b> injectée dans les prochaines consignes. Après plusieurs rejets sur un même thème, une <b>règle</b> t'est suggérée. 🏁", { cls: ["reflect", "ok"] }]] },
+  crash: { label: "💥 Une étape obligatoire plante", steps: [...BASE.collect, ...BASE.prefilter, ...BASE.quality,
+    ["supervisor", "research", "research plante (modèle injoignable). LangGraph fait un <b>nouvel essai</b> automatique…", { cls: ["research", "warn"] }],
+    ["research", "supervisor", "… qui échoue aussi. La tâche est <b>obligatoire</b> : le superviseur ne peut pas continuer.", { cls: ["research", "fail"] }],
+    ["supervisor", "failed", "→ <b>failed</b> : arrêt propre, l'erreur est enregistrée. 🏁", { cls: ["failed", "fail"] }]] },
+};
+let steps = [], cursor = 0, playing = false;
+function resetStar() {
+  playing = false; $("#play").textContent = "▶ Lecture";
+  steps = SCENARIOS[$("#scenario").value].steps; cursor = 0;
+  drawStar(); narrate("0", "Prêt. Le point rouge représente « la veille en cours » qui voyage de case en case.");
+}
+async function stepStar() {
+  if (cursor >= steps.length) return false;
+  const [a, b, text, fx] = steps[cursor++];
+  Object.keys(NODES).forEach((id) => $(`#star [data-n="${id}"]`).classList.remove("active"));
+  if (text) narrate(String(cursor), text);
+  if (fx?.badge) badge(...fx.badge);
+  if (a === "supervisor" && b === "collector") await Promise.all([0, 120, 240, 360].map((d, i) => sleep(d).then(() => travel(a, b, i > 0))));
+  else await travel(a, b);
+  const g = $(`#star [data-n="${b}"]`);
+  if (fx?.cls) setClass(...fx.cls); else if (!g.matches(".fail,.warn,.ok,.pause")) g.classList.add("active");
+  return cursor < steps.length;
+}
+$("#scenario").innerHTML = Object.entries(SCENARIOS).map(([k, s]) => `<option value="${k}">${s.label}</option>`).join("");
+$("#scenario").addEventListener("change", resetStar);
+$("#reset").addEventListener("click", resetStar);
+$("#next").addEventListener("click", () => { if (!playing) stepStar(); });
+$("#play").addEventListener("click", async () => {
+  if (playing) { playing = false; $("#play").textContent = "▶ Lecture"; return; }
+  if (cursor >= steps.length) resetStar();
+  playing = true; $("#play").textContent = "⏸ Pause";
+  while (playing && await stepStar()) await sleep(steps[cursor - 1][2] ? 1300 : 250);
+  playing = false; $("#play").textContent = "▶ Lecture";
+});
+resetStar();
+
+// ===== 3. Le DAG (même règles que TaskGraph.ready, app/workflow/tasks.py) =================
+const COLLECTS = ["rss", "arxiv", "github_releases", "github_mcp"].map((s) => ({ id: `collect:${s}`, optional: true, what: s.replace("_", " ") }));
+const dag = { collect: true, evidence: true, broken: new Set(), status: {}, running: false };
+function planTasks() {
+  const collects = dag.collect ? COLLECTS : [];
+  const tasks = [...collects.map((t) => ({ ...t, deps: [], col: 0 })),
+    { id: "prefilter", deps: collects.map((t) => t.id), col: 1, what: "tri rapide" },
+    { id: "quality", deps: ["prefilter"], col: 2, what: "bruit, doublons" },
+    { id: "research", deps: ["quality"], col: 3, what: "Scouts 🤖" },
+    { id: "review", deps: ["research"], col: 4, what: "Critic 🤖" }];
+  if (dag.evidence) tasks.push({ id: "evidence", deps: ["review"], col: 5, optional: true, what: "preuves 🤖" });
+  tasks.push({ id: "editorial", deps: [dag.evidence ? "evidence" : "review"], col: 6, what: "Editor 🤖" });
+  return tasks;
+}
+function ready(tasks, status) {
+  const byId = Object.fromEntries(tasks.map((t) => [t.id, t]));
+  return tasks.filter((t) => (status[t.id] || "pending") === "pending" && t.deps.every((d) =>
+    ["done", "skipped", "failed"].includes(status[d]) && (status[d] !== "failed" || byId[d].optional)));
+}
+function topo(tasks) {
+  const left = Object.fromEntries(tasks.map((t) => [t.id, new Set(t.deps)])), waves = [];
+  while (Object.keys(left).length) {
+    const wave = Object.keys(left).filter((id) => !left[id].size).sort();
+    waves.push(wave); wave.forEach((id) => delete left[id]); Object.values(left).forEach((s) => wave.forEach((id) => s.delete(id)));
+  }
+  return waves;
+}
+function renderDag() {
+  const tasks = planTasks(), cols = [];
+  tasks.forEach((t) => (cols[t.col] ||= []).push(t));
+  $("#dag-board").innerHTML = cols.filter(Boolean).map((col) => `<div class="col">${col.map((t) => {
+    const st = dag.status[t.id] || "";
+    return `<button class="task ${t.optional ? "optional" : ""} ${st} ${dag.broken.has(t.id) ? "broken" : ""}" data-t="${t.id}" title="Cliquer : panne / réparé">
+      <b>${esc(t.id)}</b><small>${esc(t.what)}${t.optional ? " · optionnelle" : ""}</small></button>`;
+  }).join("")}</div>`).join('<div class="arrow">→</div>');
+  $("#dag-order").textContent = "Vagues (ordre topologique) : " + topo(tasks).map((w) => w.length > 1 ? `[${w.join(" ‖ ")}]` : w[0]).join(" → ");
+  $("#dag-board").querySelectorAll("[data-t]").forEach((b) => b.addEventListener("click", () => {
+    if (dag.running) return;
+    dag.broken.has(b.dataset.t) ? dag.broken.delete(b.dataset.t) : dag.broken.add(b.dataset.t);
+    dag.status = {}; $("#dag-verdict").textContent = ""; renderDag();
+  }));
+}
+async function runDag() {
+  if (dag.running) return;
+  dag.running = true;
+  try { await simulate(); } finally { dag.running = false; }
+}
+async function simulate() {
+  const tasks = planTasks(); dag.status = {}; renderDag();
+  $("#dag-verdict").textContent = "";
+  for (let round = 1; ; round++) {
+    const failure = tasks.find((t) => dag.status[t.id] === "failed" && !t.optional);
+    if (failure) {
+      tasks.forEach((t) => { if (!dag.status[t.id]) dag.status[t.id] = "blocked"; }); renderDag();
+      $("#dag-verdict").innerHTML = `💥 <code>${failure.id}</code> est obligatoire et a échoué → le superviseur arrête tout : <b>failed</b>.`; return;
+    }
+    const wave = ready(tasks, dag.status);
+    if (!wave.length) break;
+    wave.forEach((t) => (dag.status[t.id] = "running")); renderDag();
+    $("#dag-verdict").textContent = `Tour ${round} : ${wave.map((t) => t.id).join(", ")} ${wave.length > 1 ? "en parallèle" : ""}…`;
+    await sleep(900);
+    wave.forEach((t) => (dag.status[t.id] = dag.broken.has(t.id) ? "failed" : "done")); renderDag();
+    await sleep(250);
+  }
+  const skipped = tasks.filter((t) => dag.status[t.id] === "failed").map((t) => t.id);
+  $("#dag-verdict").innerHTML = skipped.length
+    ? `⚠️ Terminé malgré ${skipped.length} tâche(s) optionnelle(s) en panne (${skipped.join(", ")}) : la veille continue avec le reste${skipped.length === COLLECTS.length && dag.collect ? " — même sans aucune source, prefilter repart des documents déjà en mémoire" : ""}. → validation 🙋`
+    : "✅ Plan terminé → le superviseur passe à ta validation 🙋";
+}
+$("#dag-collect").addEventListener("click", (e) => { if (dag.running) return; dag.collect = !dag.collect; e.currentTarget.setAttribute("aria-pressed", dag.collect); dag.status = {}; renderDag();
+  $("#dag-verdict").innerHTML = dag.collect ? "" : "Sans collecte (<code>run --no-collect</code>) : prefilter repart des documents déjà en mémoire SQLite."; });
+$("#dag-evidence").addEventListener("click", (e) => { if (dag.running) return; dag.evidence = !dag.evidence; e.currentTarget.setAttribute("aria-pressed", dag.evidence); dag.status = {}; renderDag(); $("#dag-verdict").textContent = ""; });
+$("#dag-run").addEventListener("click", runDag);
+$("#dag-reset").addEventListener("click", () => { if (dag.running) return; dag.broken.clear(); dag.status = {}; $("#dag-verdict").textContent = ""; renderDag(); });
+renderDag();
+
+// ===== Flux horizontaux réutilisables (sous-graphes, chat, reviewer, grill-me) ============
+// Une étape : { id, e, kind, info } ; une pile [..] = étapes parallèles ; { loop: "texte" } = retour en arrière.
+function renderFlow(root, steps, onPick) {
+  root.innerHTML = steps.map((s) => {
+    if (s.loop) return `<span class="link loop" title="${esc(s.loop)}">↺ ${esc(s.loop)}</span>`;
+    if (s.skip) return `<span class="link" title="${esc(s.skip)}">⤳</span>`;
+    if (Array.isArray(s)) return `<span class="stack">${s.map((p) => node(p)).join("")}</span><span class="link">→</span>`;
+    return node(s) + '<span class="link">→</span>';
+  }).join("").replace(/<span class="link">→<\/span>$/, "");
+  root.querySelectorAll("[data-s]").forEach((b) => b.addEventListener("click", () => onPick(b.dataset.s)));
+  function node(s) { return `<button class="step-node ${s.kind}" data-s="${s.id}"><span class="e">${s.e}</span><b>${esc(s.label || s.id)}</b></button>`; }
+}
+const flat = (steps) => steps.flatMap((s) => (Array.isArray(s) ? s : s.id ? [s] : []));
+async function animateFlow(root, steps, onPick) {
+  for (const s of steps) {
+    const group = Array.isArray(s) ? s : s.id ? [s] : [];
+    if (!group.length) continue;
+    const els = group.map((g) => root.querySelector(`[data-s="${g.id}"]`));
+    els.forEach((el) => el.classList.add("lit")); onPick(group[0].id, true);
+    await sleep(900); els.forEach((el) => el.classList.remove("lit"));
+  }
+}
+function explainStep(box, s, extra = "") {
+  box.innerHTML = `<h4>${s.e} <code>${esc(s.id)}</code> ${tag(s.kind)}</h4><p>${s.info}</p>${extra}`;
+}
+
+// ===== 4. Sous-graphes (app/workflow/subagents.py) ========================================
+const SUBS = {
+  quality: { label: "✨ quality", intro: "Trier sans IA, pour que les appels au modèle (lents sur une petite machine) ne portent que sur de bons candidats.", file: "app/workflow/subagents.py (build_quality) · app/workflow/quality.py",
+    steps: [{ id: "noise", e: "🔇", kind: "det", info: "Écarte le bruit : mots exclus (ton profil, tes leçons, sources.toml : tutoriels, cours, listes « awesome »…), commits de maintenance (chore, bump, typo), contenu vide. Les pré-versions (rc, beta, nightly) sont seulement pénalisées au classement." },
+            { id: "dedup", e: "👯", kind: "det", info: "Repère les doublons : même adresse une fois nettoyée (utm, www, version arXiv) ou titres très proches. Le groupe garde son meilleur représentant et compte ses sources : plusieurs sources = corroboration." },
+            { id: "select", e: "🎯", kind: "det", info: "Garde les meilleurs candidats, dans la limite du nombre de documents par veille." }] },
+  research: { label: "🔎 research", intro: "Le schéma « map-reduce » : on découpe le travail en paquets traités en parallèle (map), puis on rassemble (reduce).", file: "app/workflow/subagents.py (build_research)",
+    steps: [[1, 2, 3].map((i) => ({ id: `scout_batch ${i}`, label: `scout_batch #${i}`, e: "🔎", kind: "llm", info: "Un Scout reçoit un paquet de documents (taille réglable, petite sur la Jetson) et répond en JSON : identifiants + notes + justification. Autant de paquets que nécessaire, lancés en parallèle (Send)." })),
+            { id: "rank", e: "🏆", kind: "det", info: "Ranking hybride : notes du Scout (pertinence, nouveauté, confiance) + fraîcheur + profil + autorité de la source + corroboration − pénalités → un score /100 avec le détail de chaque part. Une pénalité de diversité évite cinq sujets de la même source ou du même thème." }] },
+  review: { label: "🧐 review", intro: "L'IA n'intervient que si les contrôles automatiques laissent un doute.", file: "app/workflow/subagents.py (build_review)",
+    steps: [{ id: "precheck", e: "🧪", kind: "det", info: "Contrôle automatique de chaque sujet (âge, date…). Une date dans le futur est rejetée, et aucun avis de l'IA ne peut lever ce rejet." },
+            { skip: "si rien à juger, on saute le Critic" },
+            { id: "critic", e: "🧐", kind: "llm", info: "Le Critic lit l'extrait de la source, la justification du Scout et les risques détectés, puis donne un verdict par sujet." },
+            { id: "decide", e: "⚖️", kind: "det", info: "Combine contrôles et verdicts : sujets acceptés, écartés, avec les critiques conservées pour le digest." }] },
+  evidence: { label: "🧾 evidence", intro: "Une seule étape utilise l'IA ; les quatre autres vérifient son travail avec des règles.", file: "app/workflow/subagents.py (build_evidence) · app/workflow/evidence.py",
+    steps: [{ id: "claim_extract", e: "✂️", kind: "llm", info: "L'IA extrait les affirmations et la citation exacte qui les appuie, par petits lots." },
+            { id: "claim_ground", e: "📌", kind: "det", info: "La citation doit se retrouver <b>mot pour mot</b> dans la source ; sinon l'affirmation est « non étayée »." },
+            { id: "cross_source_verify", e: "🔗", kind: "det", info: "Cherche d'autres documents qui disent la même chose. Une source secondaire seule ne confirme jamais." },
+            { id: "contradiction_detect", e: "⚡", kind: "det", info: "Signale les documents qui disent le contraire : les contradictions sont affichées, pas cachées." },
+            { id: "evidence_score", e: "💯", kind: "det", info: "Calcule une confiance /100 par affirmation. Pour un benchmark, le protocole compte aussi." }] },
+  editorial: { label: "✍️ editorial", intro: "Rédiger, se faire contrôler, corriger une fois au plus : pas de boucle infinie.", file: "app/workflow/subagents.py (build_editorial) · app/harness/hooks.py",
+    steps: [{ id: "editor", e: "✍️", kind: "llm", info: "L'Editor rédige le digest en séparant faits, analyse et hypothèse, avec « Pour toi » selon ton profil." },
+            { id: "guards", e: "🛡️", kind: "guard", info: "Garde-fous de publication : chaque lien vient des documents collectés, les dates sont cohérentes, aucun secret, aucun chiffre absent de la source." },
+            { loop: "repair (1 fois max)" },
+            { id: "repair", e: "🔧", kind: "llm", info: "L'Editor reçoit la liste précise des erreurs et réécrit. Puis retour aux garde-fous. S'il reste des erreurs, la veille finira « blocked »." }] },
+};
+let sub = "quality";
+function renderSub() {
+  const s = SUBS[sub];
+  $("#sub-tabs").innerHTML = Object.entries(SUBS).map(([k, v]) => `<button class="btn" data-sub="${k}" aria-pressed="${k === sub}">${v.label}</button>`).join("");
+  $("#sub-tabs").querySelectorAll("[data-sub]").forEach((b) => b.addEventListener("click", () => { sub = b.dataset.sub; renderSub(); }));
+  const pick = (id) => {
+    $("#sub-flow").querySelectorAll("[data-s]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.s === id));
+    explainStep($("#sub-explain"), flat(s.steps).find((x) => x.id === id), src(s.file));
+  };
+  renderFlow($("#sub-flow"), s.steps, pick);
+  $("#sub-explain").innerHTML = `<h4>${s.label}</h4><p>${esc(s.intro)}</p><p class="muted">Clique une étape ou ▶.</p>${src(s.file)}`;
+  const tech = $("#sub-tech"); tech.dataset.diagram = sub; tech.open = false; tech.querySelector(".mm").innerHTML = ""; delete tech.dataset.loaded;
+}
+$("#sub-play").addEventListener("click", () => animateFlow($("#sub-flow"), SUBS[sub].steps, (id) => {
+  $("#sub-flow").querySelectorAll("[data-s]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.s === id));
+  explainStep($("#sub-explain"), flat(SUBS[sub].steps).find((x) => x.id === id), src(SUBS[sub].file));
+}));
+renderSub();
+
+// ===== 5. Chat (app/chat/agent.py) + Reviewer + Grill-me =================================
+const CHAT_STEPS = [
+  { id: "route", e: "🧭", kind: "det", info: "Aiguillage : des règles simples d'abord (« lance la veille », « publie dans Notion »…). Si aucune ne correspond, un petit appel à l'IA choisit l'outil ; s'il échoue, on se rabat sur la recherche dans la veille." },
+  { id: "act", e: "🧰", kind: "det", info: "Exécute l'outil choisi et affiche sa progression." },
+  { id: "respond", e: "💬", kind: "llm", info: "L'IA répond en s'appuyant <b>uniquement</b> sur le résultat de l'outil, avec des citations numérotées. Pour une action (lancer, publier), la réponse est écrite par le code." },
+  { id: "guard", e: "🛡️", kind: "guard", info: "Retire tout lien absent des sources et toute citation hors plage ([7] alors qu'il n'y a que 5 sources)." },
+];
+const TOOLS = ["search_watch", "latest_digests", "run_watch", "github_search", "memory_status", "notion_sync", "list_reports", "grill_me", "knowledge_search", "challenge_review"];
+// Routage vérifié avec rule_route() sur ces phrases exactes ; les deux dernières passent par le routeur IA.
+const ASKS = [
+  { q: "Lance la veille sur agents, MCP", tool: "run_watch", by: "rule", note: "Règle « lance la veille » → une veille ciblée sur les mots-clés « agents, MCP » démarre (chapitre 2)." },
+  { q: "Cherche des dépôts GitHub pour le RAG", tool: "github_search", by: "rule", note: "Règle GitHub → recherche via le serveur MCP github-scout (lecture seule), requête nettoyée : « RAG »." },
+  { q: "Montre les derniers digests", tool: "latest_digests", by: "rule", note: "Règle → les derniers digests publiés, lus dans SQLite." },
+  { q: "Publie dans Notion", tool: "notion_sync", by: "rule", note: "Règle → synchronisation de la page de veille Notion, seule page où l'écriture est permise." },
+  { q: "Que dit la mémoire ?", tool: "memory_status", by: "rule", note: "Règle → leçons, thèmes et santé des sources du Store LangGraph." },
+  { q: "Explique-moi la licence de Qwen", tool: null, by: "llm", note: "Aucune règle ne correspond : le <b>routeur IA</b> choisit l'outil (sortie JSON validée). En cas d'échec, repli sur <code>search_watch</code>." },
+];
+function renderChat(active = null) {
+  $("#chat-asks").innerHTML = ASKS.map((a, i) => `<button class="ask" data-a="${i}">« ${esc(a.q)} »</button>`).join("");
+  renderFlow($("#chat-flow"), CHAT_STEPS, (id) => explainStep($("#chat-explain"), CHAT_STEPS.find((s) => s.id === id), src("app/chat/agent.py · app/chat/tools.py")));
+  $("#chat-tools").innerHTML = TOOLS.map((t) => `<span class="tool" data-tool="${t}">${t}</span>`).join("");
+  if (active === null) $("#chat-explain").innerHTML = `<h4>🧰 10 outils dans la boîte</h4><p>Le chat ne sait rien faire seul : il choisit un de ces outils, puis répond à partir de ce que l'outil a trouvé.</p>${src("app/chat/tools.py")}`;
+  $("#chat-asks").querySelectorAll("[data-a]").forEach((b) => b.addEventListener("click", async () => {
+    const a = ASKS[Number(b.dataset.a)];
+    $("#chat-tools").querySelectorAll(".tool").forEach((t) => t.classList.remove("lit"));
+    await animateFlow($("#chat-flow"), CHAT_STEPS, (id) => {
+      if (id === "route") $("#chat-explain").innerHTML = `<h4>🧭 route ${a.by === "rule" ? tag("det") + " règle" : tag("llm") + " routeur IA"}</h4><p>${a.note}</p>`;
+      if (id === "act" && a.tool) $(`#chat-tools [data-tool="${a.tool}"]`).classList.add("lit");
+    });
+  }));
+}
+renderChat();
+const REVIEWER = [
+  { id: "fetch", e: "🌐", kind: "det", info: "Télécharge la page avec des limites : http/https seulement, adresses publiques uniquement (pas le réseau local), chaque redirection revérifiée. Titre, site et date viennent de la page, pas de l'IA." },
+  { id: "analyze", e: "🧠", kind: "llm", info: "Détecte les domaines par mots-clés, puis l'IA rédige une synthèse structurée guidée par la skill <code>review-actu</code>, les règles métiers et le glossaire." },
+  { id: "guard", e: "🛡️", kind: "guard", info: "Une affirmation dont la citation est introuvable dans la page devient « non étayée » ; les liens étrangers à l'article sont retirés." },
+  { id: "save", e: "💾", kind: "det", info: "Validation Pydantic complète, puis enregistrement. Tu peux ensuite la « challenger » dans le chat (outil challenge_review)." },
+];
+renderFlow($("#reviewer-flow"), REVIEWER, (id) => explainStep($("#reviewer-explain"), REVIEWER.find((s) => s.id === id), src("app/review.py")));
+$("#reviewer-explain").innerHTML = '<p class="muted">Clique une étape.</p>';
+const GRILL = [
+  { id: "ask", e: "❓", kind: "human", info: "Pose une question, puis <b>met le graphe en pause</b> (interrupt) jusqu'à ta réponse. Recommence tant qu'il manque des informations." },
+  { loop: "une question à la fois" },
+  { id: "synthesize", e: "🧩", kind: "llm", info: "Résume tes réponses en un profil : priorités, mots-clés, sujets à écarter." },
+  { id: "save", e: "💾", kind: "det", info: "Enregistre le profil dans la mémoire (Store LangGraph) ; il est ensuite injecté dans les consignes du Scout et de l'Editor." },
+];
+renderFlow($("#grill-flow"), GRILL, (id) => explainStep($("#grill-explain"), flat(GRILL).find((s) => s.id === id), src("app/grill.py")));
+$("#grill-explain").innerHTML = '<p class="muted">Clique une étape.</p>';
+
+// ===== 6. Oignon des garde-fous ==========================================================
+const RINGS = [
+  { id: "human", r: 190, color: "#9ec5fe", label: "🙋 Ta validation", info: "Dernière barrière : la veille attend ton accord avant toute publication (interrupt). Ta note devient une leçon.", file: "app/workflow/graph.py (approval)" },
+  { id: "publish", r: 158, color: "#ffc9c9", label: "🛡️ Garde-fous de publication", info: "Relisent le digest final : chaque lien vient des documents collectés, dates cohérentes, aucun secret, aucun chiffre absent de la source, preuves cohérentes. Sinon : correction, puis blocage.", file: "app/harness/hooks.py" },
+  { id: "code", r: 126, color: "#b2f2bb", label: "⚙️ Le code recopie", info: "L'IA ne renvoie que des identifiants. URL, titre et date sont recopiés par le code depuis les documents collectés : impossible d'inventer un lien.", file: "app/workflow/subagents.py" },
+  { id: "schema", r: 94, color: "#ffec99", label: "📐 Format imposé", info: "Chaque réponse de l'IA doit respecter un modèle Pydantic (JSON typé). Sinon : une tentative de réparation bornée, puis échec propre. Chaque nœud a aussi un « contrat » sur ce qu'il a le droit de modifier.", file: "app/schemas.py · app/llm.py · app/harness/guards.py (node_contract)" },
+  { id: "input", r: 62, color: "#d0bfff", label: "🧼 Entrées nettoyées", info: "Le texte des articles est traité comme non fiable : les instructions cachées (« ignore tes consignes… ») sont neutralisées ; les outils MCP sont en lecture seule et leurs arguments bornés.", file: "app/harness/guards.py (sanitize_untrusted, make_mcp_guard)" },
+];
+const ATTACKS = [
+  { text: "🔗 Inventer une URL plausible", ring: "code", why: "Elle ne peut pas : elle ne donne qu'un numéro de document. Et dans le chat, le guard retire tout lien absent des sources." },
+  { text: "🔢 Écrire « 92 % » absent de l'article", ring: "publish", why: "guard_numbers repère le chiffre absent de la source → l'Editor doit corriger (une fois) ; sinon la veille est bloquée." },
+  { text: "🧱 Répondre du JSON cassé", ring: "schema", why: "La validation Pydantic échoue → réparation bornée, puis erreur propre (et nouvel essai du nœud), jamais de donnée à moitié écrite." },
+  { text: "🕵️ Obéir à un ordre caché dans un article", ring: "input", why: "Le texte collecté est nettoyé avant d'entrer dans les consignes ; les outils MCP d'écriture sont refusés." },
+  { text: "📤 Publier sans demander", ring: "human", why: "Impossible : le graphe s'arrête sur approval et attend ta décision (sauf si tu lances toi-même run --approve)." },
+];
+function renderOnion(hit = null) {
+  $("#onion").innerHTML = RINGS.map((r, i) => `<g class="ring ${hit === r.id ? "hit" : ""}" data-r="${r.id}" tabindex="0" role="button" aria-label="${esc(r.label)}">
+      <circle cx="200" cy="200" r="${r.r}" fill="${r.color}"/>
+      <text x="200" y="${200 - r.r + 20}">${esc(r.label)}</text></g>`).join("")
+    + `<g><circle cx="200" cy="200" r="30" fill="#7048e8"/><text x="200" y="206" text-anchor="middle" font-size="24">🤖</text></g>`;
+  $("#onion").querySelectorAll(".ring").forEach((g) => {
+    const say = () => { const r = RINGS.find((x) => x.id === g.dataset.r); $("#onion-explain").innerHTML = `<h4>${esc(r.label)}</h4><p>${esc(r.info)}</p>${src(r.file)}`; renderOnion(r.id); };
+    g.addEventListener("click", say); g.addEventListener("keydown", (e) => { if (e.key === "Enter") say(); });
+  });
+}
+$("#attacks").innerHTML = ATTACKS.map((a, i) => `<button class="attack" data-k="${i}">${esc(a.text)}</button>`).join("");
+$("#attacks").querySelectorAll("[data-k]").forEach((b) => b.addEventListener("click", () => {
+  const a = ATTACKS[Number(b.dataset.k)], r = RINGS.find((x) => x.id === a.ring);
+  $("#attacks").querySelectorAll("[data-k]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  renderOnion(a.ring);
+  $("#onion-explain").innerHTML = `<h4>Stoppé par : ${esc(r.label)}</h4><p>${esc(a.why)}</p>${src(r.file)}`;
+}));
+renderOnion();
+$("#onion-explain").innerHTML = '<p class="muted">Au centre, l\'IA 🤖. Chaque anneau est une couche de protection : clique sur un anneau ou sur une bêtise.</p>';
+
+// ===== 7. Claude Code (.claude/) =========================================================
+const MOMENTS = [
+  { e: "🚀", t: "Ouverture", s: "hook SessionStart", hook: true, info: "<code>session_context.py</code> injecte l'état de la veille : nombre de documents, derniers runs, commandes pour reprendre les runs en attente." },
+  { e: "📜", t: "Les règles", s: "CLAUDE.md + mémoire", info: "Claude lit <code>CLAUDE.md</code> (le règlement : ne jamais inventer une URL, migration + test pour SQLite…) et la mémoire de veille exportée." },
+  { e: "📋", t: "Une recette", s: "Skill", info: "Pour une tâche connue (ajouter une source, auditer un digest), Claude suit une <b>skill</b> : une fiche recette dans <code>.claude/skills/</code>." },
+  { e: "👥", t: "Un spécialiste", s: "Sous-agent", info: "Pour une tâche à part (auditer la sécurité, dessiner un schéma), il délègue à un <b>sous-agent</b> : un autre Claude avec ses propres consignes et outils, qui rend un rapport." },
+  { e: "🔌", t: "Une prise", s: "Serveur MCP", info: "Pour parler à un service (GitHub, Notion, un navigateur), Claude passe par un <b>serveur MCP</b> déclaré dans <code>.mcp.json</code>." },
+  { e: "🛑", t: "Avant chaque action", s: "hook PreToolUse", hook: true, info: "<code>guard.py</code> refuse <code>rm -rf</code>, <code>git push --force</code>, la lecture de <code>.env</code>, les secrets dans un fichier, les outils MCP d'écriture." },
+  { e: "🔍", t: "Après une modif", s: "hook PostToolUse", hook: true, info: "<code>post_edit.py</code> vérifie la syntaxe Python et rappelle la règle « migration + test » si le schéma SQLite change." },
+  { e: "✅", t: "Avant de conclure", s: "hook Stop", hook: true, info: "<code>stop_tests.sh</code> lance les tests : s'ils sont rouges, Claude n'a pas le droit de dire « terminé »." },
+];
+$("#timeline").innerHTML = MOMENTS.map((m, i) => `<button class="moment ${m.hook ? "hook" : ""}" data-m="${i}"><span class="e">${m.e}</span><b>${esc(m.t)}</b><small>${esc(m.s)}</small></button>`).join("");
+$("#timeline").querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => {
+  const m = MOMENTS[Number(b.dataset.m)];
+  $("#timeline").querySelectorAll("[data-m]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  $("#timeline-explain").innerHTML = `<h4>${m.e} ${esc(m.t)} · ${esc(m.s)} ${m.hook ? tag("guard") : ""}</h4><p>${m.info}</p>`;
+}));
+$("#timeline-explain").innerHTML = '<p class="muted">Les cases à bordure rouge sont des <b>hooks</b> : des automatismes que Claude ne peut pas sauter.</p>';
+const KIT = [
+  { h: "📋 Skills", m: "Fiches recettes · .claude/skills/", items: {
+      "veille-tech": "Collecter, vérifier et synthétiser une veille sourcée (lue aussi par le Scout)", "review-actu": "Review sourcée d'une URL (lue aussi par le Reviewer)",
+      "ajout-source": "Vérifier une source avant de modifier sources.toml", "audit-digest": "Auditer un digest avant de valider ou rejeter",
+      "rapport-veille": "Enchaîner doctor → run → audit → publication", "github-scout": "Découvrir des dépôts GitHub via MCP",
+      "grill-me": "Entretien pour définir ton profil de veille", "schema-mermaid": "Schémas Mermaid fidèles au code, validés" } },
+  { h: "👥 Sous-agents", m: "Spécialistes · .claude/agents/", items: {
+      "source-auditor": "Vérifie URLs, dates, chiffres et doublons d'un digest", "schema-auditor": "Pydantic, migrations SQLite, reprises LangGraph",
+      "security-auditor": "Secrets, .gitignore, commandes, dépendances", "github-scout": "Exploration GitHub ponctuelle", "diagrammer": "Dessine et met à jour les schémas de la doc" } },
+  { h: "🔌 Serveurs MCP", m: "Prises vers des services · .mcp.json", items: {
+      "github-scout": "Recherche de dépôts, releases, README (lecture seule)", "notion-veille": "Page de veille Notion de l'app",
+      "notion": "Serveur Notion officiel, pour explorer", "playwright": "Navigateur sans écran : aperçus des actus" } },
+  { h: "🪝 Hooks", m: "Automatismes · .claude/settings.json", items: {
+      "SessionStart": "Injecte l'état de la veille", "PreToolUse": "Bloque les actions dangereuses", "PostToolUse": "Vérifie chaque fichier modifié", "Stop": "Tests verts obligatoires" } },
+];
+$("#kit").innerHTML = KIT.map((k) => `<div class="card"><h3>${k.h}</h3><p class="meta">${esc(k.m)}</p><div class="chips">${Object.entries(k.items).map(([n, d]) => `<span class="chip" title="${esc(d)}">${esc(n)}</span>`).join("")}</div></div>`).join("");
+
+// ===== 8. Lexique ========================================================================
+const LEX = [
+  ["🕸️", "Graphe", "Des cases (nœuds) reliées par des flèches (arêtes). Le programme suit les flèches."],
+  ["🔲", "Nœud", "Une case du graphe : une fonction qui lit l'état et en modifie une partie."],
+  ["🪆", "Sous-graphe", "Un graphe rangé dans une case d'un autre graphe, avec sa propre mémoire de travail."],
+  ["🗺️", "DAG", "Graphe orienté acyclique : des tâches et leurs dépendances, sans boucle. C'est le plan de la veille."],
+  ["🧭", "Superviseur", "Le nœud central qui lit le plan et envoie le travail à la bonne case."],
+  ["🤖", "Agent", "Un programme qui utilise l'IA pour décider ou rédiger, encadré par des règles."],
+  ["👥", "Sous-agent", "Un agent spécialisé à qui on délègue une partie du travail."],
+  ["📋", "Skill", "Une fiche recette en Markdown qu'un agent suit pour une tâche précise."],
+  ["🪝", "Hook", "Un automatisme déclenché à un moment précis (avant une action, à la fin…)."],
+  ["🔌", "MCP", "Model Context Protocol : une prise standard pour brancher un outil ou un service sur une IA."],
+  ["🛡️", "Guard", "Un contrôle automatique qui bloque ou corrige une sortie non conforme."],
+  ["⏸️", "Interrupt", "Mettre le graphe en pause pour demander quelque chose à un humain."],
+  ["💾", "Checkpoint", "Une sauvegarde de l'état du graphe : on peut reprendre plus tard, exactement au même endroit."],
+  ["🧠", "Store", "La mémoire longue de LangGraph : leçons, thèmes préférés, profil."],
+  ["📐", "Pydantic", "Bibliothèque Python qui vérifie qu'une donnée a exactement la forme attendue."],
+  ["🦙", "Ollama", "Logiciel qui fait tourner un modèle d'IA sur ta propre machine (ex. Jetson Orin)."],
+  ["🦜", "LangGraph", "La bibliothèque qui construit et exécute tous ces graphes."],
+  ["🧰", "Harness", "Tout l'encadrement autour de l'IA : règles, formats, contrôles, validation humaine."],
+];
+$("#lex").innerHTML = LEX.map(([e, w, d]) => `<button class="flip" aria-pressed="false" aria-label="${esc(w)}"><span class="in"><span class="face"><span>${e}<br>${esc(w)}</span></span><span class="back">${esc(d)}</span></span></button>`).join("");
+$("#lex").querySelectorAll(".flip").forEach((b) => b.addEventListener("click", () => b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true")));
+
+// ===== Schémas techniques : Mermaid généré par le code (GET /api/howto/diagrams) ===========
+let diagrams = null;
+async function loadDiagram(details) {
+  if (!details.open || details.dataset.loaded) return;
+  details.dataset.loaded = "1";
+  const box = details.querySelector(".mm"); box.innerHTML = '<span class="muted">Chargement…</span>';
+  try {
+    diagrams ||= await fetch("/api/howto/diagrams").then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
+    const code = diagrams[details.dataset.diagram];
+    if (!code) throw new Error("schéma inconnu");
+    box.innerHTML = `<pre>${esc(code)}</pre>`;
+    try {
+      const { default: mermaid } = await import("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs");
+      const dark = getComputedStyle(document.body).backgroundColor.match(/\d+/g).slice(0, 3).reduce((a, b) => a + Number(b), 0) < 300;
+      mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "default", securityLevel: "strict" });
+      const { svg } = await mermaid.render(`m${Math.random().toString(36).slice(2)}`, code);
+      box.innerHTML = svg + '<p class="muted" style="font-size:.78rem;margin:6px 0 0">Généré à l\'instant par LangGraph (<code>get_graph().draw_mermaid()</code>).</p>';
+    } catch { box.insertAdjacentHTML("afterbegin", '<p class="muted" style="font-size:.8rem">Rendu graphique indisponible (hors ligne ?) : code Mermaid ci-dessous.</p>'); }
+  } catch (error) { box.innerHTML = `<p class="muted">Schéma indisponible : ${esc(error.message)}</p>`; delete details.dataset.loaded; }
+}
+document.querySelectorAll("details.tech").forEach((d) => d.addEventListener("toggle", () => loadDiagram(d)));
+
+// ===== Progression : chapitres vus (confort local, facultatif) ============================
+const CHAPS = [...document.querySelectorAll("section.chap")].map((s) => s.id);
+let seen = new Set(); try { seen = new Set(JSON.parse(localStorage.getItem("howto-seen") || "[]")); } catch {}
+function paintProgress() {
+  document.querySelectorAll("#toc a").forEach((a) => a.classList.toggle("seen", seen.has(a.hash.slice(1))));
+  $("#progress-text").textContent = `${seen.size} / ${CHAPS.length} chapitres explorés`;
+  $("#progress-bar").style.width = `${(seen.size / CHAPS.length) * 100}%`;
+  if (seen.size === CHAPS.length) { $("#end-emoji").textContent = "🏆"; $("#end-text").innerHTML = "<b>Diplôme obtenu !</b> Tu sais maintenant comment une actu devient un digest fiable. Prochaine étape : lance une veille depuis l'onglet 🛰️ et suis-la dans sa trace."; }
+}
+const observer = new IntersectionObserver((entries) => entries.forEach((e) => {
+  if (!e.isIntersecting) return;
+  seen.add(e.target.id); try { localStorage.setItem("howto-seen", JSON.stringify([...seen])); } catch {}
+  document.querySelectorAll("#toc a").forEach((a) => a.classList.toggle("here", a.hash === `#${e.target.id}`));
+  const link = $(`#toc a[href="#${e.target.id}"]`);
+  if (link) $("#toc").scrollTo({ left: link.offsetLeft - $("#toc").clientWidth / 2 + link.clientWidth / 2, behavior: reduced ? "auto" : "smooth" });
+  paintProgress();
+}), { rootMargin: "-40% 0px -50% 0px" });
+CHAPS.forEach((id) => observer.observe(document.getElementById(id)));
+paintProgress();
+</script>
+</body>
+</html>

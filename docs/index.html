@@ -281,7 +281,8 @@ Digest prêt pour validation humaine.</div>
     <div><b>review</b><span class="tag llm">Critic</span></div><i>→</i>
     <div><b>editorial</b><span class="tag llm">Editor</span></div>
   </div>
-  <p><code>python -m app.main plan --langgraph</code> affiche ce DAG et le graphe LangGraph compilé au format Mermaid.
+  <p><code>python -m app.main plan --langgraph</code> affiche ce DAG et le graphe LangGraph compilé au format Mermaid ;
+  <code>--out DOSSIER</code> les écrit dans <code>task-graph.mmd</code> et <code>langgraph.mmd</code> (source du sous-agent <code>diagrammer</code>).
   Avec <code>--no-collect</code>, les tâches de collecte disparaissent du plan et <code>prefilter</code> repart de la mémoire SQLite.</p>
 
   <details>
@@ -563,6 +564,7 @@ python -m app.main instructions claude-md --output CLAUDE.generated.md</code></p
     <div class="card"><h4>github-scout</h4><p>Découvrir de nouveaux dépôts via les outils MCP, avec des critères d'exclusion.</p></div>
     <div class="card"><h4>ajout-source</h4><p>Vérifier une source (HTTP, entrées datées, caractère primaire) avant de modifier <code>sources.toml</code>.</p></div>
     <div class="card"><h4>audit-digest</h4><p>Auditer un run en attente, puis publier ou rejeter avec une leçon réutilisable.</p></div>
+    <div class="card"><h4>schema-mermaid</h4><p>Schémas Mermaid fidèles au code (sources de vérité, style, légende), validés par <code>mermaid-cli</code> avant insertion.</p></div>
   </div>
 
   <h3>Sous-agents</h3>
@@ -573,6 +575,7 @@ python -m app.main instructions claude-md --output CLAUDE.generated.md</code></p
       <tr><td><code>schema-auditor</code></td><td>Read, Grep, Glob, Bash</td><td>Pydantic, migrations, contrats d'état, sous-graphes, DAG, tests</td></tr>
       <tr><td><code>security-auditor</code></td><td>Read, Grep, Glob, Bash</td><td>Secrets, <code>.gitignore</code>, commandes, dépendances, réseau</td></tr>
       <tr><td><code>github-scout</code></td><td>Read, Bash, 3 outils MCP</td><td>Exploration GitHub ponctuelle et tableau sourcé</td></tr>
+      <tr><td><code>diagrammer</code></td><td>Read, Grep, Glob, Bash, Edit, Write</td><td>Crée ou met à jour les schémas Mermaid de la doc (skill <code>schema-mermaid</code>), sans toucher au code</td></tr>
     </tbody>
   </table></div>
 
@@ -588,7 +591,7 @@ python -m app.main instructions claude-md --output CLAUDE.generated.md</code></p
   </table></div>
   <div class="callout info"><b>Permissions</b><code>.claude/settings.json</code> interdit
   <code>Read/Edit/Write(./.env)</code>, autorise sans confirmation les tests, <code>doctor</code>,
-  <code>memory</code>, <code>plan</code> et les trois outils MCP en lecture, et active le serveur
+  <code>memory</code>, <code>plan</code>, la validation Mermaid (<code>check.sh</code>) et les trois outils MCP en lecture, et active le serveur
   <code>github-scout</code> déclaré dans <code>.mcp.json</code>.</div>
 </section>
 
@@ -603,7 +606,7 @@ python -m app.main instructions claude-md --output CLAUDE.generated.md</code></p
       <tr><td><code>doctor</code></td><td>—</td><td>Ollama, modèle, GPU, sources, serveur MCP, Skill, migrations, Store, <code>.gitignore</code>, Langfuse. Code 1 si un contrôle échoue.</td></tr>
       <tr><td><code>run</code></td><td><code>--approve</code> publie sans validation · <code>--no-collect</code> repart de la mémoire · <code>--no-mcp</code> saute la découverte GitHub</td><td>Exécute le Task Graph et affiche les décisions du supervisor, les erreurs et le budget LLM consommé</td></tr>
       <tr><td><code>resume RUN_ID</code></td><td><code>--approved</code> | <code>--rejected</code> · <code>--note "…"</code></td><td>Reprend un run interrompu depuis son checkpoint ; publie ou rejette ; mémorise la leçon</td></tr>
-      <tr><td><code>plan</code></td><td><code>--langgraph</code></td><td>Ordre topologique et Mermaid du Task Graph ; en option le graphe LangGraph compilé</td></tr>
+      <tr><td><code>plan</code></td><td><code>--langgraph</code> · <code>--out DOSSIER</code></td><td>Ordre topologique et Mermaid du Task Graph ; en option le graphe LangGraph compilé ; fichiers <code>.mmd</code> avec <code>--out</code></td></tr>
       <tr><td><code>github QUERY</code></td><td><code>--limit N</code></td><td>Recherche de dépôts via le serveur MCP, avec le journal d'audit du guard</td></tr>
       <tr><td><code>web</code></td><td><code>--host</code> · <code>--port</code></td><td>Interface de chat sur <code>http://127.0.0.1:8000</code></td></tr>
       <tr><td><code>report</code></td><td><code>--run-id</code></td><td>(Re)génère le rapport Markdown daté d'une veille publiée</td></tr>
@@ -743,7 +746,6 @@ RUN_LIVE=1 .venv/bin/python -m pytest -q tests/e2e/test_live.py -s  <span class=
     mais moins fiable avec un petit modèle.</li>
     <li>Le dédoublonnage repose sur l'URL et le titre normalisé ; il n'y a pas encore de
     similarité sémantique (embeddings).</li>
-    <li><code>.mcp.json</code> contient des chemins absolus propres à cette machine.</li>
     <li>L'état des veilles lancées depuis l'interface est gardé en mémoire du serveur : après un
     redémarrage, un run en attente se reprend avec <code>python -m app.main resume</code>.</li>
     <li>La relance de research réévalue tous les signaux (appels du Scout servis par le cache,

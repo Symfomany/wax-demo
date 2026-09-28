@@ -32,7 +32,7 @@ mise en forme.
 | | Fonctionnalité | Où |
 |---|---|---|
 | 🛰️ | **Veille multi-agents** : collecte parallèle (RSS, arXiv, releases GitHub, découverte GitHub via MCP) → Scout → Critic → Editor → **validation humaine** → rapport daté + Notion | Web · TUI · CLI |
-| 🗞️ | **Actus en cartes** (façon blog Anthropic) : crawl de `claude.com/blog` et d'OpenAI News, plus bouton **🌐 Mes actus via Claude** (API Claude + outil `web_search` sur ton profil) ; seules les URL réellement trouvées sont gardées | Web · CLI |
+| 🗞️ | **Actus en cartes** (façon blog Anthropic) : crawl de `claude.com/blog` et des flux OpenAI News, NVIDIA Blog, Hugging Face Blog et GitHub Blog (LLMs), plus bouton **🌐 Mes actus via Claude** (API Claude + outil `web_search` sur ton profil) ; seules les URL réellement trouvées sont gardées | Web · CLI |
 | ✳ | **Assistant Claude** flottant (repliable) : conversation directe avec l'API Claude (pas le LLM local), actus récentes en contexte, recherche web 🌐 en option | Web |
 | 🔔 | **Notifications** : toasts animés, centre de notifications, notification du navigateur quand une recherche, un crawl, une review ou une veille se termine | Web |
 | 💬 | **Chat sourcé** en streaming : recherche plein texte, derniers digests, GitHub via MCP, glossaire ; chaque réponse cite ses sources `[n]` et montre les agents engagés | Web · TUI |
@@ -226,7 +226,7 @@ pictogramme par catégorie sinon), filtres par source, recherche, vue cartes ou 
 | Source | Collecte |
 |---|---|
 | `[[blog]]` de `sources.toml` (`claude.com/blog`) | page de liste crawlée en HTML (grille + bandeau « à la une »), résumé et image lus dans les balises meta de chaque article ; aussi collectée par la veille (`collect:rss`) |
-| `[news].rss` (`OpenAI News`) | flux RSS officiel (`openai.com/fr-FR/news/` répond HTTP 403 aux robots) |
+| `[news].rss` (`OpenAI News`, `NVIDIA Blog`, `Hugging Face Blog`, `GitHub Blog — LLMs`) | flux RSS officiels, désignés par leur nom `[[rss]]` (`openai.com/fr-FR/news/` répond HTTP 403 aux robots : on lit son flux) |
 | **🌐 Mes actus via Claude** (barre latérale) | API Claude (`NEWS_MODEL`) + outil serveur `web_search` sur les mots-clés du profil Grill-me ou des sujets saisis |
 
 Pour la recherche web, Claude ne renvoie que des URL ; **titre, URL et date sont recopiés des résultats
@@ -234,7 +234,7 @@ Pour la recherche web, Claude ne renvoie que des URL ; **titre, URL et date sont
 Tout est validé par Pydantic (`NewsItem`) avant la table `news` (migration v6).
 
 ```bash
-bin/veille news crawl                          # claude.com/blog + OpenAI News
+bin/veille news crawl                          # claude.com/blog + flux de [news].rss
 bin/veille news search "Qwen, vLLM" --days 7   # clé CLAUDE_API dans .env
 bin/veille news list -s "Claude Blog"
 ```
@@ -294,6 +294,8 @@ Code : [`tui/`](tui/) — `bun test` (tests de la logique et des écrans rendus 
 - **Mémoire** : les notes de validation deviennent des leçons ; export vers `.claude/memory/veille.md` pour que chaque session Claude Code démarre avec le contexte.
 - **Prompts éditables** depuis le web (surcharges historisées dans `data/prompts/`, jamais les fichiers du dépôt) : Scout, Critic, Editor, routeur, Grill-me, **Reviewer**, prompt système du chat.
 - **Traces** : chaque réponse du chat, chaque veille et chaque review a son parcours dans le graphe (`/trace/<id>`, diagramme Mermaid des nœuds traversés) ; liens Langfuse déterministes.
+- **🧩 How to** (menu ☰ › Aide, page `/howto`) : huit chapitres de schémas interactifs pour qui ne connaît rien au projet. On y trouve la rédaction et ses personnages, une veille animée autour du superviseur (six scénarios : panne, relance, blocage, rejet…), le DAG à casser soi-même, les sous-graphes, le chat, les couches de garde-fous, le harness Claude Code et un lexique. Chaque schéma peut afficher le vrai graphe généré par LangGraph, et un test vérifie que chaque nœud du code y est expliqué.
+- **Schémas Mermaid** : skill [`schema-mermaid`](.claude/skills/schema-mermaid/SKILL.md) et sous-agent `diagrammer` pour Claude Code ; les graphes partent du code (`bin/veille plan --langgraph --out <dossier>` écrit `task-graph.mmd` et `langgraph.mmd`) et chaque diagramme est validé par le CLI officiel `@mermaid-js/mermaid-cli` (`.claude/skills/schema-mermaid/scripts/check.sh fichier.md|.mmd`) avant d'entrer dans la doc.
 
 ---
 

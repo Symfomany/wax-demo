@@ -102,3 +102,13 @@ def test_review_command_fetches_a_real_page_and_prints_a_sourced_review(monkeypa
     record = json.loads(result.output[result.output.index("\n{") + 1:])
     assert record["page"]["site"] == "vLLM Blog" and record["page"]["published_at"] == "2026-09-20"
     assert storage.get_review(storage.connect(settings.database_path), record["id"]) is not None
+
+
+def test_plan_writes_mermaid_files(tmp_path):
+    result = runner.invoke(cli, ["plan", "--langgraph", "--out", str(tmp_path / "diagrams")], catch_exceptions=False)
+
+    assert result.exit_code == 0
+    task_graph = (tmp_path / "diagrams" / "task-graph.mmd").read_text(encoding="utf-8")
+    langgraph = (tmp_path / "diagrams" / "langgraph.mmd").read_text(encoding="utf-8")
+    assert task_graph.startswith("flowchart LR") and "collect_rss" in task_graph
+    assert "graph TD;" in langgraph and "supervisor" in langgraph

@@ -6,6 +6,7 @@ des rapports. Simulés : Ollama (routeur + modèle de chat), collecteurs, Notion
 
 from datetime import date
 import json
+import re
 import threading
 import time
 from contextlib import contextmanager
@@ -668,3 +669,22 @@ def test_why_page_and_rule_decisions(client):
     assert memory.active_exclusions() == ["hype"]
     assert client.post("/api/rules/exclude:absent/accept").status_code == 404
     assert client.post("/api/rules/exclude:hype/maybe").status_code == 400
+
+
+def test_howto_page_and_generated_diagrams(client):
+    page = client.get("/howto").text
+    assert "Comment marche cette veille ?" in page and "/api/howto/diagrams" in page
+    assert '"/howto"' in client.get("/").text  # entrée du menu ☰
+
+    diagrams = client.get("/api/howto/diagrams").json()
+    assert {"task-graph", "veille", "quality", "research", "review", "evidence", "editorial", "chat", "reviewer"} <= set(diagrams)
+    assert diagrams["task-graph"].startswith("flowchart LR")
+    # Chaque nœud déclaré par le code (graphe, sous-graphes, chat, reviewer) est expliqué dans la page :
+    # un nœud ajouté ou renommé sans mise à jour de /howto fait échouer ce test.
+    for name, mermaid in diagrams.items():
+        if name == "task-graph":
+            continue
+        nodes = {n for n in re.findall(r"^\s*(\w+)\(", mermaid, re.M) if not n.startswith("__")}
+        assert nodes, name
+        missing = sorted(n for n in nodes if n not in page)
+        assert not missing, f"{name} : {missing}"
