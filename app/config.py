@@ -171,6 +171,19 @@ class Settings(BaseSettings):
     web_session_secret: str | None = None
     web_login_max_failures: int = Field(5, ge=1, le=50)  # puis blocage de l'adresse
     web_login_lock_seconds: int = Field(300, ge=10, le=86400)
+    # Bouton physique (Zigbee2MQTT) : un appui lance « Quoi de neuf ? » dans les onglets ouverts (app/button.py)
+    mqtt_button_enabled: bool = True
+    mqtt_host: str = "127.0.0.1"
+    mqtt_port: int = Field(1883, ge=1, le=65535)
+    mqtt_username: str | None = None
+    mqtt_password: str | None = None
+    mqtt_button_topic: str = "zigbee2mqtt/my_btn"
+    mqtt_button_actions: str = "single"  # actions Zigbee2MQTT retenues, séparées par des virgules
+    mqtt_button_cooldown: float = Field(10, ge=0, le=3600)  # secondes : appuis rapprochés ignorés
+    mqtt_button_prompt: str = Field("Quoi de neuf dans les dernières veilles ?", min_length=1, max_length=2000)
+    # Anneau LED (ESP32-C3) : animations par activité, même broker MQTT que le bouton (app/led.py)
+    led_enabled: bool = True
+    led_topic: str = "veille/led/set"
 
     @property
     def web_login_enabled(self) -> bool:

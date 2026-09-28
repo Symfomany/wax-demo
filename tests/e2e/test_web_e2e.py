@@ -18,6 +18,7 @@ from langchain_core.messages import AIMessage
 
 from app import storage
 from app.config import settings
+from app.led import LedRing
 from app.harness.skills import load_skill
 from app.llm import StructuredLLM
 from app.runtime import open_graph
@@ -146,7 +147,12 @@ def notion_calls():
 
 
 @pytest.fixture
-def client(isolated_settings, notion_calls):
+def led_commands():
+    return []
+
+
+@pytest.fixture
+def client(isolated_settings, notion_calls, led_commands):
     def notion_sync(connection):
         notion_calls.append(connection)
         return {"url": "https://www.notion.so/veille-e2e", "digests": 1, "blocks": 9, "page_id": "p", "archived": None}
@@ -187,6 +193,7 @@ def client(isolated_settings, notion_calls):
         screenshot_capture=fake_screenshots,
         benchmarks_fetch=fake_benchmark_pages,
         review_llm=lambda connection: StructuredLLM(fake_review_llm(), model="fake-review", connection=connection),
+        led=LedRing(lambda topic, payload: led_commands.append(json.loads(payload))),
     )
     with TestClient(create_app(deps)) as test_client:
         yield test_client
@@ -688,3 +695,68 @@ def test_howto_page_and_generated_diagrams(client):
         assert nodes, name
         missing = sorted(n for n in nodes if n not in page)
         assert not missing, f"{name} : {missing}"
+def test_live_stream_pushes_button_presses_and_replays_missed_ones(client, monkeypatch):
+    from app.web import server
+
+    monkeypatch.setattr(server, "LIVE_STREAM_SECONDS", 0.6)  # flux borné : le navigateur se reconnecte
+    missed = client.post("/api/live/button").json()
+    assert missed["type"] == "button" and missed["simulated"] is True
+
+    live = client.app.state.live
+    threading.Timer(0.2, lambda: live.publish({"type": "button", "action": "single", "battery": 80})).start()
+    response = client.get("/api/live", headers={"Last-Event-ID": f"{live.boot}-0"})
+    assert response.status_code == 200 and response.headers["content-type"].startswith("text/event-stream")
+    assert "retry: 2000" in response.text
+    events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
+    assert [e["id"] for e in events][0] == missed["id"]  # rejoué grâce à Last-Event-ID
+    assert events[-1]["battery"] == 80 and f"id: {events[-1]['id']}\nevent: button" in response.text
+    assert live.listeners == 0  # abonnement libéré à la fin du flux
+
+
+def test_button_listener_follows_the_server_lifecycle(isolated_settings):
+    calls = []
+
+    def listener(bus):
+        calls.append("start")
+        bus.publish({"type": "button", "action": "single"})
+        return lambda: calls.append("stop")
+
+    deps = WebDeps(router_llm=chat_router(), chat_model=lambda: None, graph_factory=lambda: None,
+                   notion_sync=None, github_search=None, button_listener=listener)
+    with TestClient(create_app(deps)) as browser:
+        assert calls == ["start"]
+        assert browser.get("/api/health").json()["button"]["topic"] == settings.mqtt_button_topic
+    assert calls == ["start", "stop"]
+
+
+def test_led_ring_follows_web_activities(client, led_commands):
+    anims = lambda: [c.get("anim") for c in led_commands]  # noqa: E731
+
+    chat = sse(client.post("/api/chat", json={"message": "Quoi de neuf dans les dernières veilles ?"}))
+    assert anims()[0] == "keyword_search"
+    assert anims()[-1] == ("news_found" if chat[-1].get("sources") else "success")
+
+    led_commands.clear()
+
+    client.post("/api/news/crawl")
+    assert anims() == ["scrape_source", "success"]
+
+    led_commands.clear()
+    client.post("/api/news/search", json={"topics": "Qwen", "days": 3})
+    assert led_commands == [{"anim": "news_search"}, {"anim": "news_found", "count": 1}]
+
+    led_commands.clear()
+    client.post("/api/grill")
+    assert anims() == ["grill_me"]
+
+    led_commands.clear()
+    events = sse(client.post("/api/reviews", json={"url": ARTICLE_URL}))
+    assert events[-1]["type"] == "review" and anims() == ["review", "success"]
+
+    led_commands.clear()
+    client.post("/api/notion/sync")
+    assert anims() == ["scrape_source", "report_published"]
+
+    led_commands.clear()
+    assert client.post("/api/sources/inspect", json={"url": "https://techcrunch.com/feed"}).status_code == 400
+    assert anims() == ["scrape_source", "error"]
