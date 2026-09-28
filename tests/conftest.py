@@ -78,6 +78,18 @@ def fake_ollama(
     return invoke
 
 
+@pytest.fixture(autouse=True)
+def no_led_ring(monkeypatch):
+    """Les tests ne pilotent jamais l'anneau LED réel (broker MQTT de la Jetson)."""
+    from app import main
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "led_enabled", False)
+    main._led.cache_clear()
+    yield
+    main._led.cache_clear()
+
+
 @pytest.fixture
 def connection(tmp_path):
     connection = storage.connect(tmp_path / "watch.db")

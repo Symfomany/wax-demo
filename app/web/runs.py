@@ -18,6 +18,7 @@ from uuid import uuid4
 from langgraph.types import Command
 
 from app import storage
+from app.led import LedRing, NullLed
 from app.config import settings
 from app.workflow.graph import initial_state
 from app.workflow.tasks import COLLECTORS, default_plan
@@ -80,8 +81,9 @@ def translate(chunk: dict) -> list[dict]:
 
 
 class RunManager:
-    def __init__(self, graph_factory: GraphFactory, min_relevance: int = 6) -> None:
+    def __init__(self, graph_factory: GraphFactory, min_relevance: int = 6, led: LedRing | None = None) -> None:
         self.graph_factory = graph_factory
+        self.led = led or NullLed()
         self.min_relevance = min_relevance
         self.runs: dict[str, RunRecord] = {}
         self._lock = threading.Lock()
@@ -148,6 +150,7 @@ class RunManager:
 
     def _execute(self, record: RunRecord, payload) -> None:
         config = {"configurable": {"thread_id": record.id}, "recursion_limit": 60}
+        self.led.send("keyword_search" if record.options.get("keywords") else "scrape_source")
         try:
             with self.graph_factory() as (graph, context):
                 if not isinstance(payload, Command):
@@ -194,7 +197,12 @@ class RunManager:
             record.status = "error"
             self._emit(record, {"type": "error", "text": f"{type(error).__name__} : {error}"})
             traceback.print_exc()
+        self.led.send(RUN_LED.get(record.status, "error"))
         self._emit(record, {"type": "status", "status": record.status})
+
+
+# Fin d'exécution → animation de l'anneau (validation attendue : succès de la collecte ; rejet : repos)
+RUN_LED = {"awaiting_approval": "success", "published": "report_published", "rejected": "idle"}
 
 
 def run_step_detail(node: str, update: dict) -> str:

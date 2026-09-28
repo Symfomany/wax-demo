@@ -1350,6 +1350,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
   }
   // Notification système : selon le mode choisi ; clic → focus de l'onglet et action.
   function systemNotify(title, body = "", { tag, action, sticky = false, force = false } = {}) {
+    // force : affichée même onglet visible (mode « background ») ; le mode « off » reste respecté.
     try {
       if (notifPermission() !== "granted" || notifState.mode === "off") return;
       if (!force && notifState.mode === "background" && !document.hidden) return;
@@ -1358,7 +1359,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
       n.onclick = () => { window.focus(); action?.run(); n.close(); };
     } catch {}
   }
-  function notify({ title, body = "", kind = "info", icon, action, timeout = 6500, store = true, view, tag, sticky = false }) {
+  function notify({ title, body = "", kind = "info", icon, action, timeout = 6500, store = true, view, tag, sticky = false, force = false }) {
     const box = $("#notifs");
     const el = document.createElement("div");
     el.className = `notif ${kind}`; el.setAttribute("role", kind === "err" ? "alert" : "status");
@@ -1374,7 +1375,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
     if (store) {
       notifState.items.unshift({ title, body, kind, icon, view: view || null, at: new Date().toISOString(), unread: true });
       saveNotifs(); renderBell();
-      systemNotify(title, body, { tag, sticky, action: action || (view ? { run: () => show(view) } : null) });
+      systemNotify(title, body, { tag, sticky, force, action: action || (view ? { run: () => show(view) } : null) });
     }
   }
   function toggleNotifCenter() {
@@ -1717,6 +1718,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
                  kind: h.ollama ? "ok" : "err", icon: "🧠", tag: "health-llm" });
       health.ollama = h.ollama;
       $("#a-model").textContent = h.claude_search ? `${h.assistant_model} · API Claude directe` : "⚠ clé CLAUDE_API absente";
+      if (h.button?.prompt) button.prompt = h.button.prompt;
     } catch { $("#st-model").textContent = "API injoignable"; }
   }
 
@@ -1804,6 +1806,38 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
     history.replaceState(null, "", location.pathname);
   });
 
+  // --- Bouton physique (Zigbee2MQTT → SSE /api/live) : un appui lance « Quoi de neuf ? » en direct ------
+  const button = { prompt: "Quoi de neuf dans les dernières veilles ?" };
+  async function claimButtonEvent(id) {
+    // Un seul onglet du navigateur répond à l'appui (verrou partagé + dernier identifiant traité).
+    const claim = () => {
+      try { if (localStorage.getItem("veille-button-last") === id) return false; localStorage.setItem("veille-button-last", id); } catch {}
+      return true;
+    };
+    return navigator.locks ? navigator.locks.request("veille-button", claim) : claim();
+  }
+  async function onButton(event) {
+    if (!(await claimButtonEvent(event.id))) return;
+    const battery = event.battery != null ? ` · batterie ${event.battery} %` : "";
+    if (state.busy) {
+      notify({ title: "🔘 Bouton pressé", body: "Une réponse est déjà en cours : réessayez dans un instant.", kind: "warn", icon: "🔘", force: true });
+      return;
+    }
+    notify({ title: "🔘 Bouton pressé", body: `« Quoi de neuf ? » lancé en direct${battery}`, icon: "🔘", view: "chat", tag: "button", force: true });
+    $("#new-chat").click();
+    const started = Date.now();
+    const result = await send(button.prompt);
+    const seconds = Math.round((Date.now() - started) / 1000);
+    notify(result.ok
+      ? { title: "✅ « Quoi de neuf ? » prêt", body: `${result.excerpt} (${seconds} s)`, kind: "ok", icon: "🗞️", view: "chat", tag: "button-done", force: true, timeout: 10000 }
+      : { title: "⛔ « Quoi de neuf ? » a échoué", body: result.excerpt, kind: "err", view: "chat", tag: "button-done", force: true, timeout: 10000 });
+  }
+  function connectLive() {
+    // EventSource se reconnecte seul (flux borné côté serveur) et renvoie Last-Event-ID : aucun appui perdu.
+    if (!("EventSource" in window)) return;
+    new EventSource("/api/live").addEventListener("button", (e) => { try { onButton(JSON.parse(e.data)); } catch {} });
+  }
+
   // --- Messages ------------------------------------------------------------------
   const emptyState = $("#empty");
   const scrollDown = () => { const s = $("#scroll"); s.scrollTop = s.scrollHeight; };
@@ -1874,17 +1908,21 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
     const view = addAssistant(); view.answer.classList.add("cursor");
     view.answer.innerHTML = critter("Scouty fouille votre veille", "routage → outil → réponse sourcée", "small");
     scrollDown();
+    let ok = true;
     try {
       const handle = chatHandler(view, scrollDown);
       await streamSSE("/api/chat", { message, conversation_id: state.conversation }, (event) => {
         if (event.type === "conversation") { state.conversation = event.id; history.replaceState(null, "", `#c=${encodeURIComponent(event.id)}`); }
-        else handle(event);
+        else { if (event.type === "error") ok = false; handle(event); }
       });
     } catch (error) {
+      ok = false;
       view.answer.classList.remove("cursor");
       view.answer.innerHTML = `<p class="warning">⚠ ${esc(error.message)}</p>`;
     }
     state.busy = false; $("#send").disabled = false; scrollDown(); loadConversations();
+    const excerpt = view.answer.textContent.replace(/\s+/g, " ").trim();
+    return { ok, excerpt: excerpt.length > 140 ? excerpt.slice(0, 140) + "…" : excerpt };
   }
   function renderEngaged(engaged, traceUrl, totalMs, langfuse) {
     if (!engaged && !traceUrl) return "";
@@ -3233,7 +3271,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
   });
 
   // --- Démarrage ---------------------------------------------------------------------
-  loadHealth(); loadConversations(); setInterval(loadHealth, 30000);
+  loadHealth(); loadConversations(); setInterval(loadHealth, 30000); connectLive();
   api("/api/runs").then((runs) => { const active = runs.find((r) => ["running", "awaiting_approval"].includes(r.status)); if (active) followRun(active.id); }).catch(() => {});
   const linked = location.hash.match(/^#c=(.+)$/);
   if (linked) openConversation(decodeURIComponent(linked[1])).catch(() => {});
