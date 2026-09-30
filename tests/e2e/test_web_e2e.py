@@ -90,6 +90,10 @@ def fake_events_search(topics, memory, horizon):
 def fake_media_search(topics, memory, days):
     from app.media import MediaReport, make_media
 
+    if "crédit épuisé" in topics:  # même message que l'API Claude sans crédit
+        raise RuntimeError("Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', "
+                           "'message': 'Your credit balance is too low to access the Anthropic API.'}}")
+
     return MediaReport(items=[make_media(url="https://youtu.be/abcdefghijk", title="Agents talk", source="YouTube",
                                          origin="web_search", kind="video", published_at=date(2026, 9, 22))],
                        results_seen=3, searches=1)
@@ -152,7 +156,13 @@ def led_commands():
 
 
 @pytest.fixture
-def client(isolated_settings, notion_calls, led_commands):
+def chat_override():
+    """Modèle de chat de remplacement pour un test (ex. génération lente à annuler)."""
+    return {}
+
+
+@pytest.fixture
+def client(isolated_settings, notion_calls, led_commands, chat_override):
     def notion_sync(connection):
         notion_calls.append(connection)
         return {"url": "https://www.notion.so/veille-e2e", "digests": 1, "blocks": 9, "page_id": "p", "archived": None}
@@ -177,7 +187,7 @@ def client(isolated_settings, notion_calls, led_commands):
 
     deps = WebDeps(
         router_llm=chat_router(),
-        chat_model=lambda: GenericFakeChatModel(messages=iter([AIMessage("FP8 arrive dans vLLM [1].")])),
+        chat_model=lambda: chat_override.get("model") or GenericFakeChatModel(messages=iter([AIMessage("FP8 arrive dans vLLM [1].")])),
         graph_factory=graph_factory,
         notion_sync=notion_sync,
         github_search=lambda query: [],
@@ -217,6 +227,15 @@ def test_index_serves_the_chat_interface(client):
     page = client.get("/")
     assert page.status_code == 200
     assert "Votre veille LLM / GenAI" in page.text and "/api/chat" in page.text
+    assert "<title>Scouty Veille AI</title>" in page.text and 'id="home-btn"' in page.text
+
+
+def test_claude_credit_error_is_explained_and_turns_the_status_red(client):
+    failed = client.post("/api/media/search", json={"topics": "crédit épuisé"})
+    assert failed.status_code == 502 and failed.json()["detail"].startswith("Crédit API Claude épuisé")
+    assert client.get("/api/health").json()["claude_error"].startswith("Crédit API Claude épuisé")
+    assert client.post("/api/media/search", json={"topics": "agents"}).status_code == 200
+    assert client.get("/api/health").json()["claude_error"] is None  # crédit rechargé : pastille verte
 
 
 def test_api_token_guards_the_api_but_not_the_page(isolated_settings, monkeypatch):
@@ -350,6 +369,47 @@ def test_chat_streams_events_and_keeps_the_conversation(client):
     assert [step["node"] for step in trace["steps"]] == ["route", "act", "respond", "guard"]
     assert "class route,act,respond,guard visited;" in trace["diagrams"][0]["mermaid"]
     assert client.get(final["trace_url"]).text.startswith("<!doctype html>")
+
+
+class SlowChatModel(GenericFakeChatModel):
+    """Génération lente (un mot toutes les 50 ms) : le temps de l'annuler."""
+
+    def _stream(self, *args, **kwargs):
+        for chunk in super()._stream(*args, **kwargs):
+            time.sleep(0.05)
+            yield chunk
+
+
+def test_chat_generation_can_be_cancelled(client, chat_override, led_commands):
+    storage.save_documents(storage.connect(settings.database_path), DOCS)
+    chat_override["model"] = SlowChatModel(messages=iter([AIMessage(" ".join(["mot"] * 400))]))
+    assert client.post("/api/chat/c-stop/cancel").status_code == 404  # rien en cours
+
+    def cancel_when_started():
+        deadline = time.time() + 10
+        while time.time() < deadline and client.post("/api/chat/c-stop/cancel").status_code != 200:
+            time.sleep(0.05)
+
+    canceller = threading.Thread(target=cancel_when_started)
+    canceller.start()
+    started = time.time()
+    events = sse(client.post("/api/chat", json={"message": "Que sait-on sur la quantization ?",
+                                                 "conversation_id": "c-stop"}))
+    canceller.join()
+
+    types = [event["type"] for event in events]
+    assert types[-1] == "cancelled" and "final" not in types
+    assert led_commands[-1] == {"anim": "idle"}  # l'anneau quitte l'animation de recherche
+    assert time.time() - started < 10  # 400 mots × 50 ms = 20 s sans annulation
+    assert client.post("/api/chat/c-stop/cancel").status_code == 404  # jeton libéré
+
+
+def test_gpu_gauge_endpoint(client, monkeypatch):
+    import app.web.server as server
+
+    monkeypatch.setattr(server, "gpu_usage", lambda: {"available": True, "percent": 42, "name": "Jetson iGPU", "source": "sysfs"})
+    assert client.get("/api/gpu").json()["percent"] == 42
+    assert 'id="gpu"' in client.get("/").text
 
 
 def test_chat_rejects_empty_messages(client):
@@ -678,6 +738,92 @@ def test_why_page_and_rule_decisions(client):
     assert client.post("/api/rules/exclude:hype/maybe").status_code == 400
 
 
+def test_profile_space_customizes_resets_and_orients_whats_new(client, isolated_settings):
+    from app.config import PROJECT_ROOT
+
+    repo_profile = (PROJECT_ROOT / "profiles/julien.toml").read_bytes()
+    item = lambda n, title: {"title": title, "url": f"https://a.org/{n}", "source": "rss", "summary": title,  # noqa: E731
+                             "why_it_matters": "Important.", "tags": []}
+    storage.record_digest(client.app.state.connection, "r1", {
+        "generated_at": "2026-09-29T08:00:00+00:00", "executive_summary": "Synthèse",
+        "items": [item(1, "Partner webinar on GPUs"), item(2, "Diffusion paper"), item(3, "VLA robotics release")],
+    }, isolated_settings / "d.md", isolated_settings / "d.json")
+
+    initial = client.get("/api/profile").json()
+    assert initial["overridden"] is False and initial["profile"]["label"] == initial["default"]["label"]
+    assert initial["interests"] is None and initial["history"] == []
+
+    body = {"impact": {"role": "Robotique", "topics": ["robotics", "VLA"], "avoid": ["webinar"],
+                       "match": {"VLA": ["vla"]}},
+            "interests": {"summary": "Robots", "keywords": ["diffusion", "Diffusion", " "], "exclusions": []}}
+    preview = client.post("/api/profile/preview", json=body).json()
+    assert [i["url"] for i in preview["items"]] == ["https://a.org/3", "https://a.org/2", "https://a.org/1"]
+    assert preview["items"][-1]["avoid"] is True and preview["label"] == f"julien@v{initial['default']['version'] + 1}"
+    assert client.get("/api/profile").json()["overridden"] is False  # l'aperçu n'enregistre rien
+
+    saved = client.put("/api/profile", json=body).json()
+    assert saved["overridden"] is True and saved["profile"]["version"] == initial["default"]["version"] + 1
+    assert saved["profile"]["priorities"]["topics"] == ["robotics", "VLA"]
+    assert saved["interests"]["keywords"] == ["diffusion"] and saved["interests"]["edited"] is True
+    assert settings.impact_profile_override_path.is_file()
+    assert "Robots" in settings.claude_memory_path.read_text()  # mémoire Claude Code réexportée
+
+    final = sse(client.post("/api/chat", json={"message": "Quoi de neuf ?"}))[-1]
+    assert final["tool"] == "latest_digests" and final["data"]["profile"] == saved["profile"]["label"]
+    assert [s["url"] for s in final["sources"]][0] == "https://a.org/3"
+    assert "digests publiés" in final["engaged"]["data"]
+
+    assert client.put("/api/profile", json={"impact": {"topics": ["x" * 81]}}).status_code == 422
+    assert client.delete("/api/profile?scope=tout").status_code == 400
+
+    only_interests = client.delete("/api/profile?scope=interests").json()
+    assert only_interests["interests"] is None and only_interests["overridden"] is True
+    reset = client.delete("/api/profile?scope=impact").json()
+    assert reset["overridden"] is False and reset["profile"]["label"] == initial["default"]["label"]
+    assert len(reset["history"]) == 1
+    assert (PROJECT_ROOT / "profiles/julien.toml").read_bytes() == repo_profile
+
+
+def test_llm_crash_is_retried_then_offers_an_on_demand_restart(client, chat_override, led_commands, monkeypatch):
+    from tests.test_ollama_runner import CUDA_OOM, CrashOnceModel
+
+    monkeypatch.setattr(settings, "llm_crash_retries", 1)
+    chat_override["model"] = CrashOnceModel(crashes=5, messages=iter([AIMessage("jamais")]))
+    events = sse(client.post("/api/chat", json={"message": "Que disent mes sources sur FP8 ?"}))
+    assert [e["attempt"] for e in events if e["type"] == "llm_recovering"] == [1]
+    error = events[-1]
+    assert error["type"] == "error" and error["code"] == "llm_crash"
+    assert "1 reprise(s) automatique(s)" in error["text"] and "out of memory" in error["text"]
+
+    monkeypatch.setattr("app.web.server.restart_runner",
+                        lambda: {"model": "ministral-3:3b", "unloaded": ["ministral-3:3b"], "loaded": True,
+                                 "service_restarted": False, "ms": 900})
+    led_commands.clear()
+    report = client.post("/api/llm/restart").json()
+    assert report["loaded"] is True and report["unloaded"] == ["ministral-3:3b"]
+    assert [c["anim"] for c in led_commands] == ["scrape_source", "success"]  # l'anneau revient en idle
+
+    monkeypatch.setattr("app.web.server.restart_runner", lambda: {"loaded": False, "load_error": CUDA_OOM})
+    assert client.post("/api/llm/restart").json()["loaded"] is False
+    assert led_commands[-1]["anim"] == "error"
+    monkeypatch.setattr(settings, "llm_provider", "anthropic")
+    assert client.post("/api/llm/restart").status_code == 400
+
+
+def test_metrics_are_local_only_unless_a_token_is_given(client, monkeypatch):
+    client.get("/api/health")
+    local = client.get("/metrics")
+    assert local.status_code == 200 and "text/plain" in local.headers["content-type"]
+    assert 'scouty_http_requests_total{method="GET",route="/api/health",status="200"}' in local.text
+    assert "scouty_llm_requests_total" in local.text and 'route="/metrics"' not in local.text
+
+    remote = TestClient(client.app, client=("203.0.113.9", 50000))
+    assert remote.get("/metrics").status_code == 403
+    monkeypatch.setattr(settings, "metrics_token", "jeton-prometheus")
+    assert remote.get("/metrics", headers={"Authorization": "Bearer mauvais"}).status_code == 403
+    assert remote.get("/metrics", headers={"Authorization": "Bearer jeton-prometheus"}).status_code == 200
+
+
 def test_howto_page_and_generated_diagrams(client):
     page = client.get("/howto").text
     assert "Comment marche cette veille ?" in page and "/api/howto/diagrams" in page
@@ -731,6 +877,8 @@ def test_button_listener_follows_the_server_lifecycle(isolated_settings):
 
 def test_led_ring_follows_web_activities(client, led_commands):
     anims = lambda: [c.get("anim") for c in led_commands]  # noqa: E731
+    assert anims() == ["idle"]  # démarrage du serveur : l'anneau repart de l'état initial
+    led_commands.clear()
 
     chat = sse(client.post("/api/chat", json={"message": "Quoi de neuf dans les dernières veilles ?"}))
     assert anims()[0] == "keyword_search"
@@ -760,3 +908,92 @@ def test_led_ring_follows_web_activities(client, led_commands):
     led_commands.clear()
     assert client.post("/api/sources/inspect", json={"url": "https://techcrunch.com/feed"}).status_code == 400
     assert anims() == ["scrape_source", "error"]
+
+
+def test_running_watch_can_be_cancelled(tmp_path):
+    from app.cancellation import Cancelled
+
+    closed = threading.Event()
+
+    class Graph:
+        def __init__(self, raise_cancelled: bool):
+            self.raise_cancelled = raise_cancelled
+
+        def stream(self, payload, config, **kwargs):
+            token = config["callbacks"][-1]  # jeton d'annulation transmis aux appels LLM
+            try:
+                while True:
+                    if self.raise_cancelled:
+                        token.check()  # comme un appel LLM après l'annulation
+                    yield (), {"supervisor": {"trace": ["délègue research → research"]}}
+                    time.sleep(0.02)
+            finally:
+                closed.set()
+
+        def get_state(self, config):
+            class Snapshot:
+                next, values = (), {}
+            return Snapshot()
+
+    for raise_cancelled in (False, True):
+        closed.clear()
+
+        @contextmanager
+        def factory():
+            class Context:
+                connection = storage.connect(tmp_path / "cancel.db")
+            yield Graph(raise_cancelled), Context()
+
+        manager = RunManager(factory)
+        run_id = manager.start()
+        time.sleep(0.1)
+        manager.cancel(run_id)
+        manager.wait(run_id)
+        record = manager.get(run_id)
+        assert record.status == "cancelled" and closed.is_set()
+        assert [e["type"] for e in record.events][-1] == "status"
+        assert any(e["type"] == "cancelling" for e in record.events)
+        assert storage.connect(tmp_path / "cancel.db").execute(
+            "SELECT status FROM runs WHERE run_id = ?", (run_id,)).fetchone()[0] == "cancelled"
+        with pytest.raises(RuntimeError, match="pas en cours"):
+            manager.cancel(run_id)
+        manager.start()  # le GPU est libéré : une nouvelle veille peut partir
+        manager.cancel(manager.list()[0]["id"])
+
+
+def test_led_ring_returns_to_idle_when_the_server_stops(isolated_settings):
+    commands = []
+    deps = WebDeps(router_llm=chat_router(), chat_model=lambda: None, graph_factory=None, notion_sync=None,
+                   github_search=None, led=LedRing(lambda topic, payload: commands.append(json.loads(payload))))
+    with TestClient(create_app(deps)):
+        commands.append({"anim": "keyword_search"})  # activité en cours au moment de l'arrêt
+    assert commands[-1] == {"anim": "idle"}
+
+
+def test_sse_stream_finishes_the_generator_when_the_client_leaves():
+    """Client parti : la génération est annulée et le `finally` du générateur (LED idle) s'exécute."""
+    import asyncio
+
+    from app.web.server import sse_stream
+
+    stop, finished = threading.Event(), threading.Event()
+
+    def events():
+        try:
+            while not stop.is_set():  # génération sans fin tant qu'on ne l'annule pas
+                yield "data: {}\n\n"
+                time.sleep(0.01)
+        finally:
+            finished.set()
+
+    class GoneClient:
+        async def is_disconnected(self):
+            return True
+
+    async def read_one_chunk_then_leave():
+        body = sse_stream(GoneClient(), events(), stop.set).body_iterator
+        await body.__anext__()  # Starlette cesse ensuite de lire (ClientDisconnect)
+        await asyncio.sleep(0.2)
+
+    asyncio.run(read_one_chunk_then_leave())
+    assert stop.is_set() and finished.wait(2)

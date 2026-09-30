@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="generator" content="LLM Watch Harness">
+<meta name="keywords" content="misalignment, framework, reporting">
+<title>Veille LLM / GenAI — 29/09/2026</title>
+<style>
+:root {
+  --bg: #f6f5f1; --paper: #ffffff; --ink: #1b1a17; --muted: #6b675e; --line: #e6e2d8;
+  --accent: #5b4bdb; --accent-soft: #eeecfd; --ok: #2e7d4f; --ok-soft: #e3f3e8; --warn: #9a6a10; --warn-soft: #faf0d9;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #131316; --paper: #1c1c21; --ink: #ecebf1; --muted: #a3a1ad; --line: #30303a;
+          --accent: #a197ff; --accent-soft: #2a2748; --ok: #74cf98; --ok-soft: #1b3325; --warn: #e6b85c; --warn-soft: #362b14; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.7 var(--sans); }
+a { color: var(--accent); text-underline-offset: 3px; }
+.page { max-width: 820px; margin: 0 auto; padding: calc(40px + env(safe-area-inset-top, 0px)) 20px calc(64px + env(safe-area-inset-bottom, 0px)); }
+header .kicker { font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+header h1 { font-family: var(--serif); font-size: clamp(2rem, 5vw, 2.8rem); line-height: 1.15; margin: .3em 0 .2em; letter-spacing: -.01em; }
+header .date { color: var(--muted); }
+.lead { font-family: var(--serif); font-size: 1.22rem; line-height: 1.6; border-left: 3px solid var(--accent); padding: .2em 0 .2em 1em; margin: 1.6em 0; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 1.6em 0; }
+.kpi { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.kpi b { display: block; font-size: 1.6rem; line-height: 1.1; }
+.kpi span { color: var(--muted); font-size: .8rem; }
+.kpi code { font: 600 .85rem var(--mono); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: .4em 0; }
+.chip { font-size: .8rem; padding: 2px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+h2 { font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 3em 0 1em; padding-bottom: .5em; border-bottom: 1px solid var(--line); }
+.top { counter-reset: top; list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.top li { counter-increment: top; background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 14px 56px; position: relative; }
+.top li::before { content: counter(top); position: absolute; left: 16px; top: 14px; width: 28px; height: 28px; border-radius: 50%;
+                  background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: .85rem; }
+.top a { font-weight: 700; text-decoration: none; }
+.top p { margin: .3em 0 0; color: var(--muted); font-size: .95rem; }
+article.signal { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 22px 24px; margin: 0 0 18px; }
+.signal .meta { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: .82rem; color: var(--muted); }
+.signal .badge { font-weight: 700; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; }
+.signal h3 { font-family: var(--serif); font-size: 1.35rem; line-height: 1.3; margin: .45em 0 .4em; }
+.signal h3 a { color: var(--ink); text-decoration: none; }
+.signal h3 a:hover { color: var(--accent); }
+.signal .summary { margin: 0 0 .9em; }
+.why { background: var(--ok-soft); border-radius: 10px; padding: 10px 14px; font-size: .95rem; }
+.why b { color: var(--ok); }
+.conf { display: inline-block; font-size: .8rem; font-weight: 700; border-radius: 999px; padding: 1px 10px; }
+.conf.élevée { background: var(--ok-soft); color: var(--ok); }
+.conf.moyenne, .conf.non { background: var(--accent-soft); color: var(--accent); }
+.conf.faible { background: var(--warn-soft); color: var(--warn); }
+.facts { list-style: none; padding: 0; margin: .6em 0 .9em; display: grid; gap: 8px; font-size: .93rem; }
+.facts li { border-left: 3px solid var(--line); padding: 2px 0 2px 12px; }
+.facts li.confirme { border-color: var(--ok); } .facts li.conteste { border-color: var(--warn); }
+.facts blockquote { margin: .2em 0 0; color: var(--muted); font-style: italic; }
+.facts .status { font-size: .78rem; color: var(--muted); }
+.interp { font-size: .93rem; margin: 0 0 .7em; padding: 8px 12px; border: 1px dashed var(--line); border-radius: 10px; }
+.impact { font-size: .88rem; color: var(--muted); margin-top: 8px; }
+.contra li { margin: .5em 0; font-size: .92rem; }
+.signal .chips { margin-top: 12px; }
+.signal .chip { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; background: var(--paper); border-radius: 12px; overflow: hidden; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.rejected li { margin: .4em 0; font-size: .92rem; }
+.rejected code { font: .8rem var(--mono); background: var(--warn-soft); color: var(--warn); padding: 1px 6px; border-radius: 5px; }
+.method { font-size: .9rem; color: var(--muted); }
+details { margin-top: .8em; }
+summary { cursor: pointer; }
+footer { margin-top: 3em; font-size: .8rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 1em; }
+@media print { body { background: #fff; } article.signal, .top li, .kpi { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="kicker">Veille LLM / GenAI · rapport daté</div>
+    <h1>Veille LLM / GenAI — 29/09/2026</h1>
+    <div class="date">Mardi 29 septembre 2026 · modèle <code>ministral-3:3b</code></div>
+  </header>
+
+  <p class="lead">Les agents conversationnels basés sur GPT-5.6 réduisent significativement les coûts opérationnels, tandis que les cadres techniques d’OpenAI renforcent la transparence sur les biais des modèles, impactant les systèmes agents et la robustesse des LLM en production.</p>
+
+  <div class="kpis">
+    <div class="kpi"><b>2</b><span>signaux retenus</span></div>
+    <div class="kpi"><b>1</b><span>écartés par le Critic</span></div>
+    <div class="kpi"><b>62</b><span>confiance moyenne /100</span></div>
+    <div class="kpi"><b>7</b><span>documents collectés</span></div>
+  </div>
+  <div class="chips" aria-label="Mots-clés"><span class="chip">misalignment</span><span class="chip">framework</span><span class="chip">reporting</span></div>
+
+  <h2>À retenir</h2>
+  <ol class="top">
+    <li><a href="https://openai.com/index/ringg" target="_blank" rel="noopener">Ringg’s AI agents resolve up to 65% of customer calls with OpenAI</a><p>Pour un ingénieur en systèmes agents, cela suggère de tester l’impact de la migration vers des versions plus récentes de GPT (ici 5.6) sur les coûts et l’efficacité des workflows agents, en évaluant les gains opérationnels via des benchmarks locaux.</p></li>
+    <li><a href="https://openai.com/index/model-misalignment-reporting-framework" target="_blank" rel="noopener">Our framework for reporting model misalignment</a><p>Pour un ingénieur en évaluation de modèles, cela implique de surveiller l’évolution des méthodologies de benchmarking pour les biais, et de les intégrer dans les pipelines de validation des petits LLM locaux (ex : tests de *bias correction* via vLLM ou SGLang).</p></li>
+  </ol>
+
+  <h2>Signaux</h2>
+  <article class="signal" id="signal-1">
+    <div class="meta"><span class="badge">📰 Blog officiel</span><span>23/09/2026</span><span>#1</span></div>
+    <h3><a href="https://openai.com/index/ringg" target="_blank" rel="noopener">Ringg’s AI agents resolve up to 65% of customer calls with OpenAI</a></h3>
+    <p class="summary">Ringg utilise GPT-5.6 pour des agents multilingues sur voix, chat, WhatsApp et web, réduisant les coûts de 90 % par rapport à GPT-4.1. Les performances en résolution de 65 % des appels sont confirmées.</p>
+<details><summary><span class="conf moyenne">🛡️ Confiance 60/100 · moyenne</span></summary><ul><li>2 fait(s) : 2 confirmé</li><li>1 affirmation(s) sans citation écartée(s) (−5)</li></ul></details><ul class="facts">      <li class="confirme"><span class="status">✅ confirmé · fait · 65/100</span><br>Ringg utilise GPT-5.6 pour des agents multilingues sur voix, chat, WhatsApp et web.
+        <blockquote>« Using GPT-5.6, Ringg powers multilingual agents across voice, chat, WhatsApp, and web » — <a href="https://openai.com/index/ringg" target="_blank" rel="noopener">source</a></blockquote>
+</li>
+      <li class="confirme"><span class="status">✅ confirmé · chiffre · 65/100</span><br>Les coûts des agents Ringg sont 90 % inférieurs à ceux de GPT-4.1.
+        <blockquote>« for 90% less cost vs. GPT-4.1 » — <a href="https://openai.com/index/ringg" target="_blank" rel="noopener">source</a></blockquote>
+</li>
+</ul><p class="interp">🧠 <b>Analyse (interprétation) :</b> Signe d’une optimisation coûteuse mais efficace pour les applications agents, avec un potentiel d’adoption pour les infrastructures à faible budget.</p><p class="interp">❓ <b>Hypothèse (non vérifiée) :</b> Une adoption progressive de GPT-5.6 dans les agents locaux pourrait réduire les dépendances aux services cloud coûteux, surtout pour les PME ou startups.</p>    <div class="why"><b>Pourquoi c'est important —</b> Pour un ingénieur en systèmes agents, cela suggère de tester l’impact de la migration vers des versions plus récentes de GPT (ici 5.6) sur les coûts et l’efficacité des workflows agents, en évaluant les gains opérationnels via des benchmarks locaux.</div>
+<div class="impact">🎯 Pour toi : tes priorités : agentic systems</div><details class="rank"><summary>📊 Classement 58/100</summary><ul><li>LLM : pertinence 7/10, nouveauté 6, confiance 8 (+35)</li><li>fraîcheur : publié il y a 6 j (+6)</li><li>profil : openai, agentic systems (+8)</li><li>source : blog officiel (+9)</li></ul></details>  </article>
+  <article class="signal" id="signal-2">
+    <div class="meta"><span class="badge">📰 Blog officiel</span><span>16/09/2026</span><span>#2</span></div>
+    <h3><a href="https://openai.com/index/model-misalignment-reporting-framework" target="_blank" rel="noopener">Our framework for reporting model misalignment</a></h3>
+    <p class="summary">OpenAI publie un cadre pour mesurer et publier les biais dans les modèles de langage, incluant six rapports d’incidents inattendus. Ce cadre vise à améliorer la transparence et la robustesse des modèles, sans préciser de méthode technique détaillée pour les petits modèles locaux.</p>
+<details><summary><span class="conf moyenne">🛡️ Confiance 65/100 · moyenne</span></summary><ul><li>1 fait(s) : 1 confirmé</li></ul></details><ul class="facts">      <li class="confirme"><span class="status">✅ confirmé · annonce · 65/100</span><br>OpenAI shares a framework for tracking, investigating, and disclosing model misalignment, alongside six reports of unexpected or concerning model behavior.
+        <blockquote>« OpenAI shares a framework for tracking, investigating, and disclosing model misalignment, alongside six reports of unexpected or concerning model behavior. » — <a href="https://openai.com/index/model-misalignment-reporting-framework" target="_blank" rel="noopener">source</a></blockquote>
+</li>
+</ul><p class="interp">🧠 <b>Analyse (interprétation) :</b> Indice d’une prise de conscience croissante des risques de biais dans les modèles, mais son application aux petits modèles reste à formaliser.</p><p class="interp">❓ <b>Hypothèse (non vérifiée) :</b> Les frameworks comme celui d’OpenAI pourraient inspirer des benchmarks open-source pour les modèles locaux, avec des outils comme MCP ou llama.cpp pour automatiser les tests de biais.</p>    <div class="why"><b>Pourquoi c'est important —</b> Pour un ingénieur en évaluation de modèles, cela implique de surveiller l’évolution des méthodologies de benchmarking pour les biais, et de les intégrer dans les pipelines de validation des petits LLM locaux (ex : tests de *bias correction* via vLLM ou SGLang).</div>
+<details class="rank"><summary>📊 Classement 58/100</summary><ul><li>LLM : pertinence 7/10, nouveauté 8, confiance 9 (+39)</li><li>fraîcheur : publié il y a 13 j (+2)</li><li>profil : openai (+8)</li><li>source : blog officiel (+9)</li><li>diversité : source ou thème déjà retenus (−8 pour la sélection)</li></ul></details>  </article>
+
+  <h2>Ressources</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>#</th><th>Ressource</th><th>Source</th><th>Date</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><a href="https://openai.com/index/ringg" target="_blank" rel="noopener">Ringg’s AI agents resolve up to 65% of customer calls with OpenAI</a></td><td>📰 Blog officiel</td><td>23/09/2026</td></tr>
+      <tr><td>2</td><td><a href="https://openai.com/index/model-misalignment-reporting-framework" target="_blank" rel="noopener">Our framework for reporting model misalignment</a></td><td>📰 Blog officiel</td><td>16/09/2026</td></tr>
+    </tbody>
+  </table></div>
+
+
+  <h2>Écartés par le Critic</h2>
+  <ul class="rejected">
+    <li><code>drop</code> <a href="https://openai.com/index/priorities-principles-third-party-assessments" target="_blank" rel="noopener">https://openai.com/index/priorities-principles-third-party-assessments</a> — L&#39;extrait source ne mentionne pas explicitement de critères stricts pour les évaluations tierces des modèles frontaliers, mais seulement des &#39;priorités et principes&#39; pour des **safeguards** (mesures de sécurité) et des **assessments** (évaluations) de ces modèles. Le Scout généralise à tort l&#39;impact sur les petits modèles locaux (&lt;10 milliards de paramètres), alors que le document ne les mentionne pas. La justification dépasse la source et est donc hors sujet.</li>
+  </ul>
+
+  <h2>Méthodologie</h2>
+  <div class="method">
+    <p><b>Collecte :</b> rss +6 · arxiv +0 · github_releases +0 · github_mcp +1.
+    Chaîne : supervisor → research (Scouts parallèles, sélection diversifiée) → review (Critic) → evidence (claims, citations, corroboration, contradictions) → editorial (Editor + guards) → validation humaine.
+    Confiance : citation retrouvée (+40), source primaire (+25) ou secondaire (+5), corroboration (+15/source), protocole de benchmark incomplet (−15), contradiction (−30). Profil d'impact <code>julien@v1#689032bf</code>.    URLs, titres et dates sont recopiés depuis les sources collectées ; le digest est validé par Pydantic.</p>
+<details><summary>Trace du supervisor</summary><ul><li>fan-out : collect:rss, collect:arxiv, collect:github_releases, collect:github_mcp</li><li>délègue prefilter → prefilter</li><li>délègue quality → quality</li><li>quality : 0 bruit(s), 0 doublon(s) écarté(s), 20 candidat(s) retenu(s)</li><li>délègue research → research</li><li>délègue review → review</li><li>2 signal(s) accepté(s) &lt; 3 : relance research (seuil 4)</li><li>délègue review → review</li><li>délègue evidence → evidence</li><li>evidence : 3/4 affirmation(s) étayée(s), 0 contradiction(s)</li><li>délègue editorial → editorial</li><li>plan terminé → validation</li></ul></details>  </div>
+
+  <footer>Rapport généré le 2026-09-29T19:58:57.474598Z par LLM Watch Harness · run <code>0412ce75-4676-457c-9169-7ce2ac69e894</code> · chaque affirmation renvoie à sa source.</footer>
+</div>
+</body>
+</html>

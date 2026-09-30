@@ -1,0 +1,103 @@
+# Monitoring de Scouty Veille AI sur la Jetson : Prometheus + Grafana, en permanence.
+#
+#   monitoring/setup.sh            # crée le compte Grafana (fichier d'environnement hors Git) et démarre la pile
+#   monitoring/setup.sh --status   # état des conteneurs et des cibles Prometheus
+#   monitoring/setup.sh --down     # arrête la pile (les données restent dans les volumes)
+#
+# - réseau de l'hôte, tout écoute sur 127.0.0.1 sauf si GRAFANA_HOST le change (défaut 127.0.0.1 :
+#   tunnel SSH ou redirection de port de VS Code) ; aucune métrique n'est exposée sur le réseau ;
+# - restart: unless-stopped : la pile repart avec Docker au démarrage de la Jetson ;
+# - mémoire bornée (8 Go partagés CPU/GPU avec Ollama) : ~670 Mo au plus pour les quatre conteneurs,
+#   rétention Prometheus bornée en durée et en taille ;
+# - images épinglées (arm64 incluses).
+name: scouty-monitoring
+
+x-common: &common
+  network_mode: host
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "5m"
+      max-file: "2"
+
+services:
+  prometheus:
+    <<: *common
+    image: prom/prometheus:v2.53.0
+    container_name: scouty-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-2GB}
+      - --web.listen-address=127.0.0.1:9090
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    mem_limit: 300m
+
+  node-exporter:
+    <<: *common
+    image: prom/node-exporter:v1.8.1
+    container_name: scouty-node-exporter
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --web.listen-address=127.0.0.1:9100
+      # Bloque indéfiniment sur les zones cv* inactives de la Jetson (EAGAIN) et sature node_exporter :
+      # les températures viennent de jetson_exporter.py.
+      - --no-collector.thermal_zone
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|run|sys|var/lib/docker/.+|snap/.+)($$|/)
+    volumes:
+      - /:/host:ro,rslave
+    mem_limit: 64m
+
+  jetson-exporter:
+    <<: *common
+    image: python:3.12-alpine
+    container_name: scouty-jetson-exporter
+    command: ["python", "/exporter/jetson_exporter.py"]
+    environment:
+      JETSON_SYSFS_ROOT: /host/sys
+      JETSON_EXPORTER_ADDR: 127.0.0.1:9101
+      OLLAMA_URL: ${OLLAMA_URL:-http://127.0.0.1:11434}
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./jetson_exporter.py:/exporter/jetson_exporter.py:ro
+      - /sys:/host/sys:ro
+    read_only: true
+    mem_limit: 48m
+
+  grafana:
+    <<: *common
+    image: grafana/grafana-oss:11.1.0
+    container_name: scouty-grafana
+    depends_on: [prometheus]
+    environment:
+      GF_SERVER_HTTP_ADDR: ${GRAFANA_HOST:-127.0.0.1}
+      GF_SERVER_HTTP_PORT: ${GRAFANA_PORT:-3000}
+      # URL vue par le navigateur (proxy HTTPS de Tailscale : monitoring/setup.sh --tailscale) : liens de
+      # partage et redirections absolues corrects derrière le proxy.
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-%(protocol)s://%(domain)s:%(http_port)s/}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?lancer monitoring/setup.sh (crée le compte Grafana)}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?lancer monitoring/setup.sh (crée le compte Grafana)}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_USERS_DEFAULT_LANGUAGE: fr-FR
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/scouty.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    mem_limit: 256m
+
+volumes:
+  prometheus-data:
+  grafana-data:

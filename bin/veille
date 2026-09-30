@@ -53,7 +53,8 @@ Profil, review et connaissances
 Serveur web
   start [--port N] [--host H]  Démarre l'interface web en arrière-plan (défaut http://127.0.0.1:8000)
   stop                         Arrête le serveur démarré par « start »
-  restart [--port N]           Redémarre (même hôte et port par défaut), ex. après une modif du code ou de .env
+  restart [--port N]           Redémarre (même hôte et port par défaut), ex. après une modif du code ou de .env ;
+                               libère d'abord le port : conteneur Docker qui le tient (docker stop), puis tout processus à l'écoute
   status                       État du serveur : PID, URL, santé (LLM, Notion)
   logs [-f]                    Journal du serveur (data/web.log) ; -f pour le suivre
   web [--port N]               Interface web au premier plan (Ctrl+C pour arrêter)
@@ -68,6 +69,10 @@ Cron quotidien (APScheduler, 7 h par défaut : CRON_HOUR, CRON_MINUTE, CRON_TASK
   cron once [-t TÂCHE] [--force]
                                Un cycle maintenant : benchmarks, actus (crawl + web), événements (ics + web)
   cron status                  Prochain passage, dernier succès de chaque tâche (journal : data/cron.log)
+
+Bouton d'alimentation de la Jetson (appui long → extinction)
+  power-button [--dry-run]     Écoute le bouton (root) ; installation : systemd/install-power-button.sh
+  power-button --detect        Affiche le périphérique du bouton (gpio-keys)
 
 Outils
   doctor                       Diagnostic (Ollama, modèle, GPU, MCP, migrations)
@@ -107,6 +112,68 @@ server_pid() {
 
 healthy() { curl -fsS --max-time 2 "$1/api/health" >/dev/null 2>&1; }
 
+# --- Libération du port web (restart) : conteneurs Docker, puis tout processus à l'écoute -------
+
+port_busy() { ss -ltnH "sport = :$1" 2>/dev/null | grep -q .; }
+# PID à l'écoute sur le port (ceux des autres utilisateurs n'apparaissent qu'avec sudo)
+port_pids() { ss -ltnpH "sport = :$1" 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2 | sort -u; }
+
+# Client Docker utilisable sans mot de passe : docker, sinon sudo -n docker, sinon rien.
+docker_cli() {
+  command -v docker >/dev/null 2>&1 || return 1
+  if docker info >/dev/null 2>&1; then echo docker
+  elif sudo -n docker info >/dev/null 2>&1; then echo "sudo -n docker"
+  else return 1
+  fi
+}
+
+# Identifiant du conteneur Docker d'un processus (vide s'il n'est pas conteneurisé).
+container_of() { grep -oE '[0-9a-f]{64}' "/proc/$1/cgroup" 2>/dev/null | head -n 1; }
+
+free_port() {
+  local port="$1" docker="" id name pid
+  port_busy "$port" || return 0
+  # 1. Conteneurs qui tiennent ce port : processus conteneurisé à l'écoute (réseau de l'hôte, ex. veille-web)
+  #    ou port publié. docker stop, pas kill : « restart: unless-stopped » relancerait un processus tué.
+  docker="$(docker_cli)" || docker=""
+  for id in $({ for pid in $(port_pids "$port"); do container_of "$pid"; done
+                [[ -n "$docker" ]] && $docker ps -q --no-trunc --filter "publish=$port"; } | sort -u); do
+    if [[ -z "$docker" ]]; then
+      die "le port $port est tenu par un conteneur Docker (${id:0:12}) : sudo docker stop ${id:0:12}
+  (ou ajouter $USER au groupe docker pour que « veille restart » l'arrête lui-même)"
+    fi
+    name="$($docker inspect -f '{{.Name}}' "$id" 2>/dev/null | tr -d /)"
+    echo "Arrêt du conteneur ${name:-${id:0:12}} (port $port)"
+    $docker stop "$id" >/dev/null
+  done
+  # 2. Processus restants : SIGTERM, puis SIGKILL au bout de 10 s.
+  for pid in $(port_pids "$port"); do
+    echo "Arrêt du processus $pid sur le port $port : $(ps -o args= -p "$pid" 2>/dev/null | cut -c1-100)"
+    kill "$pid" 2>/dev/null || true
+  done
+  for ((i = 0; i < 20; i++)); do
+    port_busy "$port" || break
+    sleep 0.5
+  done
+  for pid in $(port_pids "$port"); do
+    echo "Arrêt forcé du processus $pid"
+    kill -9 "$pid" 2>/dev/null || true
+  done
+  sleep 1
+  # 3. Toujours occupé : processus d'un autre utilisateur (root, conteneur) ou conteneur relancé par Docker.
+  if port_busy "$port"; then
+    if sudo -n true 2>/dev/null; then
+      echo "Port $port toujours occupé : arrêt avec sudo"
+      sudo -n fuser -k -TERM "$port/tcp" >/dev/null 2>&1 || true
+      sleep 2
+    fi
+    port_busy "$port" && die "le port $port reste occupé (processus d'un autre utilisateur ou conteneur relancé par Docker) :
+  sudo ss -ltnp 'sport = :$port'   # qui l'occupe
+  sudo docker ps                    # conteneur qui le tiendrait (puis sudo docker stop <nom>)"
+  fi
+  return 0
+}
+
 start_server() {
   local host="${VEILLE_HOST:-127.0.0.1}" port="${VEILLE_PORT:-8000}" pid url
   while [[ $# -gt 0 ]]; do
@@ -122,7 +189,9 @@ start_server() {
     return 0
   fi
   url="http://$host:$port"
-  healthy "$url" && die "le port $port répond déjà (autre serveur ?) : choisir --port N"
+  if port_busy "$port"; then
+    die "le port $port est déjà occupé (autre serveur, conteneur veille-web ?) : « veille restart » le libère, ou choisir --port N"
+  fi
   mkdir -p "$RUN_DIR"
   echo "--- $(date '+%F %T') démarrage $url" >> "$LOG_FILE"
   (cd "$ROOT" && exec nohup "$PYTHON" -m app.main web --host "$host" --port "$port" >> "$LOG_FILE" 2>&1 < /dev/null) &
@@ -193,6 +262,12 @@ restart_server() {
     set -- --host "${BASH_REMATCH[1]}" --port "${BASH_REMATCH[2]}"
   fi
   stop_server
+  # Tout ce qui tient encore le port (conteneur Docker, serveur lancé à la main, orphelin) est arrêté.
+  local port="${VEILLE_PORT:-8000}" args=("$@")
+  for ((i = 0; i < ${#args[@]}; i++)); do
+    [[ "${args[i]}" == "--port" ]] && port="${args[i + 1]:-$port}"
+  done
+  free_port "$port"
   start_server "$@"
 }
 
@@ -291,6 +366,7 @@ main() {
     media)   app media "$@" ;;
     benchmarks|bench) app benchmarks "$@" ;;
     cron)    app cron "$@" ;;
+    power-button) app power-button "$@" ;;
     web)     app web "$@" ;;
     web-password) app web-password "$@" ;;
     start)   start_server "$@" ;;

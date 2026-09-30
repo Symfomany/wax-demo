@@ -1,0 +1,27 @@
+# Prometheus de Scouty Veille AI (monitoring/compose.yaml) : tout en local, réseau de l'hôte.
+global:
+  scrape_interval: 5s        # graphes « temps réel »
+  scrape_timeout: 4s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
+
+  # CPU, RAM, disque, réseau (node_exporter)
+  - job_name: node
+    static_configs:
+      - targets: ["127.0.0.1:9100"]
+
+  # GPU, puissance (INA3221), températures, modèles Ollama chargés (monitoring/jetson_exporter.py)
+  - job_name: jetson
+    static_configs:
+      - targets: ["127.0.0.1:9101"]
+
+  # Appli : TTFT, latence, tokens, taille des prompts, requêtes HTTP (app/metrics.py, GET /metrics).
+  # Autre port que 8000 : adapter la cible. Web joint hors de la machine : METRICS_TOKEN + authorization.
+  - job_name: scouty-web
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["127.0.0.1:8000"]

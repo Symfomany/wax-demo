@@ -30,13 +30,22 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Recherche GitHub via MCP : `python -m app.main github "llm inference" --limit 5`
 - Mémoire : `python -m app.main memory [--export]` · règles suggérées : `rules [--accept|--dismiss CLÉ]`
 - Pourquoi cette veille ? : `python -m app.main why [--json]`, page `/why` (profil, mémoire typée, règles, ranking)
+- Mon profil (ce qui oriente « Quoi de neuf ? ») : vue 🧑‍💻 du menu ☰, API `GET|PUT|DELETE /api/profile`
+  (`?scope=impact|interests|all`), aperçu `POST /api/profile/preview` ; tests `tests/test_profile_space.py`
 - How to : page `/howto` (menu ☰ › Aide), schémas interactifs pour débutants (graphe, DAG, sous-graphes, chat,
   garde-fous, harness Claude Code) ; vrais schémas via `/api/howto/diagrams`. Tout nœud ajouté à un graphe doit
   y être expliqué (`test_howto_page_and_generated_diagrams`).
 - Login web : `WEB_USERNAME` / `WEB_PASSWORD` (≥ 8 car., min, maj, chiffre, spécial ; sinon refus de démarrer) ;
   générer : `python -m app.main web-password [--write-env]` ; TUI et scripts en HTTP Basic
 - Interface web de chat : `python -m app.main web` (http://127.0.0.1:8000) ; en arrière-plan :
-  `bin/veille start|stop|restart|status|logs [-f]` (PID et journal dans `data/web.pid`, `data/web.log`)
+  `bin/veille start|stop|restart|status|logs [-f]` (PID et journal dans `data/web.pid`, `data/web.log`) ;
+  `restart` libère d'abord le port (conteneur Docker qui le tient : `docker stop`, puis tout processus à l'écoute)
+- Monitoring (Prometheus + Grafana, Docker, permanent) : `monitoring/setup.sh [--status|--reset-password|--down]`
+  → Grafana http://127.0.0.1:3000 (compte créé dans `monitoring/grafana.env`, hors Git), dashboard « Scouty — Jetson
+  Orin & LLM » ; dashboard généré par `monitoring/build_dashboard.py` ; tests `tests/test_monitoring.py`
+- Bouton d'alimentation de la Jetson (câblé, gpio-keys `KEY_POWER`) : appui long 5 s → `shutdown now`,
+  appui court ignoré ; `app/power_button.py`, service root `systemd/install-power-button.sh` (sous
+  `systemd-inhibit --what=handle-power-key`), essai `sudo .venv/bin/python -m app.main power-button --dry-run`
 - Rapport daté : `python -m app.main report` · Notion : `python -m app.main notion-sync`
 - Instructions templatées : `python -m app.main instructions claude-md|demande|chat`
 - Grill-me (profil de centres d'intérêt) : `python -m app.main grill`, skill `grill-me`, `grill-save`
@@ -50,6 +59,8 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
   service `systemd/veille-cron.service`) : benchmarks, actus, événements via `bin/veille`
 - Docker (web + cron, Ollama natif, réseau de l'hôte, dépôt monté) : `docker compose up -d --build` ;
   démarrage au boot sur la Jetson : `docker/install-service.sh` (systemd, timer lun.–ven. 08:00) ; tests `tests/test_docker.py`
+  Dépendance ajoutée à `pyproject.toml` → reconstruire l'image ; sinon web et cron refusent de démarrer en le disant
+  (`app/image_check.py`, liste figée `/opt/venv/requirements.baked`).
 - Sources par URL (vérifiées) : `python -m app.main source add <URL>` · `source list` · `source remove <type> <valeur>`
 - TUI (OpenTUI + React, Bun local) : `bin/veille tui [écran]` ; tests `cd tui && ./node_modules/.bin/bun test` ;
   exécutable autonome : `bin/veille tui-build [bun-linux-arm64]` → `tui/dist/veille-tui [écran]`
@@ -83,6 +94,10 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - MCP Notion : serveur `app/mcp_servers/notion_server.py`, client `app/notion.py`.
 - Chat : agent `app/chat/` (route → act → respond → guard), serveur `app/web/`.
 - Instructions templatées : `templates/claude/` (profil TOML + templates Jinja2).
+- Métriques : `app/metrics.py` (callback LangChain sur chaque modèle : TTFT, latence, taille du prompt, tokens,
+  tokens/s, chargement du modèle, reprises CUDA ; requêtes HTTP) → `GET /metrics` (local, sinon `METRICS_TOKEN`) ;
+  matériel : node_exporter (CPU, RAM ; `thermal_zone` désactivé, il bloque sur la Jetson) et
+  `monitoring/jetson_exporter.py` (GPU, puissance INA3221, températures, modèles Ollama chargés).
 - Traçage : `app/observability.py` (Langfuse, LangSmith ; session = run ou conversation).
 - Hooks Claude Code : `.claude/hooks/`, déclarés dans `.claude/settings.json`. `.mcp.json` : chemins relatifs
   à la racine du projet uniquement (même config sur le PC et la Jetson, vérifié par `tests/test_claude_hooks.py`).
@@ -90,13 +105,16 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Prompts éditables : surcharges dans `data/prompts/` (`app/harness/prompts.py`), jamais les fichiers du dépôt.
 - Traces du graphe : table `traces` (v4), page `/trace/<id>` ; liens Langfuse déterministes (`app/observability.py`).
 - Grill-me : `app/grill.py` (entretien par `interrupt()`), profil dans le Store (`WatchMemory.interests`).
-- Profil d'impact versionné : `profiles/julien.toml` (`app/profile.py`, `IMPACT_PROFILE_PATH`) → ranking,
-  Editor, « Pour toi » par item, `Digest.profile_version`. Mémoire typée (`MemoryRecord` : type, provenance,
+- Profil d'impact versionné : `profiles/julien.toml` (`app/profile.py`, `IMPACT_PROFILE_PATH`) ; surcharge éditée
+  depuis l'interface dans `data/profile.toml` (hors Git, prioritaire, archives `data/profile-history/`) → ranking,
+  Editor, « Pour toi » par item, `Digest.profile_version`, ordre de « Quoi de neuf ? » (`personalize`). Mémoire typée (`MemoryRecord` : type, provenance,
   confiance, expiration) et règles suggérées après rejets récurrents (`app/memory.py`), page `/why` (`app/why.py`).
 - Knowledge : `knowledge/*.md` (glossaire, règles métiers par domaine, prompts ; format dans `knowledge/README.md`),
   chargés par `app/knowledge.py` ; téléversements validés dans `data/knowledge/` (hors Git), jamais dans `knowledge/`.
 - Review : `app/review.py` (agent Reviewer fetch → analyze → guard → save ; SSRF bloquée, citations vérifiées
   dans la page), table `reviews` (v5), prompt `app/prompts/review.md` ; challenge = outil de chat `challenge_review`.
+  Page protégée (Cloudflare, 403, 429) → `fetch_resilient` : copie archivée (web.archive.org), `web_fetch` Claude,
+  copie collectée par la veille ; provenance `Page.via` affichée dans la review.
 - Actus : `app/news.py` (crawl `[[blog]]` HTML + flux `[news].rss` ; recherche web API Claude `web_search`, URL
   gardées seulement si présentes dans les résultats), table `news` (v6), prompt `app/prompts/news_search.md`.
 - Événements : `app/events.py` (recherche web Claude, date gardée seulement si retrouvée dans la page ; flux `.ics`
@@ -110,6 +128,12 @@ Produire une veille LLM/GenAI factuelle, sourcée et exploitable.
 - Aperçus des actus : `app/screenshots.py` via MCP Playwright (`@playwright/mcp@0.0.82`, `SCREENSHOT_ENABLED`),
   images dans `data/screenshots/` (hors Git) ; aussi déclaré pour Claude Code dans `.mcp.json`.
 - Login web : `app/web/auth.py` (sessions HMAC, anti-force brute), page `app/web/static/login.html`.
+- Runner Ollama planté (CUDA out of memory) : `app/ollama_runner.py` (reprise auto `LLM_CRASH_RETRIES` après
+  déchargement des modèles ; redémarrage à la demande `POST /api/llm/restart`, bouton ↻ et « Redémarrer le moteur LLM » ;
+  `OLLAMA_RESTART_COMMAND` optionnel) ; tests `tests/test_ollama_runner.py`.
+- Jauge GPU : `app/gpu.py` (sysfs Jetson moyenné sur 200 ms, repli `nvidia-smi`), `/api/gpu`, bas de la barre latérale.
+- Annulation : `app/cancellation.py` (`CancelToken`, callback LangChain) ; `POST /api/chat/<id>/cancel`
+  (bouton ■ / Échap), `POST /api/runs/<id>/cancel` (statut `cancelled`, ni publication ni mémoire).
 - Assistant Claude flottant : `app/assistant.py` (API Claude directe, streaming, `/api/assistant`) ; clé `CLAUDE_API`,
   `CLAUDE_WORKSPACE_ID` si la clé n'est rattachée à aucun workspace. Publication d'une review dans Notion :
   `app/notion.py` (`publish_review`, append sur la page de veille active, après confirmation dans l'interface).

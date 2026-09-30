@@ -53,3 +53,33 @@ def test_healthcheck_fails_without_server():
     result = subprocess.run([sys.executable, "docker/healthcheck.py"], cwd=ROOT, env={**env, "PYTHONPATH": str(ROOT)},
                             capture_output=True, timeout=30)
     assert result.returncode == 1
+
+
+# --- Image obsolète : dépendance ajoutée à pyproject.toml sans reconstruction ---------------------
+
+
+def test_stale_image_is_detected_before_starting(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from app import image_check, main
+    from app.image_check import declared, missing_dependencies, stale_image_message
+
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    baked = tmp_path / "requirements.baked"
+    assert missing_dependencies(pyproject, baked) is None  # hors Docker : aucun contrôle
+    baked.write_text("\n".join(sorted(declared(pyproject))) + "\n")
+    assert missing_dependencies(pyproject, baked) == [] and stale_image_message(pyproject, baked) is None
+
+    baked.write_text("\n".join(d for d in sorted(declared(pyproject)) if not d.startswith("prometheus")))
+    message = stale_image_message(pyproject, baked)
+    assert "prometheus-client" in message and "docker compose up -d --build" in message
+
+    monkeypatch.setattr(image_check, "BAKED", baked)
+    monkeypatch.setattr("uvicorn.run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("serveur lancé")))
+    result = CliRunner().invoke(main.cli, ["web"])
+    assert result.exit_code == 3 and "Image Docker obsolète" in result.output
+
+
+def test_dockerfile_keeps_the_installed_dependency_list():
+    dockerfile = (Path(__file__).resolve().parent.parent / "Dockerfile").read_text()
+    assert "mv /tmp/requirements.txt /opt/venv/requirements.baked" in dockerfile

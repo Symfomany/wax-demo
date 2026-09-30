@@ -9,7 +9,9 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
-from collections.abc import Callable
+import threading
+import time
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,16 +21,24 @@ from uuid import uuid4
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import BaseModel, Field
 
 from app import knowledge, observability, sources_admin, storage
+from app.cancellation import Cancelled, CancelToken, with_token
 from app.chat.agent import ChatContext, build_chat_graph, intent_text, stream_chat
 from app.chat.tools import ChatServices
 from app.config import settings
+from app.gpu import gpu_usage
 from app.memory import WatchMemory
+from app.metrics import HTTP_LATENCY, HTTP_REQUESTS
+from app.metrics import init_series as init_metric_series
+from app.metrics import render as render_metrics
+from app.ollama_runner import is_runner_crash, restart_runner
+from app.profile import (ProfileEdit, ProfileError, active_profile_path, load_active_profile, load_profile,
+                         personalize, profile_from_edit, profile_history, reset_profile, save_profile)
 from app.harness.prompts import PromptError, load_prompt, prompt_names, reset_prompt, save_prompt
 from app.reports import list_reports
 from app.assistant import AssistantMessage
@@ -41,6 +51,7 @@ from app.web.runs import RunManager
 from app.why import why_payload
 
 STATIC = Path(__file__).resolve().parent / "static"
+SSE_HEARTBEAT_SECONDS = 1.0  # battement d'un flux SSE silencieux (détection d'un client parti)
 LIVE_STREAM_SECONDS = 60  # durée d'un flux /api/live avant reconnexion du navigateur
 TOKEN_COOKIE = "veille_token"
 
@@ -74,6 +85,60 @@ def authorized(request: Request, token: str) -> bool:
     return bool(presented) and secrets.compare_digest(presented.encode(), token.encode())
 
 
+def sse_stream(request: Request, events: Iterator[str], cancel: Callable[[], None]) -> StreamingResponse:
+    """Flux SSE dont le générateur est toujours mené à son terme.
+
+    Starlette abandonne un générateur synchrone quand le client se déconnecte : ses `finally`
+    (retour de l'anneau LED en idle, libération du jeton) ne s'exécuteraient pas et le LLM
+    continuerait de générer. Ici, un thread épuise `events` et `cancel()` le fait finir au plus vite
+    dès que le client part. Départ détecté par `is_disconnected()` et, derrière un middleware qui le
+    masque, par l'échec d'envoi d'un battement SSE (commentaire ignoré par le navigateur)."""
+
+    async def body():
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def push(item) -> None:
+            try:
+                loop.call_soon_threadsafe(queue.put_nowait, item)
+            except RuntimeError:  # boucle fermée (arrêt du serveur) : on finit sans rien envoyer
+                pass
+
+        def drain() -> None:
+            try:
+                for chunk in events:
+                    push(chunk)
+            finally:
+                push(None)
+
+        async def watch() -> None:
+            while not await request.is_disconnected():
+                await asyncio.sleep(0.5)
+            cancel()
+
+        threading.Thread(target=drain, daemon=True, name="sse-stream").start()
+        watcher = asyncio.create_task(watch())
+        finished = False
+        try:
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(queue.get(), timeout=SSE_HEARTBEAT_SECONDS)
+                except TimeoutError:
+                    yield ": ping\n\n"
+                    continue
+                if chunk is None:
+                    break
+                yield chunk
+            finished = True
+        finally:
+            watcher.cancel()
+            if not finished:  # flux interrompu (client parti, serveur arrêté)
+                cancel()
+
+    return StreamingResponse(body(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @dataclass
 class WebDeps:
     """Dépendances remplaçables (tests E2E : faux LLM, faux collecteurs)."""
@@ -83,7 +148,8 @@ class WebDeps:
     graph_factory: Callable  # () -> contextmanager[(graph, context)]
     notion_sync: Callable | None
     github_search: Callable[[str], list] | None
-    fetch_page: Callable[[str], Page] | None = None  # défaut : app.review.fetch_page
+    llm_restart: Callable[[], dict] | None = None  # défaut : app.ollama_runner.restart_runner
+    fetch_page: Callable[[str], Page] | None = None  # défaut : app.review.fetch_resilient
     review_llm: Callable | None = None  # connection -> StructuredLLM ; défaut : router_llm
     inspect_source: Callable[[str], sources_admin.SourceCandidate] | None = None  # défaut : vérification réseau
     news_crawl: Callable[[dict], "CrawlReport"] | None = None  # défaut : app.news.crawl_all
@@ -231,9 +297,39 @@ class GrillAnswer(BaseModel):
     recommended: bool = False
 
 
+class InterestsEdit(BaseModel):
+    summary: str = Field("", max_length=1500)
+    keywords: list[str] = Field(default_factory=list, max_length=40)
+    exclusions: list[str] = Field(default_factory=list, max_length=40)
+
+
+class ProfileUpdate(BaseModel):
+    """« Mon profil » : profil d'impact (surcharge hors Git) et/ou centres d'intérêt Grill-me."""
+    impact: ProfileEdit | None = None
+    interests: InterestsEdit | None = None
+
+
+def _words(values: list[str]) -> list[str]:
+    kept: list[str] = []
+    for value in (v.strip()[:80] for v in values):
+        if value and value.lower() not in {k.lower() for k in kept}:
+            kept.append(value)
+    return kept
+
+
 class Decision(BaseModel):
     approved: bool
     note: str = Field("", max_length=500)
+
+
+def error_event(error: Exception) -> dict:
+    """Événement SSE d'erreur ; un plantage du runner Ollama propose le redémarrage à la demande."""
+    event = {"type": "error", "text": f"{type(error).__name__} : {error}"}
+    if is_runner_crash(error):
+        event |= {"code": "llm_crash", "text": (
+            f"Le moteur LLM (Ollama) a planté malgré {settings.llm_crash_retries} reprise(s) automatique(s) : "
+            f"{str(error)[:300]}. Redémarrez-le puis relancez la demande.")}
+    return event
 
 
 def create_app(deps: WebDeps | None = None) -> FastAPI:
@@ -255,11 +351,26 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         )
         if deps.button_listener:
             stack.callback(deps.button_listener(live))
+        led.send("idle")  # un redémarrage ne laisse pas l'anneau dans l'animation d'avant
         yield
+        runs.cancel_all()
+        led.send("idle")
         stack.close()
 
     app = FastAPI(title="LLM Watch Harness", lifespan=lifespan)
     diagram_cache: dict[str, dict[str, str]] = {}
+    init_metric_series(settings.llm_provider, settings.llm_model)  # le premier appel LLM compte aussi
+
+    @app.middleware("http")
+    async def http_metrics(request: Request, call_next):
+        """Requêtes et délais par route générique (« /api/runs/{run_id} », pas un identifiant par série)."""
+        started = time.perf_counter()
+        response = await call_next(request)
+        route = getattr(request.scope.get("route"), "path", None) or "(non routée)"
+        if route != "/metrics":
+            HTTP_REQUESTS.labels(request.method, route, str(response.status_code)).inc()
+            HTTP_LATENCY.labels(request.method, route).observe(time.perf_counter() - started)
+        return response
     app.state.runs = runs
     app.state.live = live
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -304,7 +415,8 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
                 return refusal
             # Sans login : / et /static ne portent aucune donnée. Avec login : seule la page de connexion
             # est publique ; /api/health (sonde de bin/veille et de la TUI) répond alors sans détail.
-            public = {"/api/health"} | ({"/login", "/api/login", "/api/logout", "/favicon.ico"} if auth else {"/"})
+            # /metrics : contrôlé par la route elle-même (machine locale ou jeton METRICS_TOKEN).
+            public = {"/api/health", "/metrics"} | ({"/login", "/api/login", "/api/logout", "/favicon.ico"} if auth else {"/"})
             if user or path in public or (not auth and path.startswith("/static/")):
                 return await call_next(request)
             if auth and request.method == "GET" and not path.startswith("/api/") \
@@ -379,12 +491,45 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             "tracing": observability.status(),
             "notion": deps.notion_sync is not None,
             "claude_search": bool(settings.claude_search_key) or deps.news_search is not None,
+            "claude_error": getattr(app.state, "claude_error", None),  # dernier refus de compte (crédit, clé)
             "screenshots": settings.screenshot_enabled or deps.screenshot_capture is not None,
             "assistant_model": settings.assistant_model,
             "memory": storage.memory_stats(app.state.connection),
             "button": {"topic": settings.mqtt_button_topic, "prompt": settings.mqtt_button_prompt,
                        "listeners": live.listeners} if deps.button_listener else None,
         }
+
+    @app.post("/api/llm/restart")
+    def llm_restart():
+        """Redémarrage à la demande du moteur LLM (runner Ollama planté, CUDA out of memory…)."""
+        if settings.llm_provider != "ollama":
+            raise HTTPException(400, "Redémarrage disponible uniquement avec LLM_PROVIDER=ollama.")
+        led.send("scrape_source")
+        try:
+            report = (deps.llm_restart or restart_runner)()
+        except Exception:
+            led.send("error")  # animation ponctuelle : l'anneau revient seul en idle
+            raise
+        led.send("success" if report.get("loaded") else "error")
+        return report
+
+    @app.get("/metrics", include_in_schema=False)
+    def metrics(request: Request):
+        """Métriques Prometheus (LLM : TTFT, latence, tokens ; HTTP). Prometheus les collecte en local."""
+        client = request.client.host if request.client else ""
+        header = request.headers.get("authorization", "")
+        local = client in ("127.0.0.1", "::1", "localhost", "testclient")
+        tokened = bool(settings.metrics_token) and secrets.compare_digest(
+            header.encode(), f"Bearer {settings.metrics_token}".encode())
+        if not (local or tokened):
+            raise HTTPException(403, "Métriques réservées à la machine locale (ou jeton METRICS_TOKEN).")
+        body, content_type = render_metrics()
+        return Response(body, media_type=content_type)
+
+    @app.get("/api/gpu")
+    def gpu():
+        """Charge GPU (jauge en bas à gauche de l'interface)."""
+        return gpu_usage()
 
     # --- Temps réel (bouton physique) -----------------------------------------------------
 
@@ -442,8 +587,19 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             messages.append(item)
         return messages
 
+    # Génération en cours par conversation : POST /api/chat/<id>/cancel l'interrompt.
+    chat_tokens: dict[str, CancelToken] = {}
+
+    @app.post("/api/chat/{conversation_id}/cancel")
+    def cancel_chat(conversation_id: str):
+        token = chat_tokens.get(conversation_id)
+        if token is None:
+            raise HTTPException(404, "Aucune génération en cours pour cette conversation")
+        token.cancel()
+        return {"id": conversation_id, "cancelled": True}
+
     @app.post("/api/chat")
-    def chat(request: ChatRequest):
+    def chat(request: ChatRequest, http: Request):
         conversation_id = request.conversation_id or str(uuid4())
         title = request.message
         if request.review_id:
@@ -458,16 +614,29 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         trace_id = str(uuid4())  # notre trace et la trace Langfuse partagent cette graine
         config = observability.trace_config(conversation_id, "chat", trace_seed=trace_id)
 
+        token = CancelToken()
+
         def events():
+            chat_tokens[conversation_id] = token
             yield _sse({"type": "conversation", "id": conversation_id})
-            led.send("keyword_search")  # Scouty fouille la veille (« Quoi de neuf ? », bouton physique…)
+            # Scouty fouille la veille (« Quoi de neuf ? », bouton physique…) ; idle si le tour est interrompu.
             try:
-                for event in stream_chat(graph, conversation_id, request.message, config, request.review_id):
+                with led.busy("keyword_search") as ring:
+                    yield from chat_turn(ring)
+            finally:
+                observability.flush()  # après le retour de l'anneau : l'envoi à Langfuse peut prendre du temps
+
+        def chat_turn(ring):
+            stream = stream_chat(graph, conversation_id, request.message, with_token(config, token), request.review_id)
+            try:
+                for event in stream:
+                    if token.cancelled:
+                        break
                     if event["type"] == "final":
                         if event["sources"]:
-                            led.news_found(len(event["sources"]))
+                            ring.news_found(len(event["sources"]))
                         else:
-                            led.send("success")
+                            ring.send("success")
                         # Parcours du graphe de ce tour : consultable dans un nouvel onglet.
                         title = intent_text(request.message) or request.message
                         quoted = request.message.count("\n>") + request.message.startswith(">")
@@ -477,14 +646,19 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
                         event |= {"trace_id": trace_id, "trace_url": f"/trace/{trace_id}",
                                   "langfuse": observability.langfuse_links(trace_id, conversation_id)}
                     yield _sse(event)
+            except Cancelled:
+                pass  # levé par le LLM (token streamé) après la demande d'annulation
             except Exception as error:  # noqa: BLE001 — affiché dans l'interface
-                led.send("error")
-                yield _sse({"type": "error", "text": f"{type(error).__name__} : {error}"})
+                ring.send("error")
+                yield _sse(error_event(error))
             finally:
-                observability.flush()
+                stream.close()  # ferme graph.stream : plus aucun nœud ni appel LLM
+                if chat_tokens.get(conversation_id) is token:
+                    del chat_tokens[conversation_id]
+            if token.cancelled:
+                yield _sse({"type": "cancelled"})  # busy() remet l'anneau en idle
 
-        return StreamingResponse(events(), media_type="text/event-stream",
-                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        return sse_stream(http, events(), token.cancel)
 
     # --- Recherche -------------------------------------------------------------------
 
@@ -520,6 +694,16 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             return runs.get(run_id).public(after) | {"langfuse": observability.langfuse_links(run_id, run_id)}
         except KeyError:
             raise HTTPException(404, "Run inconnu")
+
+    @app.post("/api/runs/{run_id}/cancel")
+    def cancel_run(run_id: str):
+        try:
+            runs.cancel(run_id)
+        except KeyError:
+            raise HTTPException(404, "Run inconnu")
+        except RuntimeError as error:
+            raise HTTPException(409, str(error))
+        return {"id": run_id, "status": "cancelling"}
 
     @app.post("/api/runs/{run_id}/decision")
     def decide(run_id: str, decision: Decision):
@@ -725,9 +909,8 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         except NewsError as error:
             raise HTTPException(400, str(error))
         except Exception as error:  # noqa: BLE001 — erreur API (clé refusée, quota…) affichée telle quelle
-            from app.news import explain_api_error
-
-            raise HTTPException(502, explain_api_error(error))
+            raise HTTPException(502, claude_failed(error))
+        app.state.claude_error = None
         storage.save_news(app.state.connection, [item.record() for item in report.items])
         led.news_found(len(report.items))
         return {"saved": len(report.items), "items": [item.record() for item in report.items],
@@ -779,16 +962,25 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             topics = "\n".join(f"- {t.strip()}" for t in request.topics.split(",") if t.strip())
         return topics, memory.prompt_context()
 
-    def claude_call(function: Callable, **kwargs):
-        from app.news import explain_api_error
+    def claude_failed(error: Exception) -> str:
+        """Message actionnable ; une erreur de compte (crédit, clé) passe la pastille « API Claude » au rouge."""
+        from app.news import account_blocked, explain_api_error
 
+        message = explain_api_error(error)
+        if account_blocked(error):
+            app.state.claude_error = message
+        return message
+
+    def claude_call(function: Callable, **kwargs):
         try:
             with led.activity("news_search", done="success"):  # événements, vidéos et podcasts
-                return function(**kwargs)
+                result = function(**kwargs)
         except NewsError as error:
             raise HTTPException(400, str(error))
         except Exception as error:  # noqa: BLE001 — erreur API (clé refusée, quota…) affichée telle quelle
-            raise HTTPException(502, explain_api_error(error))
+            raise HTTPException(502, claude_failed(error))
+        app.state.claude_error = None
+        return result
 
     @app.get("/api/events")
     def events(when: str = "upcoming", kind: str | None = None, q: str | None = None, limit: int = 100):
@@ -911,22 +1103,28 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
     # --- Review d'une actualité par URL --------------------------------------------------------
 
     def review_graph():
-        from app.review import fetch_page
-
         context = ReviewContext(
             llm=(deps.review_llm or deps.router_llm)(app.state.connection),
             connection=app.state.connection,
-            fetch=deps.fetch_page or fetch_page,
+            fetch=deps.fetch_page,  # None : fetch_resilient (copie archivée, Claude, veille)
             memory=lambda: WatchMemory(app.state.store).prompt_context(),
         )
         return build_review_graph(context)
 
-    def review_events(inputs: dict, trace_seed: str):
+    def review_events(http: Request, inputs: dict, trace_seed: str):
+        token = CancelToken()
+
         def events():
             try:
+                with led.busy("review") as ring:
+                    yield from review_stream(ring)
+            finally:
+                observability.flush()
+
+        def review_stream(ring):
+            try:
                 session = (inputs.get("previous") or {}).get("id") or trace_seed
-                config = observability.trace_config(session, "review", trace_seed=trace_seed)
-                led.send("review")
+                config = with_token(observability.trace_config(session, "review", trace_seed=trace_seed), token)
                 for event in stream_review(review_graph(), inputs, config):
                     if event["type"] == "review" and event["review"]:
                         record = event["review"]
@@ -939,22 +1137,21 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
                         event |= {"trace_url": f"/trace/{trace_seed}",
                                   "langfuse": observability.langfuse_links(trace_seed, session)}
                     yield _sse(event)
-                led.send("success")
+                ring.send("success")
+            except Cancelled:
+                pass  # client parti : busy() remet l'anneau en idle
             except FetchError as error:
-                led.send("error")
+                ring.send("error")
                 yield _sse({"type": "error", "text": str(error)})
             except Exception as error:  # noqa: BLE001 — affiché dans l'interface
-                led.send("error")
-                yield _sse({"type": "error", "text": f"{type(error).__name__} : {error}"})
-            finally:
-                observability.flush()
+                ring.send("error")
+                yield _sse(error_event(error))
 
-        return StreamingResponse(events(), media_type="text/event-stream",
-                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        return sse_stream(http, events(), token.cancel)
 
     @app.post("/api/reviews")
-    def create_review(request: ReviewRequest):
-        return review_events({"url": request.url.strip()}, str(uuid4()))
+    def create_review(request: ReviewRequest, http: Request):
+        return review_events(http, {"url": request.url.strip()}, str(uuid4()))
 
     @app.get("/api/reviews")
     def reviews():
@@ -970,7 +1167,7 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         return record
 
     @app.post("/api/reviews/{review_id}/revise")
-    def revise_review(review_id: str):
+    def revise_review(review_id: str, http: Request):
         record = storage.get_review(app.state.connection, review_id)
         if record is None:
             raise HTTPException(404, "Review inconnue")
@@ -980,7 +1177,7 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
         messages = graph.get_state({"configurable": {"thread_id": f"chat-{record['conversation_id']}"}}).values.get("messages", [])
         if not messages:
             raise HTTPException(409, "Aucun échange à prendre en compte : challengez d'abord la review dans le chat.")
-        return review_events({"url": record["url"], "previous": record, "objections": transcript_objections(messages)},
+        return review_events(http, {"url": record["url"], "previous": record, "objections": transcript_objections(messages)},
                              str(uuid4()))
 
     @app.post("/api/reviews/{review_id}/notion")
@@ -1016,9 +1213,7 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
             except NewsError as error:
                 yield _sse({"type": "error", "text": str(error)})
             except Exception as error:  # noqa: BLE001 — erreur API (quota, clé refusée…) affichée
-                from app.news import explain_api_error
-
-                yield _sse({"type": "error", "text": explain_api_error(error)})
+                yield _sse({"type": "error", "text": claude_failed(error)})
 
         return StreamingResponse(events(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -1065,6 +1260,75 @@ def create_app(deps: WebDeps | None = None) -> FastAPI:
     @app.get("/api/grill/profile")
     def grill_profile():
         return WatchMemory(app.state.store).interests() or {}
+
+    # --- « Mon profil » : ce qui oriente « Quoi de neuf ? » (personnaliser, réinitialiser) ------------
+
+    def profile_payload() -> dict:
+        default = load_profile(settings.impact_profile_path)
+        active = load_active_profile()
+        dump = lambda p: None if p is None else p.model_dump() | {"label": p.label}  # noqa: E731
+        return {
+            "profile": dump(active),
+            "default": dump(default),
+            "overridden": settings.impact_profile_override_path.is_file(),
+            "path": str(active_profile_path()),
+            "history": profile_history(settings.impact_profile_history_dir),
+            "interests": WatchMemory(app.state.store).interests(),
+        }
+
+    def export_memory() -> None:
+        WatchMemory(app.state.store).export_markdown(settings.claude_memory_path)
+
+    @app.get("/api/profile")
+    def get_profile():
+        return profile_payload()
+
+    @app.put("/api/profile")
+    def put_profile(update: ProfileUpdate):
+        if update.impact is not None:
+            try:
+                save_profile(update.impact, settings.impact_profile_path, settings.impact_profile_override_path,
+                             settings.impact_profile_history_dir)
+            except ProfileError as error:
+                raise HTTPException(400, str(error))
+        if update.interests is not None:
+            edit = update.interests
+            WatchMemory(app.state.store).edit_interests(edit.summary.strip(), _words(edit.keywords),
+                                                        _words(edit.exclusions))
+            export_memory()
+        return profile_payload()
+
+    @app.delete("/api/profile")
+    def delete_profile(scope: str = "all"):
+        """Réinitialiser : `impact` (retour au profil du dépôt), `interests` (oublier Grill-me) ou `all`."""
+        if scope not in ("impact", "interests", "all"):
+            raise HTTPException(400, "Portée attendue : impact | interests | all")
+        if scope in ("impact", "all"):
+            reset_profile(settings.impact_profile_override_path, settings.impact_profile_history_dir)
+        if scope in ("interests", "all") and WatchMemory(app.state.store).clear_interests():
+            export_memory()
+        return profile_payload()
+
+    @app.post("/api/profile/preview")
+    def preview_profile(update: ProfileUpdate):
+        """Ordre de « Quoi de neuf ? » avec le profil saisi, sans rien enregistrer."""
+        active = load_active_profile()
+        profile = profile_from_edit(update.impact, active) if update.impact is not None else active
+        interests = WatchMemory(app.state.store).interests() or {}
+        keywords = _words(update.interests.keywords) if update.interests else interests.get("keywords") or []
+        exclusions = _words(update.interests.exclusions) if update.interests else interests.get("exclusions") or []
+        items, seen = [], set()
+        for record in storage.recent_digests(app.state.connection, limit=3):
+            for item in record["digest"]["items"]:
+                if item["url"] not in seen:
+                    seen.add(item["url"])
+                    items.append(item)
+        ranked = personalize(items, profile, keywords, exclusions)
+        # Profil saisi non enregistré : pas encore d'empreinte de fichier.
+        label = None if profile is None else profile.label if profile.fingerprint else f"{profile.name}@v{profile.version}"
+        return {"label": label,
+                "items": [{"title": i["title"], "url": i["url"], "source": i["source"], **i["for_you"]}
+                          for i in ranked]}
 
     # --- Traces : parcours dans le graphe ------------------------------------------------
 

@@ -5,6 +5,7 @@ Un faux interpréteur (VEILLE_PYTHON) journalise chaque appel au lieu de lancer 
 
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -186,8 +187,33 @@ def test_start_refuses_a_busy_port_and_stale_pid_files(server):
     call, run_dir = server
     port = str(free_port())
     assert call("start", "--port", port).returncode == 0
+    untracked = int((run_dir / "web.pid").read_text())
     (run_dir / "web.pid").write_text("999999")  # PID périmé : le serveur actif n'est plus suivi
-    busy = call("start", "--port", port)
-    assert busy.returncode == 2 and "répond déjà" in busy.stderr
+    try:
+        busy = call("start", "--port", port)
+        assert busy.returncode == 2 and "déjà occupé" in busy.stderr and "veille restart" in busy.stderr
+    finally:
+        os.kill(untracked, 9)  # plus suivi par le fichier PID : « stop » ne l'arrêterait pas (orphelin)
     assert call("start", "--port", "abc").returncode == 2
     assert call("start", "--bogus").returncode == 2
+
+
+def test_restart_frees_the_port_held_by_an_untracked_server(server, tmp_path):
+    call, run_dir = server
+    port = free_port()
+    # Serveur lancé hors de « veille start » (à la main, orphelin) : aucun fichier PID ne le suit.
+    orphan = subprocess.Popen(["python3", "-c", SERVER, "app.main", "web", "--port", str(port)],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(50):
+            if subprocess.run(["ss", "-ltnH", f"sport = :{port}"], capture_output=True, text=True).stdout:
+                break
+            time.sleep(0.1)
+        restarted = call("restart", "--port", str(port))
+        assert restarted.returncode == 0, restarted.stderr
+        assert f"Arrêt du processus {orphan.pid} sur le port {port}" in restarted.stdout
+        assert orphan.wait(timeout=15) is not None  # l'orphelin est bien arrêté
+        new_pid = (run_dir / "web.pid").read_text().strip()
+        assert new_pid != str(orphan.pid) and f"Serveur démarré (PID {new_pid})" in restarted.stdout
+    finally:
+        orphan.kill()

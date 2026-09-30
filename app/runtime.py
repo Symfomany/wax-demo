@@ -12,7 +12,7 @@ from app.config import settings
 from app.harness.skills import load_skill
 from app.llm import get_llm
 from app.notion import fetch_og_images, sync_notion
-from app.profile import load_profile
+from app.profile import load_active_profile
 from app.workflow.graph import build_graph
 from app.workflow.state import HarnessContext
 
@@ -47,7 +47,7 @@ def make_context(connection, human_approval: bool, collectors=None) -> HarnessCo
         evidence_batch_size=settings.evidence_batch_size,
         evidence_max_claims=settings.evidence_max_claims,
         evidence_excerpt_chars=settings.evidence_excerpt_chars,
-        profile=load_profile(settings.impact_profile_path),
+        profile=load_active_profile(),
         lesson_ttl_days=settings.memory_lesson_ttl_days,
         rule_min_rejections=settings.rule_suggestion_min_rejections,
         rule_ttl_days=settings.rule_suggestion_ttl_days,
