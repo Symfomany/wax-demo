@@ -2,6 +2,7 @@
 
 Une seule veille à la fois (GPU local). L'interface interroge les événements
 (`events(after=n)`) ; la validation humaine reprend le graphe par Command(resume).
+Une veille en cours peut être annulée : arrêt entre deux nœuds, statut « cancelled ».
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from uuid import uuid4
 from langgraph.types import Command
 
 from app import storage
+from app.cancellation import Cancelled, CancelToken, with_token
 from app.led import LedRing, NullLed
 from app.config import settings
 from app.workflow.graph import initial_state
@@ -25,7 +27,7 @@ from app.workflow.tasks import COLLECTORS, default_plan
 
 # (graph, context) prêts à l'emploi pour un run ; fermés à la fin du thread.
 GraphFactory = Callable[[], AbstractContextManager]
-TERMINAL = {"published", "rejected", "blocked", "failed", "error"}
+TERMINAL = {"published", "rejected", "blocked", "failed", "error", "cancelled"}
 
 
 @dataclass
@@ -38,6 +40,7 @@ class RunRecord:
     started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     options: dict = field(default_factory=dict)
     steps: list[dict] = field(default_factory=list)
+    cancel: CancelToken = field(default_factory=CancelToken)
 
     def public(self, after: int = 0) -> dict:
         return {"id": self.id, "status": self.status, "markdown": self.markdown, "options": self.options,
@@ -120,6 +123,22 @@ class RunManager:
         self._emit(record, {"type": "decision", "approved": approved, "note": note})
         self._spawn(record, Command(resume={"approved": approved, "note": note}))
 
+    def cancel(self, run_id: str) -> None:
+        """Demande l'arrêt d'une veille en cours : le graphe s'arrête au prochain nœud
+        (ou au prochain appel LLM), sans publication ni consolidation de la mémoire."""
+        record = self.get(run_id)
+        if record.status != "running":
+            raise RuntimeError(f"Le run {run_id[:8]} n'est pas en cours ({record.status}).")
+        if not record.cancel.cancelled:
+            record.cancel.cancel()
+            self._emit(record, {"type": "cancelling"})
+
+    def cancel_all(self) -> None:
+        """Arrêt du serveur : les veilles en cours s'arrêtent au prochain nœud."""
+        for record in list(self.runs.values()):
+            if record.status == "running":
+                record.cancel.cancel()
+
     def get(self, run_id: str) -> RunRecord:
         if run_id not in self.runs:
             raise KeyError(run_id)
@@ -156,23 +175,36 @@ class RunManager:
                 if not isinstance(payload, Command):
                     storage.set_run_status(context.connection, record.id, "running")
                 last = time.perf_counter()
-                for namespace, chunk in graph.stream(
-                    payload, config | context_trace(record.id), stream_mode="updates", subgraphs=True
-                ):
-                    now = time.perf_counter()
-                    # sous-graphes : espace de noms « research:<id> » → graphe « research »
-                    graph_name = namespace[0].split(":")[0] if namespace else "veille"
-                    for node, update in chunk.items():
-                        record.steps.append({"graph": graph_name, "node": node,
-                                             "ms": round((now - last) * 1000),
-                                             "detail": run_step_detail(node, update or {})})
-                    last = now
-                    if not namespace:
-                        for event in translate(chunk):
-                            self._emit(record, event)
+                stream = graph.stream(
+                    payload, with_token(config | context_trace(record.id), record.cancel),
+                    stream_mode="updates", subgraphs=True,
+                )
+                try:
+                    for namespace, chunk in stream:
+                        if record.cancel.cancelled:
+                            break
+                        now = time.perf_counter()
+                        # sous-graphes : espace de noms « research:<id> » → graphe « research »
+                        graph_name = namespace[0].split(":")[0] if namespace else "veille"
+                        for node, update in chunk.items():
+                            record.steps.append({"graph": graph_name, "node": node,
+                                                 "ms": round((now - last) * 1000),
+                                                 "detail": run_step_detail(node, update or {})})
+                        last = now
+                        if not namespace:
+                            for event in translate(chunk):
+                                self._emit(record, event)
+                except Cancelled:
+                    pass  # levé par un appel LLM après la demande d'annulation
+                finally:
+                    if close := getattr(stream, "close", None):  # générateur LangGraph : arrête le graphe
+                        close()
                 snapshot = graph.get_state(config)
                 values = snapshot.values
-                if snapshot.next:
+                if record.cancel.cancelled:
+                    record.status = "cancelled"
+                    storage.set_run_status(context.connection, record.id, "cancelled")
+                elif snapshot.next:
                     record.markdown = snapshot.tasks[0].interrupts[0].value["markdown"]
                     record.status = "awaiting_approval"
                     storage.set_run_status(context.connection, record.id, "awaiting_approval")
@@ -202,7 +234,7 @@ class RunManager:
 
 
 # Fin d'exécution → animation de l'anneau (validation attendue : succès de la collecte ; rejet : repos)
-RUN_LED = {"awaiting_approval": "success", "published": "report_published", "rejected": "idle"}
+RUN_LED = {"awaiting_approval": "success", "published": "report_published", "rejected": "idle", "cancelled": "idle"}
 
 
 def run_step_detail(node: str, update: dict) -> str:

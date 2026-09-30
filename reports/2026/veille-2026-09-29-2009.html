@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="generator" content="LLM Watch Harness">
+<meta name="keywords" content="go, system-one-connector, assessments">
+<title>Veille LLM / GenAI — 29/09/2026</title>
+<style>
+:root {
+  --bg: #f6f5f1; --paper: #ffffff; --ink: #1b1a17; --muted: #6b675e; --line: #e6e2d8;
+  --accent: #5b4bdb; --accent-soft: #eeecfd; --ok: #2e7d4f; --ok-soft: #e3f3e8; --warn: #9a6a10; --warn-soft: #faf0d9;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #131316; --paper: #1c1c21; --ink: #ecebf1; --muted: #a3a1ad; --line: #30303a;
+          --accent: #a197ff; --accent-soft: #2a2748; --ok: #74cf98; --ok-soft: #1b3325; --warn: #e6b85c; --warn-soft: #362b14; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.7 var(--sans); }
+a { color: var(--accent); text-underline-offset: 3px; }
+.page { max-width: 820px; margin: 0 auto; padding: calc(40px + env(safe-area-inset-top, 0px)) 20px calc(64px + env(safe-area-inset-bottom, 0px)); }
+header .kicker { font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+header h1 { font-family: var(--serif); font-size: clamp(2rem, 5vw, 2.8rem); line-height: 1.15; margin: .3em 0 .2em; letter-spacing: -.01em; }
+header .date { color: var(--muted); }
+.lead { font-family: var(--serif); font-size: 1.22rem; line-height: 1.6; border-left: 3px solid var(--accent); padding: .2em 0 .2em 1em; margin: 1.6em 0; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 1.6em 0; }
+.kpi { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.kpi b { display: block; font-size: 1.6rem; line-height: 1.1; }
+.kpi span { color: var(--muted); font-size: .8rem; }
+.kpi code { font: 600 .85rem var(--mono); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: .4em 0; }
+.chip { font-size: .8rem; padding: 2px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+h2 { font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 3em 0 1em; padding-bottom: .5em; border-bottom: 1px solid var(--line); }
+.top { counter-reset: top; list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.top li { counter-increment: top; background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 14px 56px; position: relative; }
+.top li::before { content: counter(top); position: absolute; left: 16px; top: 14px; width: 28px; height: 28px; border-radius: 50%;
+                  background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: .85rem; }
+.top a { font-weight: 700; text-decoration: none; }
+.top p { margin: .3em 0 0; color: var(--muted); font-size: .95rem; }
+article.signal { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 22px 24px; margin: 0 0 18px; }
+.signal .meta { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: .82rem; color: var(--muted); }
+.signal .badge { font-weight: 700; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; }
+.signal h3 { font-family: var(--serif); font-size: 1.35rem; line-height: 1.3; margin: .45em 0 .4em; }
+.signal h3 a { color: var(--ink); text-decoration: none; }
+.signal h3 a:hover { color: var(--accent); }
+.signal .summary { margin: 0 0 .9em; }
+.why { background: var(--ok-soft); border-radius: 10px; padding: 10px 14px; font-size: .95rem; }
+.why b { color: var(--ok); }
+.conf { display: inline-block; font-size: .8rem; font-weight: 700; border-radius: 999px; padding: 1px 10px; }
+.conf.élevée { background: var(--ok-soft); color: var(--ok); }
+.conf.moyenne, .conf.non { background: var(--accent-soft); color: var(--accent); }
+.conf.faible { background: var(--warn-soft); color: var(--warn); }
+.facts { list-style: none; padding: 0; margin: .6em 0 .9em; display: grid; gap: 8px; font-size: .93rem; }
+.facts li { border-left: 3px solid var(--line); padding: 2px 0 2px 12px; }
+.facts li.confirme { border-color: var(--ok); } .facts li.conteste { border-color: var(--warn); }
+.facts blockquote { margin: .2em 0 0; color: var(--muted); font-style: italic; }
+.facts .status { font-size: .78rem; color: var(--muted); }
+.interp { font-size: .93rem; margin: 0 0 .7em; padding: 8px 12px; border: 1px dashed var(--line); border-radius: 10px; }
+.impact { font-size: .88rem; color: var(--muted); margin-top: 8px; }
+.contra li { margin: .5em 0; font-size: .92rem; }
+.signal .chips { margin-top: 12px; }
+.signal .chip { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; background: var(--paper); border-radius: 12px; overflow: hidden; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.rejected li { margin: .4em 0; font-size: .92rem; }
+.rejected code { font: .8rem var(--mono); background: var(--warn-soft); color: var(--warn); padding: 1px 6px; border-radius: 5px; }
+.method { font-size: .9rem; color: var(--muted); }
+details { margin-top: .8em; }
+summary { cursor: pointer; }
+footer { margin-top: 3em; font-size: .8rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 1em; }
+@media print { body { background: #fff; } article.signal, .top li, .kpi { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="kicker">Veille LLM / GenAI · rapport daté</div>
+    <h1>Veille LLM / GenAI — 29/09/2026</h1>
+    <div class="date">Mardi 29 septembre 2026 · modèle <code>ministral-3:3b</code></div>
+  </header>
+
+  <p class="lead">Les avancées récentes portent sur des outils d&#39;agents locaux optimisés pour des évaluations rapides et sécurisées, avec une intégration croissante de mécanismes de continuité de raisonnement et d&#39;accès à des modèles open-source probabilistes. OpenAI renforce aussi les cadres d&#39;évaluation tiers pour les modèles frontaliers, influençant les pratiques de sécurité et de benchmarking. Les solutions locales et open-source gagnent en pertinence pour les workflows critiques et les infrastructures optimisées.</p>
+
+  <div class="kpis">
+    <div class="kpi"><b>3</b><span>signaux retenus</span></div>
+    <div class="kpi"><b>1</b><span>écartés par le Critic</span></div>
+    <div class="kpi"><b>60</b><span>confiance moyenne /100</span></div>
+    <div class="kpi"><b>0</b><span>documents collectés</span></div>
+  </div>
+  <div class="chips" aria-label="Mots-clés"><span class="chip">go</span><span class="chip">system-one-connector</span><span class="chip">assessments</span></div>
+
+  <h2>À retenir</h2>
+  <ol class="top">
+    <li><a href="https://openai.com/index/introducing-dots" target="_blank" rel="noopener">Introducing dots</a><p>Pour un ingénieur spécialisé en agents locaux, tester l’impact d’une intégration de *Dots* avec des outils comme vLLM ou TensorRT-LLM pour évaluer sa compatibilité avec des workflows d’inference locaux.</p></li>
+    <li><a href="https://github.com/itsmostafa/system-one-connector" target="_blank" rel="noopener">itsmostafa/system-one-connector : nouveau dépôt open source (325★)</a><p>Pour un ingénieur en MCP et agents locaux, adopter ce connecteur pour évaluer des modèles open-source (ex. : Jev) dans des workflows agents, en testant sa compatibilité avec des outils comme vLLM ou SGLang pour des benchmarks reproductibles.</p></li>
+    <li><a href="https://openai.com/index/priorities-principles-third-party-assessments" target="_blank" rel="noopener">Priorities and principles for effective third party assessments</a><p>Pour un ingénieur en RAG ou évaluation de modèles, surveiller ces principes pour aligner ses benchmarks locaux (ex. : avec vLLM ou TensorRT-LLM) sur des standards de sécurité et de reproductibilité, surtout pour des modèles frontaliers.</p></li>
+  </ol>
+
+  <h2>Signaux</h2>
+  <article class="signal" id="signal-1">
+    <div class="meta"><span class="badge">📰 Blog officiel</span><span>29/09/2026</span><span>#1</span></div>
+    <h3><a href="https://openai.com/index/introducing-dots" target="_blank" rel="noopener">Introducing dots</a></h3>
+    <p class="summary">OpenAI annonce *Dots*, un assistant proactif capable de gérer des projets complexes et des tâches quotidiennes, sans préciser si cette fonctionnalité repose sur des modèles locaux ou optimisés (ex. : vLLM/TensorRT).</p>
+<details><summary><span class="conf moyenne">🛡️ Confiance 50/100 · moyenne</span></summary><ul><li>1 fait(s) : 1 rapporté</li></ul></details><ul class="facts">      <li class="rapporte"><span class="status">🔎 rapporté · analyse · 50/100</span><br>Dots par OpenAI est un assistant proactif qui peut continuer à fonctionner sur des projets complexes et des tâches quotidiennes.
+        <blockquote>« Dots by OpenAI are a proactive assistant that can keep working across complex projects and everyday tasks. » — <a href="https://openai.com/index/introducing-dots" target="_blank" rel="noopener">source</a></blockquote>
+</li>
+</ul><p class="interp">🧠 <b>Analyse (interprétation) :</b> C’est un signal indirect de l’évolution des modèles proactifs dans les agents locaux, mais son ancrage technique reste flou sans détails sur la localisation ou la quantisation.</p><p class="interp">❓ <b>Hypothèse (non vérifiée) :</b> Si *Dots* utilise des modèles optimisés (ex. : quantisés), son déploiement local pourrait être testé via des benchmarks comparatifs avec des solutions comme llama.cpp ou MCP.</p>    <div class="why"><b>Pourquoi c'est important —</b> Pour un ingénieur spécialisé en agents locaux, tester l’impact d’une intégration de *Dots* avec des outils comme vLLM ou TensorRT-LLM pour évaluer sa compatibilité avec des workflows d’inference locaux.</div>
+<details class="rank"><summary>📊 Classement 75/100</summary><ul><li>LLM : pertinence 7/10, nouveauté 7, confiance 9 (+38)</li><li>fraîcheur : publié il y a 1 j (+13)</li><li>profil : openai, openai news (+15)</li><li>source : blog officiel (+9)</li></ul></details>  </article>
+  <article class="signal" id="signal-2">
+    <div class="meta"><span class="badge">✨ Nouveau dépôt GitHub</span><span>17/09/2026</span><span>#2</span></div>
+    <h3><a href="https://github.com/itsmostafa/system-one-connector" target="_blank" rel="noopener">itsmostafa/system-one-connector : nouveau dépôt open source (325★)</a></h3>
+    <p class="summary">Le dépôt *System One Connector* propose un connecteur open-source permettant à des agents locaux d’accéder à des modèles comme Jev, CLM et Laya via une API type-safe, avec des probabilités explicites. Cela évite les dépendances aux modèles fermés et offre une évaluation rapide pour des décisions critiques.</p>
+<details><summary><span class="conf moyenne">🛡️ Confiance 65/100 · moyenne</span></summary><ul><li>1 fait(s) : 1 confirmé</li></ul></details><ul class="facts">      <li class="confirme"><span class="status">✅ confirmé · annonce · 65/100</span><br>System One MCP connector to evaluate anything fast and cheap.
+        <blockquote>« System One MCP connector to evaluate anything fast and cheap. » — <a href="https://github.com/itsmostafa/system-one-connector" target="_blank" rel="noopener">source</a></blockquote>
+</li>
+</ul><p class="interp">🧠 <b>Analyse (interprétation) :</b> Ce connecteur s’inscrit dans une tendance vers des modèles probabilistes locaux, mais son impact dépendra de la maturité des benchmarks comparatifs avec des solutions fermées.</p><p class="interp">❓ <b>Hypothèse (non vérifiée) :</b> Une adoption massive pourrait accélérer le développement de benchmarks méthodologiques pour évaluer la performance des modèles locaux en probabilités explicites.</p>    <div class="why"><b>Pourquoi c'est important —</b> Pour un ingénieur en MCP et agents locaux, adopter ce connecteur pour évaluer des modèles open-source (ex. : Jev) dans des workflows agents, en testant sa compatibilité avec des outils comme vLLM ou SGLang pour des benchmarks reproductibles.</div>
+<div class="impact">🎯 Pour toi : tes priorités : MCP, agentic systems · tes préférences : open source</div><details class="rank"><summary>📊 Classement 64/100</summary><ul><li>LLM : pertinence 9/10, nouveauté 8, confiance 10 (+45)</li><li>fraîcheur : publié il y a 13 j (+2)</li><li>profil : claude, MCP, agentic systems (+10)</li><li>source : dépôt découvert (MCP) (+6)</li></ul></details><div class="chips"><span class="chip">Go</span></div>  </article>
+  <article class="signal" id="signal-3">
+    <div class="meta"><span class="badge">📰 Blog officiel</span><span>22/09/2026</span><span>#3</span></div>
+    <h3><a href="https://openai.com/index/priorities-principles-third-party-assessments" target="_blank" rel="noopener">Priorities and principles for effective third party assessments</a></h3>
+    <p class="summary">OpenAI publie des principes pour des évaluations tierces rigoureuses sur les modèles frontaliers, incluant sécurité et indépendance. Ces critères pourraient influencer les pratiques d’évaluation des ingénieurs pour les modèles locaux ou optimisés.</p>
+<details><summary><span class="conf moyenne">🛡️ Confiance 65/100 · moyenne</span></summary><ul><li>1 fait(s) : 1 confirmé</li></ul></details><ul class="facts">      <li class="confirme"><span class="status">✅ confirmé · annonce · 65/100</span><br>OpenAI outlines priorities and principles for rigorous, secure, and independent third-party AI safety assessments of frontier models and safeguards.
+        <blockquote>« OpenAI outlines priorities and principles for rigorous, secure, and independent third-party AI safety assessments of frontier models and safeguards. » — <a href="https://openai.com/index/priorities-principles-third-party-assessments" target="_blank" rel="noopener">source</a></blockquote>
+</li>
+</ul><p class="interp">🧠 <b>Analyse (interprétation) :</b> Ces principes renforcent la confiance dans les évaluations locales, mais leur application concrète aux modèles open-source reste à définir.</p><p class="interp">❓ <b>Hypothèse (non vérifiée) :</b> Les ingénieurs pourraient adopter ces principes pour standardiser les benchmarks locaux, notamment via des outils comme MCP ou vLLM.</p>    <div class="why"><b>Pourquoi c'est important —</b> Pour un ingénieur en RAG ou évaluation de modèles, surveiller ces principes pour aligner ses benchmarks locaux (ex. : avec vLLM ou TensorRT-LLM) sur des standards de sécurité et de reproductibilité, surtout pour des modèles frontaliers.</div>
+<details class="rank"><summary>📊 Classement 53/100</summary><ul><li>LLM : pertinence 4/10, nouveauté 4, confiance 7 (+24)</li><li>fraîcheur : publié il y a 8 j (+5)</li><li>profil : openai, openai news (+15)</li><li>source : blog officiel (+9)</li><li>diversité : source ou thème déjà retenus (−8 pour la sélection)</li></ul></details>  </article>
+
+  <h2>Ressources</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>#</th><th>Ressource</th><th>Source</th><th>Date</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><a href="https://openai.com/index/introducing-dots" target="_blank" rel="noopener">Introducing dots</a></td><td>📰 Blog officiel</td><td>29/09/2026</td></tr>
+      <tr><td>2</td><td><a href="https://github.com/itsmostafa/system-one-connector" target="_blank" rel="noopener">itsmostafa/system-one-connector : nouveau dépôt open source (325★)</a></td><td>✨ Nouveau dépôt GitHub</td><td>17/09/2026</td></tr>
+      <tr><td>3</td><td><a href="https://openai.com/index/priorities-principles-third-party-assessments" target="_blank" rel="noopener">Priorities and principles for effective third party assessments</a></td><td>📰 Blog officiel</td><td>22/09/2026</td></tr>
+    </tbody>
+  </table></div>
+
+
+  <h2>Écartés par le Critic</h2>
+  <ul class="rejected">
+    <li><code>drop</code> <a href="https://claude.com/blog/claude-opus-5-5-built-for-coding-sessions-that-use-more-context" target="_blank" rel="noopener">https://claude.com/blog/claude-opus-5-5-built-for-coding-sessions-that-use-more-context</a> — L&#39;extrait source ne mentionne pas explicitement une optimisation technique pour des sessions de codage longues, mais seulement une optimisation de coût pour les pratiques actuelles des développeurs. La justification du Scout sur une optimisation technique explicite est donc une interprétation non confirmée par le document.</li>
+  </ul>
+
+  <h2>Méthodologie</h2>
+  <div class="method">
+    <p><b>Collecte :</b> rss +0 · arxiv +0 · github_releases +0 · github_mcp +0.
+    Chaîne : supervisor → research (Scouts parallèles, sélection diversifiée) → review (Critic) → evidence (claims, citations, corroboration, contradictions) → editorial (Editor + guards) → validation humaine.
+    Confiance : citation retrouvée (+40), source primaire (+25) ou secondaire (+5), corroboration (+15/source), protocole de benchmark incomplet (−15), contradiction (−30). Profil d'impact <code>julien@v1#689032bf</code>.    URLs, titres et dates sont recopiés depuis les sources collectées ; le digest est validé par Pydantic.</p>
+<details><summary>Trace du supervisor</summary><ul><li>fan-out : collect:rss, collect:arxiv, collect:github_releases, collect:github_mcp</li><li>délègue prefilter → prefilter</li><li>délègue quality → quality</li><li>quality : 0 bruit(s), 0 doublon(s) écarté(s), 24 candidat(s) retenu(s)</li><li>délègue research → research</li><li>délègue review → review</li><li>2 signal(s) accepté(s) &lt; 3 : relance research (seuil 4)</li><li>délègue review → review</li><li>délègue evidence → evidence</li><li>evidence : 3/3 affirmation(s) étayée(s), 0 contradiction(s)</li><li>délègue editorial → editorial</li><li>plan terminé → validation</li></ul></details>  </div>
+
+  <footer>Rapport généré le 2026-09-29T20:09:50.009014Z par LLM Watch Harness · run <code>8b1b51f8-15aa-41c1-abe2-4c37e6c1e272</code> · chaque affirmation renvoie à sa source.</footer>
+</div>
+</body>
+</html>

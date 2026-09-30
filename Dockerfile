@@ -1,6 +1,8 @@
 # LLM Watch Harness : image multi-architecture (arm64 pour la Jetson Orin, amd64 pour le PC).
 # Seules les dépendances vivent dans l'image (/opt/venv) ; le dépôt est monté sur /app par compose.yaml,
 # si bien qu'un `git pull` suivi de `docker compose restart` suffit tant que pyproject.toml ne change pas.
+# Sinon, le conteneur s'arrête au démarrage en le disant (/opt/venv/requirements.baked ≠ pyproject.toml,
+# app/main.py) : `docker compose up -d --build`.
 # L'application n'a pas besoin du GPU : Ollama reste natif sur l'hôte (JetPack).
 FROM python:3.12-slim-bookworm
 
@@ -34,7 +36,8 @@ RUN python -m venv /opt/venv \
     && python -c "import tomllib; p = tomllib.load(open('/tmp/pyproject.toml', 'rb'))['project']; \
 print('\n'.join(p['dependencies'] + p['optional-dependencies']['dev']))" > /tmp/requirements.txt \
     && pip install -r /tmp/requirements.txt \
-    && rm /tmp/requirements.txt /tmp/pyproject.toml
+    && mv /tmp/requirements.txt /opt/venv/requirements.baked \
+    && rm /tmp/pyproject.toml
 
 # Navigateur de la version de Playwright embarquée par @playwright/mcp@0.0.82 (voir app/screenshots.py)
 RUN if [ "$WITH_BROWSER" = "true" ]; then \

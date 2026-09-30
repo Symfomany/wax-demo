@@ -32,3 +32,11 @@ output/
 # TUI (dépendances installées par « bin/veille tui »)
 tui/node_modules/
 tui/dist/
+
+# Profil personnalisé depuis l’interface (le profil versionné reste profiles/*.toml)
+data/profile.toml
+data/profile.tmp
+data/profile-history/
+
+# Compte Grafana du monitoring (monitoring/setup.sh)
+monitoring/grafana.env

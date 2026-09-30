@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Veille AI</title>
+<title>Scouty Veille AI</title>
 <style>
 :root {
   --bg: #f6f5f1; --panel: #ffffff; --panel-2: #f1efe9; --line: #e4e1d8; --text: #1c1b19; --muted: #6d6a62;
@@ -45,6 +45,9 @@ aside { background: var(--panel); border-right: 1px solid var(--line); display: 
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.02rem; padding: 4px 6px; }
 .logo { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; color: #fff;
         background: linear-gradient(135deg, var(--accent), #c05bd6); box-shadow: var(--shadow); }
+.home-link { cursor: pointer; border-radius: 10px; }
+.home-link:hover { background: var(--accent-soft); }
+.home-btn { border-color: var(--line); background: var(--panel); }
 .brand small { display: block; font-weight: 500; color: var(--muted); font-size: .75rem; }
 .new-chat { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 10px; border-radius: 11px;
             border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; font-weight: 600; }
@@ -58,9 +61,24 @@ aside { background: var(--panel); border-right: 1px solid var(--line); display: 
 .conversations button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .status { display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 12px; }
 .pill { display: flex; align-items: center; gap: 8px; font-size: .8rem; color: var(--muted); padding: 2px 6px; }
+.pill .restart { margin-left: auto; border: 1px solid var(--line); background: none; color: var(--muted); border-radius: 7px; padding: 0 6px; cursor: pointer; font-size: .8rem; }
+.pill .restart:hover { color: var(--accent); border-color: var(--accent); }
+.crash-actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.crash-actions .muted { font-size: .8rem; }
+.multiline { white-space: pre-line; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
 .dot.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 .dot.off { background: var(--bad); }
+.gpu { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; font-size: .8rem; color: var(--muted); padding: 2px 6px; }
+.gpu .bar { position: relative; height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.gpu .fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: inherit; background: var(--ok); transition: width .6s ease, background-color .6s; }
+.gpu .fill.warn { background: var(--warn); }
+.gpu .fill.hot { background: var(--bad); }
+.gpu b { font-variant-numeric: tabular-nums; min-width: 3.2ch; text-align: right; color: var(--text); font-weight: 600; }
+.gpu svg { grid-column: 1 / -1; width: 100%; height: 18px; display: block; }
+.gpu polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.gpu.na { opacity: .55; }
+.gpu.na svg { display: none; }
 .theme { display: flex; gap: 4px; margin-top: 4px; }
 .theme button { flex: 1; border: 1px solid var(--line); background: none; border-radius: 8px; padding: 5px; font-size: .75rem; color: var(--muted); cursor: pointer; }
 .theme button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
@@ -136,6 +154,10 @@ main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .composer textarea { flex: 1; border: 0; outline: 0; resize: none; background: none; max-height: 180px; padding: 8px 0; }
 .send { flex: none; width: 40px; height: 40px; border-radius: 11px; border: 0; background: var(--accent); color: #fff; cursor: pointer; display: grid; place-items: center; }
 .send:disabled { opacity: .45; cursor: default; }
+.send .i-stop, .send.stop .i-send { display: none; }
+.send.stop .i-stop { display: block; }
+.send.stop { background: var(--bad); }
+.cancelled-note { color: var(--muted); font-size: .85rem; margin-top: 6px; }
 .hint { max-width: 900px; margin: 6px auto 0; font-size: .74rem; color: var(--muted); text-align: center; }
 
 .selection-pop { position: fixed; z-index: 50; display: flex; gap: 4px; background: var(--text); color: var(--bg); border-radius: 10px; padding: 4px; box-shadow: var(--shadow); }
@@ -172,6 +194,7 @@ h2.title { font-size: 1.35rem; margin: 0 0 4px; }
 .state.awaiting_approval { background: var(--warn-soft); color: var(--warn); }
 .state.published { background: var(--ok-soft); color: var(--ok); }
 .state.blocked, .state.failed, .state.error { background: var(--bad-soft); color: var(--bad); }
+.state.cancelled { background: var(--line); color: var(--muted); }
 .muted { color: var(--muted); }
 .toast { position: fixed; right: 18px; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: .88rem; box-shadow: var(--shadow); z-index: 60; }
 
@@ -294,6 +317,26 @@ pre.template { white-space: pre-wrap; font: 12px/1.55 var(--mono); background: v
 table.plain { width: 100%; border-collapse: collapse; font-size: .88rem; }
 table.plain td, table.plain th { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Mon profil : éditeur de libellés, aperçu de « Quoi de neuf ? » */
+.chip-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border: 1px solid var(--line); background: var(--panel-2); border-radius: 10px; padding: 6px 8px; min-height: 40px; }
+.chip-edit:focus-within { border-color: var(--accent); }
+.chip-edit .chip button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 0 0 4px; font-weight: 700; }
+.chip-edit input { flex: 1; min-width: 120px; border: 0; outline: 0; background: none; padding: 3px 2px; }
+.pf-field { margin-bottom: 12px; }
+.pf-field small { color: var(--muted); font-size: .78rem; }
+.pf-input, .pf-text { width: 100%; border: 1px solid var(--line); background: var(--panel-2); border-radius: 10px; padding: 8px 10px; }
+.pf-text { min-height: 74px; resize: vertical; }
+#pf-match { min-height: 150px; font: .82rem var(--mono); }
+.pf-dirty { color: var(--warn); font-weight: 600; font-size: .85rem; }
+.pf-preview { list-style: none; padding: 0; margin: 0; }
+.pf-preview li { display: grid; grid-template-columns: 52px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.pf-preview li:first-child { border-top: 0; }
+.pf-preview li.avoid { opacity: .55; }
+.pf-score { font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; }
+.pf-bar { height: 4px; background: var(--line); border-radius: 4px; margin-top: 4px; overflow: hidden; }
+.pf-bar div { height: 100%; background: var(--accent); }
+.profile-hint { margin-top: 14px; font-size: .85rem; color: var(--muted); }
+.profile-hint a { color: var(--accent); }
 .chip { font-size: .8rem; border-radius: 999px; padding: 3px 10px; background: var(--accent-soft); color: var(--accent); }
 .chip b { margin-left: 4px; }
 .menu-btn { display: none; }
@@ -708,13 +751,18 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
 <body>
 <div class="app">
   <aside id="sidebar">
-    <div class="brand"><div class="logo">✦</div><div>Veille AI<small>For Wax Conference</small></div></div>
+    <div class="brand home-link" role="link" tabindex="0" title="Accueil" data-home><div class="logo">✦</div><div>Scouty Veille AI<small>For Wax Conference</small></div></div>
     <button class="new-chat" id="new-chat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Nouvelle conversation</button>
     <button class="claude-search" id="claude-search" title="Recherche web par l'API Claude (outil web_search) sur vos centres d'intérêt">🌐 Mes actus via Claude</button>
     <div class="side-title">Conversations</div>
     <nav class="conversations" id="conversations" aria-label="Conversations"></nav>
     <div class="status">
-      <div class="pill"><span class="dot" id="st-ollama"></span><span id="st-model">LLM…</span></div>
+      <div class="gpu na" id="gpu" title="Charge GPU (Ollama, veille, chat)" role="meter" aria-label="Charge GPU" aria-valuemin="0" aria-valuemax="100">
+        <span>GPU</span><div class="bar"><span class="fill" id="gpu-fill"></span></div><b id="gpu-pct">–</b>
+        <svg viewBox="0 0 59 100" preserveAspectRatio="none" aria-hidden="true"><polyline id="gpu-spark" points=""/></svg>
+      </div>
+      <div class="pill"><span class="dot" id="st-ollama"></span><span id="st-model">LLM…</span>
+        <button class="restart" id="llm-restart" type="button" title="Redémarrer le moteur LLM (runner Ollama : erreur CUDA, mémoire GPU saturée)" aria-label="Redémarrer le moteur LLM">↻</button></div>
       <div class="pill"><span class="dot" id="st-langfuse"></span>Langfuse</div>
       <div class="pill"><span class="dot" id="st-langsmith"></span>LangSmith</div>
       <div class="pill"><span class="dot" id="st-notion"></span>Notion</div>
@@ -728,6 +776,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
   <main>
     <header class="topbar">
       <button class="burger" id="burger" aria-label="Ouvrir le menu" aria-expanded="false" aria-controls="drawer" title="Menu (Ctrl+K)"><span></span><span></span><span></span></button>
+      <button class="icon-btn home-btn" id="home-btn" data-home title="Accueil : écran d'accueil du chat (suggestions, « Quoi de neuf ? »)" aria-label="Accueil">🏠</button>
       <div class="crumb"><span class="ico" id="crumb-icon">💬</span><div><b id="crumb-title">Chat</b><small id="crumb-sub">Questions sourcées sur votre veille</small></div></div>
       <nav class="quick" id="quick" aria-label="Accès rapide"></nav>
       <div class="top-actions">
@@ -756,6 +805,8 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
               <div class="suggestion" data-prompt="C'est quoi le KV cache ?"><b>Glossaire</b><span>« c'est quoi le KV cache ? »</span></div>
               <div class="suggestion" data-open-view="review"><b>Review d'une URL</b><span>Synthèse sourcée, puis challenge</span></div>
             </div>
+            <p class="profile-hint" id="profile-hint">🎯 « Quoi de neuf ? » est classé selon <b id="profile-hint-label">ton profil</b> ·
+              <a href="#" id="profile-hint-open">Personnaliser ou réinitialiser</a></p>
           </div>
         </div>
       </div>
@@ -763,11 +814,12 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
         <div class="quotes" id="quotes"></div>
         <form id="composer">
           <textarea id="input" rows="1" placeholder="Demandez à votre veille…" aria-label="Message"></textarea>
-          <button class="send" id="send" type="submit" aria-label="Envoyer">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          <button class="send" id="send" type="submit" aria-label="Envoyer" title="Envoyer">
+            <svg class="i-send" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            <svg class="i-stop" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
           </button>
         </form>
-        <div class="hint">Entrée pour envoyer · Maj + Entrée pour une nouvelle ligne · sélectionnez du texte pour surligner ou citer</div>
+        <div class="hint">Entrée pour envoyer · Maj + Entrée pour une nouvelle ligne · Échap pour arrêter · sélectionnez du texte pour surligner ou citer</div>
       </div>
     </section>
 
@@ -887,7 +939,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
         <div class="card help-hero">
           <span class="big">🧭</span>
           <div style="flex:1;min-width:240px">
-            <h2 class="title">Aide — Veille AI</h2>
+            <h2 class="title">Aide — Scouty Veille AI</h2>
             <p class="muted" style="margin:0">Une veille LLM / GenAI factuelle et sourcée : chaque affirmation renvoie à une URL, aucune date ni version n'est inventée.
             Le menu ☰ (ou <span class="kbd">Ctrl</span>+<span class="kbd">K</span>) donne accès à toutes les sections.</p>
           </div>
@@ -1023,6 +1075,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
           </div>
           <div class="row" style="margin-top:14px">
             <button class="btn primary" id="start-run">Lancer la veille</button>
+            <button class="btn" id="cancel-run" hidden title="Arrête la veille au prochain nœud du graphe, sans publier">⏹ Annuler</button>
             <span style="flex:1"></span>
             <a class="btn small" href="/why" target="_blank" rel="noopener" title="Profil d'impact, mémoire typée, règles, ranking">❔ Pourquoi cette veille ? ↗</a>
             <a id="run-trace" class="btn small" target="_blank" rel="noopener" hidden>🧭 Graphe du run ↗</a>
@@ -1131,6 +1184,65 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
       </div>
     </section>
 
+    <!-- Mon profil : ce qui oriente « Quoi de neuf ? » -->
+    <section class="view" id="profile" hidden>
+      <div class="wrap wide">
+        <h2 class="title">🧑‍💻 Mon profil</h2>
+        <p class="subtitle">Ce qui oriente <b>« Quoi de neuf ? »</b> (ordre des signaux et « pour toi »), le ranking et l'Editor des
+        prochaines veilles. Les modifications vont dans <code>data/profile.toml</code> (hors Git, versions archivées) ;
+        le profil du dépôt n'est jamais modifié et reste la valeur de réinitialisation.</p>
+        <div class="card">
+          <div class="row"><h3 style="margin:0">Profil d'impact</h3><span class="state" id="pf-state"></span>
+            <span class="muted" id="pf-label"></span><span class="pf-dirty" id="pf-dirty" hidden>● modifications non enregistrées</span></div>
+          <div class="pf-field" style="margin-top:12px"><label class="label" for="pf-role">Rôle</label>
+            <input class="pf-input" id="pf-role" maxlength="200" placeholder="ex. ingénieur·e LLM infra, chercheur·se, CTO…"></div>
+          <div class="grid">
+            <div class="pf-field"><span class="label">Priorités</span><div class="chip-edit" data-list="topics"></div>
+              <small>Poids le plus fort (60 %) : sujets qui doivent remonter en tête.</small></div>
+            <div class="pf-field"><span class="label">Privilégier</span><div class="chip-edit" data-list="favor"></div>
+              <small>Préférences (20 %) : open source, benchmark reproductible…</small></div>
+            <div class="pf-field"><span class="label">GPU</span><div class="chip-edit" data-list="gpus"></div>
+              <small>Matériel (20 %), avec les plateformes.</small></div>
+            <div class="pf-field"><span class="label">Plateformes</span><div class="chip-edit" data-list="platforms"></div></div>
+            <div class="pf-field"><span class="label">À éviter</span><div class="chip-edit" data-list="avoid" data-bad="1"></div>
+              <small>Un signal concerné passe en fin de liste.</small></div>
+          </div>
+          <details><summary class="muted" style="cursor:pointer">Termes recherchés (avancé)</summary>
+            <p class="muted" style="margin:.4em 0">Une ligne par libellé : <code>Libellé = terme1, terme2</code>. Sans ligne, le libellé
+              lui-même est cherché (mots entiers, dans titre, résumé et tags).</p>
+            <textarea class="pf-text" id="pf-match" spellcheck="false" aria-label="Termes recherchés par libellé"></textarea>
+          </details>
+        </div>
+        <div class="card">
+          <div class="row"><h3 style="margin:0">Centres d'intérêt (Grill-me)</h3><span class="muted" id="pf-interests-date"></span></div>
+          <div class="pf-field" style="margin-top:12px"><label class="label" for="pf-summary">Résumé</label>
+            <textarea class="pf-text" id="pf-summary" maxlength="1500" placeholder="Ce que tu cherches dans l'actu IA, en quelques phrases."></textarea></div>
+          <div class="grid">
+            <div class="pf-field"><span class="label">Mots-clés</span><div class="chip-edit" data-list="keywords"></div>
+              <small>Chaque mot-clé retrouvé fait remonter un signal.</small></div>
+            <div class="pf-field"><span class="label">À écarter</span><div class="chip-edit" data-list="exclusions" data-bad="1"></div></div>
+          </div>
+          <p class="muted" style="margin:0">Pour un profil guidé, question par question : <a href="#" id="pf-grill">🎯 refaire l'entretien Grill-me</a>.</p>
+        </div>
+        <div id="pf-error" class="error-box" hidden></div>
+        <div class="row" style="margin-bottom:14px">
+          <button class="btn primary" id="pf-save">Enregistrer</button>
+          <button class="btn" id="pf-cancel">Annuler les modifications</button>
+          <button class="btn" id="pf-try">▶ Tester « Quoi de neuf ? »</button>
+          <span style="flex:1"></span>
+          <button class="btn bad" id="pf-reset-impact" title="Supprime data/profile.toml (archivé) : retour au profil du dépôt">↺ Profil du dépôt</button>
+          <button class="btn bad" id="pf-reset-interests" title="Oublie le profil Grill-me courant">↺ Oublier Grill-me</button>
+          <button class="btn bad" id="pf-reset-all">Tout réinitialiser</button>
+        </div>
+        <div class="card">
+          <div class="row"><h3 style="margin:0">Aperçu de « Quoi de neuf ? »</h3><span class="muted" id="pf-preview-label"></span></div>
+          <p class="muted" style="margin:.3em 0 8px">Signaux des 3 dernières veilles publiées, classés avec le profil ci-dessus (même s'il n'est pas encore enregistré).</p>
+          <ol class="pf-preview" id="pf-preview"></ol>
+        </div>
+        <p class="muted" id="pf-history"></p>
+      </div>
+    </section>
+
     <!-- Prompts -->
     <section class="view" id="prompts" hidden>
       <div class="wrap wide">
@@ -1174,7 +1286,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
 <div class="drawer-back" id="drawer-back"></div>
 <aside class="drawer" id="drawer" aria-label="Menu principal" aria-hidden="true">
   <div class="drawer-head">
-    <div class="brand"><div class="logo">✦</div><div>Veille AI<small>For Wax Conference</small></div></div>
+    <div class="brand home-link" role="link" tabindex="0" title="Accueil" data-home><div class="logo">✦</div><div>Scouty Veille AI<small>For Wax Conference</small></div></div>
     <button class="icon-btn" id="drawer-close" aria-label="Fermer le menu">✕</button>
   </div>
   <label class="drawer-search"><span aria-hidden="true">🔍</span><input id="drawer-filter" placeholder="Aller à…" aria-label="Filtrer les sections"><kbd>Ctrl K</kbd></label>
@@ -1211,7 +1323,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
 <script>
 (() => {
   const $ = (s) => document.querySelector(s);
-  const state = { conversation: null, busy: false, run: null, runCursor: 0, poll: null, quotes: [], report: null, prompt: null };
+  const state = { conversation: null, busy: false, abort: null, run: null, runCursor: 0, poll: null, quotes: [], report: null, prompt: null };
 
   // --- Utilitaires -------------------------------------------------------------
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -1469,7 +1581,9 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
   function docCard(s, i, { numbered = true, hidden = false, titleHtml, summaryHtml, actions = false } = {}) {
     return `<div class="doc ${hidden ? "hidden-more" : ""}" role="button" tabindex="0" data-doc="${i}">
       <div class="top">${numbered ? `<span class="n">${esc(s.n ?? i + 1)}</span>` : ""}<span class="kind">${esc(docKind(s.source))}</span>
-        <span>${esc((s.date || "").slice(0, 10) || host(s.url))}</span>${s.published ? '<span style="color:var(--ok);font-weight:700">✓ publié</span>' : ""}</div>
+        <span>${esc((s.date || "").slice(0, 10) || host(s.url))}</span>${s.published ? '<span style="color:var(--ok);font-weight:700">✓ publié</span>' : ""}${s.for_you ? (s.for_you.avoid
+          ? '<span class="muted" title="À éviter selon Mon profil">⤓ à éviter</span>'
+          : `<span style="color:var(--accent);font-weight:700" title="${esc(s.for_you.reasons.join(" · ") || "Classé selon Mon profil")}">🎯 ${s.for_you.score}</span>`) : ""}</div>
       <div class="t">${titleHtml ?? esc(s.title)}</div>
       ${s.summary ? `<div class="s">${summaryHtml ?? esc(s.summary)}</div>` : ""}
       ${actions ? `<div class="actions"><button class="btn small" data-cite="${i}">❝ Citer</button><a class="btn small" href="${safeUrl(s.url)}" target="_blank" rel="noopener">↗ Article</a></div>` : `<span class="more">Voir le résumé →</span>`}
@@ -1610,6 +1724,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
     { id: "search", icon: "🔎", label: "Recherche", sub: "Mots-clés, sources, dates", group: "Veille" },
     { id: "review", icon: "🔬", label: "Review", sub: "Analyse sourcée d'une URL, puis challenge", group: "Veille" },
     { id: "reports", icon: "📰", label: "Rapports", sub: "Rapports datés HTML et Markdown", group: "Veille" },
+    { id: "profile", icon: "🧑‍💻", label: "Mon profil", sub: "Ce qui oriente « Quoi de neuf ? »", group: "Profil & réglages" },
     { id: "grill", icon: "🎯", label: "Grill-me", sub: "Votre profil de centres d'intérêt", group: "Profil & réglages" },
     { id: "sources", icon: "🧭", label: "Sources", sub: "Ajouter une source vérifiée", group: "Profil & réglages" },
     { id: "knowledge", icon: "📚", label: "Knowledge", sub: "Glossaire, règles métiers, notes", group: "Profil & réglages" },
@@ -1695,6 +1810,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
     if (view === "memory") loadMemory();
     if (view === "prompts") loadPrompts();
     if (view === "grill") loadGrillProfile();
+    if (view === "profile") loadProfile();
     if (view === "review") loadReviews();
     if (view === "sources") loadSources();
     if (view === "news") loadNews(true);
@@ -1717,16 +1833,44 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
       $("#st-langfuse").className = "dot " + (h.tracing.langfuse ? "on" : "");
       $("#st-langsmith").className = "dot " + (h.tracing.langsmith ? "on" : "");
       $("#st-notion").className = "dot " + (h.notion ? "on" : "");
-      $("#st-claude").className = "dot " + (h.claude_search ? "on" : "off");
+      $("#st-claude").className = "dot " + (h.claude_search && !h.claude_error ? "on" : "off");
+      $("#st-claude").parentElement.title = h.claude_error || (h.claude_search ? "Clé API Claude configurée" : "Clé CLAUDE_API absente");
       news.keyReady = h.claude_search; news.screenshots = !!h.screenshots; $("#news-shots").hidden = !h.screenshots;
       if (health.ollama !== undefined && health.ollama !== h.ollama)
         notify({ title: h.ollama ? "🟢 LLM local de retour" : "🔴 LLM local injoignable", body: h.ollama ? h.model : "Vérifiez « ollama serve » : chat, veille et Grill-me en dépendent.",
                  kind: h.ollama ? "ok" : "err", icon: "🧠", tag: "health-llm" });
-      health.ollama = h.ollama;
+      health.ollama = h.ollama; health.model = h.model;
       $("#a-model").textContent = h.claude_search ? `${h.assistant_model} · API Claude directe` : "⚠ clé CLAUDE_API absente";
       if (h.button?.prompt) button.prompt = h.button.prompt;
     } catch { $("#st-model").textContent = "API injoignable"; }
   }
+
+  // --- Jauge GPU (bas gauche) ---------------------------------------------------------------
+  const gpu = { history: [], timer: null };
+  async function pollGpu() {
+    clearTimeout(gpu.timer);
+    let delay = 1000;
+    if (!document.hidden) {
+      try {
+        const g = await api("/api/gpu");
+        const box = $("#gpu");
+        box.classList.toggle("na", !g.available);
+        if (g.available) {
+          const pct = Math.max(0, Math.min(100, g.percent));
+          const fill = $("#gpu-fill");
+          fill.style.width = `${pct}%`;
+          fill.className = "fill" + (pct >= 85 ? " hot" : pct >= 50 ? " warn" : "");
+          $("#gpu-pct").textContent = `${pct}%`;
+          box.setAttribute("aria-valuenow", pct);
+          box.title = `${g.name} · ${pct} %` + (g.memory_total_mb ? ` · VRAM ${g.memory_used_mb}/${g.memory_total_mb} Mo` : "");
+          gpu.history = [...gpu.history, pct].slice(-60);
+          $("#gpu-spark").setAttribute("points", gpu.history.map((v, i) => `${i + 60 - gpu.history.length},${100 - v}`).join(" "));
+        } else { $("#gpu-pct").textContent = "n/d"; box.title = "Aucun GPU détecté"; delay = 30000; }
+      } catch { delay = 10000; }
+    }
+    gpu.timer = setTimeout(pollGpu, delay);
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) pollGpu(); });
 
   // --- Sélection : surligner / citer ----------------------------------------------------
   const pop = $("#selection-pop"); let selectedRange = null;
@@ -1811,6 +1955,13 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
     show("chat"); loadConversations(); $("#input").focus();
     history.replaceState(null, "", location.pathname);
   });
+  // Accueil (🏠, logo) : écran d'accueil du chat ; la conversation en cours reste dans l'historique.
+  // Pendant une réponse en cours, on revient seulement au chat, sans l'interrompre.
+  const goHome = () => { closeDrawer(); state.busy ? show("chat") : $("#new-chat").click(); };
+  document.querySelectorAll("[data-home]").forEach((el) => {
+    el.addEventListener("click", goHome);
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goHome(); } });
+  });
 
   // --- Bouton physique (Zigbee2MQTT → SSE /api/live) : un appui lance « Quoi de neuf ? » en direct ------
   const button = { prompt: "Quoi de neuf dans les dernières veilles ?" };
@@ -1868,9 +2019,9 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
     challenge_review: "🔬 Challenge de la review" };
 
   // Lecture d'un flux SSE (POST) : chaque événement « data: {…} » est passé à onEvent.
-  async function streamSSE(path, body, onEvent) {
+  async function streamSSE(path, body, onEvent, signal) {
     const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
-      body: body ? JSON.stringify(body) : undefined });
+      body: body ? JSON.stringify(body) : undefined, signal });
     if (needLogin(response)) throw new Error("Session expirée : reconnexion…");
     if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || response.statusText);
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
@@ -1884,6 +2035,32 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
       }
     }
   }
+  // --- Moteur LLM : redémarrage à la demande (runner Ollama planté, CUDA out of memory) ------------
+  async function restartLLM(button) {
+    const label = button?.textContent;
+    if (button) { button.disabled = true; button.textContent = "⏳ Redémarrage…"; }
+    try {
+      const r = await api("/api/llm/restart", { method: "POST" });
+      if (!r.loaded) throw new Error(r.load_error || r.service_error || "le modèle ne se recharge pas");
+      notify({ title: "✅ Moteur LLM redémarré", kind: "ok", icon: "🧠",
+               body: `${r.model} rechargé en ${(r.ms / 1000).toFixed(1)} s${r.vram_mb ? ` · ${r.vram_mb} Mo GPU` : ""}${r.service_restarted ? " · service relancé" : ""}` });
+      loadHealth();
+      return true;
+    } catch (error) {
+      notify({ title: "Redémarrage du moteur LLM impossible", body: error.message, kind: "warn", icon: "🧠" });
+      return false;
+    } finally { if (button) { button.disabled = false; button.textContent = label; } }
+  }
+  function crashActions(container, retry) {
+    container.insertAdjacentHTML("beforeend", `<div class="crash-actions"><button class="btn small primary" type="button">🔄 Redémarrer le moteur LLM et réessayer</button>
+      <span class="muted">décharge les modèles pour libérer la mémoire GPU, puis recharge ${esc(health.model || "le modèle")}</span></div>`);
+    const button = container.querySelector(".crash-actions:last-child button");
+    button.addEventListener("click", async () => { if (await restartLLM(button)) { button.closest(".crash-actions").remove(); retry(); } });
+  }
+  $("#llm-restart").addEventListener("click", (e) => {
+    if (confirm("Redémarrer le moteur LLM ? Les modèles chargés sont déchargés puis le modèle de la veille est rechargé.")) restartLLM(e.currentTarget);
+  });
+
   // Affichage d'une réponse du chat en cours (outil, tokens, réponse finale contrôlée).
   function chatHandler(view, scroll) {
     let streamed = "";
@@ -1898,35 +2075,76 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
         view.answer.classList.remove("cursor");
         view.answer.innerHTML = markdown(event.text, event.sources);
         renderExtra(view.extra, event);
+      } else if (event.type === "llm_recovering") {
+        view.tools.insertAdjacentHTML("beforeend", ` <span class="tool"><span class="spin"></span>♻️ Moteur LLM planté (GPU) : reprise automatique ${event.attempt}…</span>`);
       } else if (event.type === "error") {
         view.answer.classList.remove("cursor");
-        view.answer.innerHTML = `<p class="warning">⚠ ${esc(event.text)}</p>`;
+        view.answer.innerHTML = `<p class="warning multiline">⚠ ${esc(event.text)}</p>`;
+        if (event.code === "llm_crash") crashActions(view.answer, () => state.lastMessage && send(state.lastMessage));
+      } else if (event.type === "cancelled") {
+        stopped(view, streamed);
       }
     };
   }
+  // Réponse interrompue : on garde le texte déjà streamé (non contrôlé par le guard, signalé comme tel).
+  function stopped(view, streamed) {
+    view.answer.classList.remove("cursor");
+    view.answer.innerHTML = streamed ? markdown(streamed) : "";
+    view.extra.innerHTML = `<p class="cancelled-note">⏹ Génération annulée${streamed ? " — réponse partielle, non vérifiée par le guard" : ""}.</p>`;
+  }
+
+  // --- Annulation de la génération en cours -------------------------------------------
+  function setBusy(on) {
+    state.busy = on;
+    const button = $("#send");
+    button.classList.toggle("stop", on);
+    button.setAttribute("aria-label", on ? "Arrêter la génération" : "Envoyer");
+    button.title = on ? "Arrêter la génération (Échap)" : "Envoyer";
+  }
+  async function cancelChat() {
+    if (!state.busy || !state.abort) return;
+    const controller = state.abort;
+    try {
+      // Le serveur arrête le graphe et renvoie « cancelled » ; sinon (id pas encore reçu) on coupe le flux.
+      if (!state.conversation) throw new Error("conversation inconnue");
+      await api(`/api/chat/${encodeURIComponent(state.conversation)}/cancel`, { method: "POST" });
+      setTimeout(() => controller.abort(), 4000);  // filet de sécurité si le flux ne se termine pas
+    } catch { controller.abort(); }
+  }
+  $("#send").addEventListener("click", (e) => { if (state.busy) { e.preventDefault(); cancelChat(); } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && state.busy && !e.defaultPrevented) cancelChat(); });
 
   async function send(text) {
     if ((!text.trim() && !state.quotes.length) || state.busy) return;
     const message = [...state.quotes.map((q) => `> ${q}`), text.trim()].filter(Boolean).join("\n");
+    state.lastMessage = text;
     state.quotes = []; renderQuotes();
-    state.busy = true; $("#send").disabled = true;
+    setBusy(true);
+    const controller = state.abort = new AbortController();
     addUser(message);
     const view = addAssistant(); view.answer.classList.add("cursor");
     view.answer.innerHTML = critter("Scouty fouille votre veille", "routage → outil → réponse sourcée", "small");
     scrollDown();
-    let ok = true;
+    let ok = true, streamed = "";
     try {
       const handle = chatHandler(view, scrollDown);
       await streamSSE("/api/chat", { message, conversation_id: state.conversation }, (event) => {
         if (event.type === "conversation") { state.conversation = event.id; history.replaceState(null, "", `#c=${encodeURIComponent(event.id)}`); }
-        else { if (event.type === "error") ok = false; handle(event); }
-      });
+        else {
+          if (event.type === "error" || event.type === "cancelled") ok = false;
+          if (event.type === "token") streamed += event.text;
+          handle(event);
+        }
+      }, controller.signal);
     } catch (error) {
       ok = false;
-      view.answer.classList.remove("cursor");
-      view.answer.innerHTML = `<p class="warning">⚠ ${esc(error.message)}</p>`;
+      if (error.name === "AbortError") stopped(view, streamed);
+      else {
+        view.answer.classList.remove("cursor");
+        view.answer.innerHTML = `<p class="warning">⚠ ${esc(error.message)}</p>`;
+      }
     }
-    state.busy = false; $("#send").disabled = false; scrollDown(); loadConversations();
+    state.abort = null; setBusy(false); scrollDown(); loadConversations();
     const excerpt = view.answer.textContent.replace(/\s+/g, " ").trim();
     return { ok, excerpt: excerpt.length > 140 ? excerpt.slice(0, 140) + "…" : excerpt };
   }
@@ -2025,9 +2243,9 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
   // --- Veille en direct ------------------------------------------------------------
   const runTags = tagInput($("#run-tags"));
   const ICONS = { step: "🧭", collect: "📥", agent: "🤖", warning: "⚠", error: "✕", awaiting_approval: "✋",
-                  published: "✓", decision: "👤", status: "●", filtered: "🧹" };
+                  published: "✓", decision: "👤", status: "●", filtered: "🧹", cancelling: "⏹" };
   const STATE_LABELS = { running: "en cours", awaiting_approval: "validation attendue", published: "publiée",
-                         rejected: "rejetée", blocked: "bloquée par les guards", failed: "en échec", error: "erreur" };
+                         rejected: "rejetée", blocked: "bloquée par les guards", failed: "en échec", error: "erreur", cancelled: "annulée" };
   function eventText(e) {
     switch (e.type) {
       case "step": return `<b>supervisor</b> ${esc(e.text)}`;
@@ -2039,6 +2257,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
       case "published": return "publication : fichiers, rapport daté (MD + HTML)" + (e.outputs?.notion ? ", Notion" : "");
       case "decision": return e.approved ? `publication demandée${e.note ? ` — « ${esc(e.note)} »` : ""}` : `rejet${e.note ? ` — « ${esc(e.note)} »` : ""}`;
       case "status": return `statut final : <b>${esc(STATE_LABELS[e.status] || e.status)}</b>`;
+      case "cancelling": return "annulation demandée : arrêt au prochain nœud du graphe…";
       case "filtered": return `<span class="muted">écarté (${esc(e.kind)}) : <b>${esc(e.title)}</b> — ${esc(e.reason)}</span>`;
       default: return esc(JSON.stringify(e));
     }
@@ -2075,6 +2294,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
       const st = $("#run-state"); st.className = `state ${run.status}`; st.textContent = STATE_LABELS[run.status] || run.status;
       runActive = ["running", "awaiting_approval"].includes(run.status); syncRunBadges();
       $("#start-run").disabled = run.status === "running";
+      $("#cancel-run").hidden = run.status !== "running";
       $("#run-trace").hidden = run.status === "running"; $("#run-trace").href = `/trace/${encodeURIComponent(run.id)}`;
       $("#run-langfuse").hidden = !run.langfuse; if (run.langfuse) $("#run-langfuse").href = safeUrl(run.langfuse.trace);
       if (run.status === "awaiting_approval") { $("#digest").innerHTML = markdown(run.markdown); $("#approval").hidden = false; }
@@ -2103,6 +2323,13 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
       $("#note").value = ""; $("#approval").hidden = true; followRun(state.run);
     } catch (error) { toast(error.message); }
   }
+  $("#cancel-run").addEventListener("click", async () => {
+    if (!state.run) return;
+    $("#cancel-run").disabled = true;
+    try { await api(`/api/runs/${state.run}/cancel`, { method: "POST" }); followRun(state.run); }
+    catch (error) { toast(error.message); }
+    finally { $("#cancel-run").disabled = false; }
+  });
   $("#approve").addEventListener("click", () => decide(true));
   $("#reject").addEventListener("click", () => decide(false));
 
@@ -2284,6 +2511,105 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
   $("#grill-reco").addEventListener("click", () => answerGrill({ recommended: true }, `✓ ${optionLabels(grill.question.recommended)}`));
   $("#grill-skip").addEventListener("click", () => answerGrill({ options: [], text: "" }, "(passé)"));
   $("#grill-text").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#grill-answer").click(); });
+
+  // --- Mon profil : personnaliser / réinitialiser ce qui oriente « Quoi de neuf ? » ------------
+  const pf = { data: null, dirty: false, timer: null };
+  const pfLists = () => [...document.querySelectorAll("#profile .chip-edit")];
+  function chipEditor(box, values) {
+    box._values = [...values];
+    const bad = box.dataset.bad ? " bad" : "";
+    const render = () => {
+      box.innerHTML = box._values.map((v, i) => `<span class="chip${bad}">${esc(v)}<button type="button" data-i="${i}" aria-label="Retirer ${esc(v)}">×</button></span>`).join("")
+        + `<input aria-label="Ajouter (Entrée ou virgule)" placeholder="${box._values.length ? "" : "Ajouter…"}" maxlength="80">`;
+      box.querySelectorAll("button[data-i]").forEach((b) => b.addEventListener("click", () => { box._values.splice(Number(b.dataset.i), 1); render(); pfChanged(); box.querySelector("input").focus(); }));
+      const input = box.querySelector("input");
+      const add = () => {
+        const fresh = input.value.split(",").map((v) => v.trim()).filter((v) => v && !box._values.some((k) => k.toLowerCase() === v.toLowerCase()));
+        input.value = ""; if (!fresh.length) return; box._values.push(...fresh); render(); pfChanged(); box.querySelector("input").focus();
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(); }
+        else if (e.key === "Backspace" && !input.value && box._values.length) { box._values.pop(); render(); pfChanged(); box.querySelector("input").focus(); }
+      });
+      input.addEventListener("blur", add);
+    };
+    render();
+  }
+  const pfList = (name) => $(`#profile .chip-edit[data-list="${name}"]`)._values;
+  function pfMatch() {
+    const match = {};
+    for (const line of $("#pf-match").value.split("\n")) {
+      const at = line.indexOf("="); if (at < 1) continue;
+      const label = line.slice(0, at).trim(), terms = line.slice(at + 1).split(",").map((t) => t.trim()).filter(Boolean);
+      if (label && terms.length) match[label] = terms;
+    }
+    return match;
+  }
+  const pfBody = () => ({
+    impact: { role: $("#pf-role").value, topics: pfList("topics"), gpus: pfList("gpus"), platforms: pfList("platforms"),
+              favor: pfList("favor"), avoid: pfList("avoid"), match: pfMatch() },
+    interests: { summary: $("#pf-summary").value, keywords: pfList("keywords"), exclusions: pfList("exclusions") },
+  });
+  function pfChanged() {
+    pf.dirty = true; $("#pf-dirty").hidden = false;
+    clearTimeout(pf.timer); pf.timer = setTimeout(pfPreview, 350);
+  }
+  function renderProfileForm(data) {
+    pf.data = data; pf.dirty = false; $("#pf-dirty").hidden = true; $("#pf-error").hidden = true;
+    const p = data.profile || { identity: {}, priorities: {}, hardware: {}, preferences: {}, match: {} };
+    const i = data.interests || {};
+    $("#pf-state").className = "state " + (data.overridden ? "running" : "published");
+    $("#pf-state").textContent = data.overridden ? "personnalisé" : "profil du dépôt";
+    $("#pf-label").textContent = data.profile ? data.profile.label : "aucun profil";
+    $("#pf-role").value = p.identity.role || "";
+    const values = { topics: p.priorities.topics, gpus: p.hardware.gpus, platforms: p.hardware.platforms, favor: p.preferences.favor,
+                     avoid: p.preferences.avoid, keywords: i.keywords, exclusions: i.exclusions };
+    pfLists().forEach((box) => chipEditor(box, values[box.dataset.list] || []));
+    $("#pf-match").value = Object.entries(p.match || {}).map(([label, terms]) => `${label} = ${terms.join(", ")}`).join("\n");
+    $("#pf-summary").value = i.summary || "";
+    $("#pf-interests-date").textContent = i.answered_at ? `${i.edited ? "modifié" : "entretien"} du ${i.answered_at.slice(0, 10)}` : "aucun profil Grill-me";
+    $("#pf-reset-impact").disabled = !data.overridden; $("#pf-reset-interests").disabled = !data.interests;
+    $("#pf-history").textContent = data.history.length ? `Versions archivées (data/profile-history) : ${data.history.slice(0, 5).join(", ")}` : "";
+    $("#profile-hint-label").textContent = data.profile ? data.profile.label : "ton profil";
+    pfPreview();
+  }
+  async function loadProfile() {
+    try { renderProfileForm(await api("/api/profile")); } catch (error) { toast(error.message); }
+  }
+  async function pfPreview() {
+    try {
+      const r = await api("/api/profile/preview", { method: "POST", body: JSON.stringify(pfBody()) });
+      $("#pf-preview-label").textContent = (pf.dirty ? "aperçu non enregistré · " : "") + (r.label || "sans profil");
+      $("#pf-preview").innerHTML = r.items.length ? r.items.map((it) => `<li class="${it.avoid ? "avoid" : ""}">
+        <div><div class="pf-score">${it.avoid ? "—" : it.score}</div><div class="pf-bar"><div style="width:${it.avoid ? 0 : it.score}%"></div></div></div>
+        <div><a href="${safeUrl(it.url)}" target="_blank" rel="noopener"><b>${esc(it.title)}</b></a> <span class="muted">· ${esc(it.source)}</span>
+          <div class="muted" style="font-size:.84rem">${esc(it.reasons.join(" · ") || "aucun lien avec le profil")}</div></div></li>`).join("")
+        : '<li><span></span><span class="muted">Aucune veille publiée : lancez une veille pour voir l\'ordre.</span></li>';
+    } catch (error) { $("#pf-preview").innerHTML = `<li><span></span><span class="muted">${esc(error.message)}</span></li>`; }
+  }
+  ["#pf-role", "#pf-match", "#pf-summary"].forEach((sel) => $(sel).addEventListener("input", pfChanged));
+  $("#pf-save").addEventListener("click", async () => {
+    try {
+      renderProfileForm(await api("/api/profile", { method: "PUT", body: JSON.stringify(pfBody()) }));
+      notify({ title: "🧑‍💻 Profil enregistré", body: `« Quoi de neuf ? » suit maintenant ${pf.data.profile?.label || "ton profil"}`, kind: "ok", view: "profile" });
+    } catch (error) { $("#pf-error").textContent = error.message; $("#pf-error").hidden = false; }
+  });
+  $("#pf-cancel").addEventListener("click", () => pf.data && renderProfileForm(pf.data));
+  async function pfReset(scope, question) {
+    if (!confirm(question)) return;
+    try { renderProfileForm(await api(`/api/profile?scope=${scope}`, { method: "DELETE" })); toast("Profil réinitialisé"); }
+    catch (error) { toast(error.message); }
+  }
+  $("#pf-reset-impact").addEventListener("click", () => pfReset("impact", "Revenir au profil d'impact du dépôt ? La version personnalisée sera archivée dans data/profile-history."));
+  $("#pf-reset-interests").addEventListener("click", () => pfReset("interests", "Oublier le profil Grill-me courant ? (mots-clés, exclusions, résumé)"));
+  $("#pf-reset-all").addEventListener("click", () => pfReset("all", "Tout réinitialiser : profil du dépôt ET oubli du profil Grill-me ?"));
+  $("#pf-try").addEventListener("click", () => {
+    if (pf.dirty && !confirm("Le profil n'est pas enregistré : « Quoi de neuf ? » utilisera la version enregistrée. Continuer ?")) return;
+    show("chat"); send("Quoi de neuf dans les dernières veilles ?");
+  });
+  $("#pf-grill").addEventListener("click", (e) => { e.preventDefault(); show("grill"); });
+  $("#profile-hint-open").addEventListener("click", (e) => { e.preventDefault(); show("profile"); });
+  api("/api/profile").then((d) => { $("#profile-hint-label").textContent = d.profile ? d.profile.label : "ton profil"; }).catch(() => {});
 
   // --- Mémoire ---------------------------------------------------------------------
   async function loadMemory() {
@@ -2509,6 +2835,9 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
       <div class="review-head"><h3><a href="${safeUrl(p.final_url)}" target="_blank" rel="noopener">${esc(r.title)} ↗</a></h3>
         <div class="muted" style="font-size:.84rem">${esc(p.site)} · ${esc(p.published_at || "date non précisée")} · ${p.word_count} mots${p.truncated ? " (tronqué)" : ""}
           · révision ${r.revision} · ${esc(r.model)}</div>
+        ${p.via && p.via !== "direct" ? `<div class="warning" title="${esc((p.fetch_notes || []).join("\n"))}">📦 Page d'origine inaccessible : texte obtenu ${{
+          archive: "depuis une copie archivée (Wayback Machine)", claude: "par l'outil web_fetch de Claude", local: "depuis la copie collectée par la veille" }[p.via] || esc(p.via)}.
+          ${esc((p.fetch_notes || []).slice(1).join(" · "))}</div>` : ""}
         <div class="chips" style="margin-top:8px">${p.domains.map((d) => `<span class="chip">${esc(d)}</span>`).join("") || '<span class="chip">domaine non détecté</span>'}
           <span class="state ${a.source_type === "primaire" ? "published" : a.source_type === "secondaire" ? "awaiting_approval" : ""}">source ${esc(a.source_type)}</span></div>
         <div class="review-actions">
@@ -2612,7 +2941,8 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
                    action: { label: "Voir", run: () => { show("review"); openReview(rid); } } });
         } else if (event.type === "error") {
           steps.querySelector(".pending")?.remove();
-          steps.insertAdjacentHTML("beforeend", `<li data-icon="✕"><span class="err">${esc(event.text)}</span></li>`);
+          steps.insertAdjacentHTML("beforeend", `<li data-icon="✕"><span class="err multiline">${esc(event.text)}</span></li>`);
+          if (event.code === "llm_crash") crashActions(steps.lastElementChild, () => runReview(path, body));
         }
       });
     } catch (error) {
@@ -3277,7 +3607,7 @@ table.lb .barcell { width: 32%; } table.lb .barcell i { display: block; height: 
   });
 
   // --- Démarrage ---------------------------------------------------------------------
-  loadHealth(); loadConversations(); setInterval(loadHealth, 30000); connectLive();
+  loadHealth(); loadConversations(); setInterval(loadHealth, 30000); connectLive(); pollGpu();
   api("/api/runs").then((runs) => { const active = runs.find((r) => ["running", "awaiting_approval"].includes(r.status)); if (active) followRun(active.id); }).catch(() => {});
   const linked = location.hash.match(/^#c=(.+)$/);
   if (linked) openConversation(decodeURIComponent(linked[1])).catch(() => {});

@@ -379,11 +379,20 @@ WORKSPACE_HINT = ("Clé API Claude non rattachée à un workspace : ajoutez CLAU
                   "créée dans un workspace, puis redémarrez le serveur.")
 
 
+def account_blocked(error: Exception) -> bool:
+    """Erreur de compte (crédit épuisé, clé refusée, workspace) : tout appel échouera jusqu'à correction."""
+    text = str(error)
+    return any(marker in text for marker in ("credit balance is too low", "authentication_error",
+                                             "invalid x-api-key", "anthropic-workspace-id"))
+
+
 def explain_api_error(error: Exception) -> str:
     """Message actionnable pour les erreurs courantes de l'API Claude."""
     text = str(error)
     if "anthropic-workspace-id" in text:
         return WORKSPACE_HINT
+    if "credit balance is too low" in text:
+        return "Crédit API Claude épuisé : rechargez le compte (Console Claude → Plans & Billing)."
     if "authentication_error" in text or "invalid x-api-key" in text:
         return "Clé API Claude refusée : vérifiez CLAUDE_API puis redémarrez le serveur."
     return f"API Claude : {type(error).__name__} : {text[:400]}"

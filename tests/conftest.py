@@ -79,6 +79,23 @@ def fake_ollama(
 
 
 @pytest.fixture(autouse=True)
+def no_ollama_recovery(monkeypatch):
+    """Une reprise après plantage ne décharge jamais les modèles du vrai serveur Ollama."""
+    import app.ollama_runner
+
+    monkeypatch.setattr(app.ollama_runner, "recover", lambda *args, **kwargs: [])
+
+
+@pytest.fixture(autouse=True)
+def no_profile_override(monkeypatch, tmp_path):
+    """Un profil personnalisé sur le poste (data/profile.toml) n'influence jamais les tests."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "impact_profile_override_path", tmp_path / "profile-override" / "profile.toml")
+    monkeypatch.setattr(settings, "impact_profile_history_dir", tmp_path / "profile-override" / "history")
+
+
+@pytest.fixture(autouse=True)
 def no_led_ring(monkeypatch):
     """Les tests ne pilotent jamais l'anneau LED réel (broker MQTT de la Jetson)."""
     from app import main

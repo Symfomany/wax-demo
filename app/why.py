@@ -11,7 +11,7 @@ from __future__ import annotations
 from app import storage
 from app.config import settings
 from app.memory import WatchMemory
-from app.profile import load_profile
+from app.profile import active_profile_path, load_active_profile
 from app.workflow.quality import DEFAULT_WEIGHTS
 
 EVIDENCE_RULES = [
@@ -26,11 +26,11 @@ EVIDENCE_RULES = [
 
 def why_payload(connection, store) -> dict:
     memory = WatchMemory(store)
-    profile = load_profile(settings.impact_profile_path)
+    profile = load_active_profile()
     digests = storage.recent_digests(connection, limit=1)
     last = digests[0]["digest"] if digests else None
     return {
-        "profile": profile.model_dump() | {"label": profile.label, "path": str(settings.impact_profile_path)}
+        "profile": profile.model_dump() | {"label": profile.label, "path": str(active_profile_path())}
         if profile else None,
         "records": [record.model_dump(mode="json") for record in memory.records()],
         "tags": memory.top_tags(limit=12),

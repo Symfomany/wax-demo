@@ -6,6 +6,9 @@ L'anneau publie son état sur ``veille/led/status`` et la liste de ses animation
 
 Les animations ponctuelles (``news_found``, ``report_published``, ``success``, ``error``) repassent seules en
 ``idle`` ; celles en boucle tiennent jusqu'à la commande suivante (retour en ``idle`` après 10 min côté anneau).
+Côté appli, ``busy()`` garantit le retour en ``idle`` quand une activité s'arrête sans animation de fin
+(annulation, client déconnecté, arrêt du serveur) ; le serveur web remet aussi l'anneau en ``idle`` au
+démarrage et à l'arrêt.
 L'anneau est décoratif : broker absent ou anneau éteint ne font jamais échouer l'appli.
 """
 
@@ -24,6 +27,8 @@ ANIMATIONS = frozenset({
     "off", "idle", "news_search", "news_found", "keyword_search", "review", "grill_me", "report_published",
     "scrape_source", "success", "error",
 })
+# Animations qui terminent une activité (l'anneau revient seul en idle ou y est déjà).
+FINAL = frozenset({"off", "idle", "news_found", "report_published", "success", "error"})
 
 
 class LedRing:
@@ -56,6 +61,18 @@ class LedRing:
         if done:
             self.send(done)
 
+    @contextmanager
+    def busy(self, anim: str) -> Iterator["LedSession"]:
+        """Animation en boucle pendant le bloc ; retour en ``idle`` si le bloc se termine sans animation
+        de fin, y compris sur ``GeneratorExit`` (flux SSE fermé par le client) ou une annulation."""
+        session = LedSession(self)
+        session.send(anim)
+        try:
+            yield session
+        finally:
+            if not session.settled:
+                self.send("idle")
+
     def news_found(self, count: int) -> None:
         self.send("news_found", count=max(0, min(int(count), 24)))  # une LED par actu, 24 au plus
 
@@ -64,6 +81,22 @@ class LedRing:
 
     def brightness(self, value: int) -> None:
         self._send({"brightness": max(0, min(int(value), 255))})
+
+
+class LedSession:
+    """Commandes d'une activité ``busy()`` : retient si une animation de fin a été envoyée."""
+
+    def __init__(self, ring: LedRing):
+        self.ring = ring
+        self.settled = False
+
+    def send(self, anim: str, **params: int) -> None:
+        self.ring.send(anim, **params)
+        self.settled = anim in FINAL
+
+    def news_found(self, count: int) -> None:
+        self.ring.news_found(count)
+        self.settled = True
 
 
 class NullLed(LedRing):

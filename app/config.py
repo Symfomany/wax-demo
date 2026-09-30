@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.1
     llm_num_ctx: int = 8192
     llm_timeout: int = 180
+    # Runner Ollama planté (CUDA out of memory sur la Jetson…) : reprises automatiques après
+    # déchargement des modèles, délai entre deux essais ; commande optionnelle de redémarrage du
+    # service pour le bouton « Redémarrer le moteur LLM » (ex. « sudo -n systemctl restart ollama »)
+    # /metrics (Prometheus) : libre depuis la machine elle-même, sinon jeton Bearer METRICS_TOKEN
+    metrics_token: str | None = None
+    llm_crash_retries: int = Field(2, ge=0, le=5)
+    llm_crash_delay: float = Field(3.0, ge=0, le=60)
+    ollama_restart_command: str | None = None
 
     # Budgets du harness : bornent le coût et la durée d'une exécution.
     max_llm_calls: int = 20
@@ -56,6 +64,9 @@ class Settings(BaseSettings):
     evidence_excerpt_chars: int = Field(1200, ge=300, le=6000)
     # Profil d'impact versionné (TOML suivi par Git) ; fichier absent = pas de profil
     impact_profile_path: Path = PROJECT_ROOT / "profiles/julien.toml"
+    # Profil personnalisé depuis l'interface (hors Git, prioritaire) et archives des versions remplacées
+    impact_profile_override_path: Path = PROJECT_ROOT / "data/profile.toml"
+    impact_profile_history_dir: Path = PROJECT_ROOT / "data/profile-history"
     # Mémoire typée : durée de vie d'une leçon humaine ; règles suggérées après N rejets d'un thème
     memory_lesson_ttl_days: int = Field(180, ge=1, le=3650)
     rule_suggestion_min_rejections: int = Field(3, ge=2, le=50)
@@ -108,6 +119,11 @@ class Settings(BaseSettings):
     review_max_bytes: int = 3_000_000  # taille maximale d'une page téléchargée
     review_timeout: int = 20
     review_allow_private: bool = False  # URLs vers le réseau local (déconseillé)
+    # Page protégée (Cloudflare, 403, 429…) : replis sur la copie archivée (web.archive.org),
+    # puis l'outil serveur web_fetch de Claude (clé CLAUDE_API), puis la copie collectée par la veille
+    review_archive_fallback: bool = True
+    review_claude_fetch: bool = True
+    review_fetch_tool: str = "web_fetch_20250910"
     # Actus en cartes : pages de blog crawlées + recherche web par l'API Claude (outil web_search)
     # clé API Claude (CLAUDE_API ou CLAUDE_API_KEY), sinon ANTHROPIC_API_KEY
     claude_api: str | None = Field(None, validation_alias=AliasChoices("CLAUDE_API", "CLAUDE_API_KEY"))
@@ -182,6 +198,10 @@ class Settings(BaseSettings):
     mqtt_button_cooldown: float = Field(10, ge=0, le=3600)  # secondes : appuis rapprochés ignorés
     mqtt_button_prompt: str = Field("Quoi de neuf dans les dernières veilles ?", min_length=1, max_length=2000)
     # Anneau LED (ESP32-C3) : animations par activité, même broker MQTT que le bouton (app/led.py)
+    # Bouton d'alimentation câblé sur la Jetson (gpio-keys, KEY_POWER) : service root veille-power-button
+    power_button_hold_seconds: float = Field(5.0, ge=1, le=30)
+    power_button_command: str = "/sbin/shutdown now"
+    power_button_device: str | None = None  # défaut : détecté dans /proc/bus/input/devices
     led_enabled: bool = True
     led_topic: str = "veille/led/set"
 
