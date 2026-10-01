@@ -22,6 +22,9 @@ traces, et les pièges rencontrés. Versions utilisées : `langgraph` 1.2.12,
 
 ### Graphe de veille
 
+Description détaillée du supervisor, du Task Graph et du parcours « Quoi de neuf ? » :
+[task-graph.md](task-graph.md).
+
 ```mermaid
 graph TD;
   __start__ --> supervisor;
