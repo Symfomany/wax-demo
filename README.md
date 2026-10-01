@@ -19,6 +19,8 @@ et validation humaine. Chaque affirmation publiée renvoie à sa source primaire
 ![Docker](https://img.shields.io/badge/Docker-compose-2496ED?logo=docker&logoColor=white)
 ![Jetson](https://img.shields.io/badge/NVIDIA-Jetson%20Orin-76B900?logo=nvidia&logoColor=white)
 
+🎞️ **Slides : [github.com/Symfomany/wax-demo](https://github.com/Symfomany/wax-demo)**
+
 [Démarrage rapide](#-démarrage-rapide) · [Stack](#-stack-technique) · [Fonctionnalités](#-fonctionnalités) ·
 [Architecture](#️-architecture) · [Commandes](#️-commandes) · [Documentation](#-documentation)
 
