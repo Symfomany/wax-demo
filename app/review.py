@@ -4,7 +4,10 @@ Agent **Reviewer** (graphe LangGraph) : fetch → analyze → guard → save.
 
 - fetch   : téléchargement borné (http/https, adresses publiques uniquement, chaque
             redirection revérifiée), extraction du texte principal. Titre, site et date
-            sont recopiés depuis les métadonnées de la page, jamais produits par le LLM ;
+            sont recopiés depuis les métadonnées de la page, jamais produits par le LLM.
+            Page protégée (403 Cloudflare, 429…) : replis successifs sur la copie archivée
+            (Wayback Machine), l'outil serveur `web_fetch` de Claude, puis la copie collectée
+            par la veille ; la provenance du texte (`Page.via`) est affichée ;
 - analyze : domaines détectés par les mots-clés des règles métiers (déterministe), puis
             LLM en sortie structurée guidé par le skill `review-actu`, les critères du skill
             `veille-tech`, les règles métiers, le glossaire et la mémoire de veille ;
@@ -23,6 +26,7 @@ from html import escape
 import json
 import re
 import socket
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -48,7 +52,15 @@ from app.llm import StructuredLLM
 
 
 class FetchError(RuntimeError):
-    pass
+    """`fallback` : la page existe peut-être mais nous est refusée (protection anti-bot, quota,
+    rendu JavaScript…) — une copie archivée ou un fetch tiers peut alors réussir. Jamais pour
+    une URL refusée par sécurité (SSRF) ou un type de contenu non pris en charge.
+    `transient` : un nouvel essai direct, un peu plus tard, a des chances de réussir."""
+
+    def __init__(self, message: str, fallback: bool = False, transient: bool = False) -> None:
+        super().__init__(message)
+        self.fallback = fallback
+        self.transient = transient
 
 
 # --- Extraction HTML → texte ----------------------------------------------------------
@@ -163,6 +175,9 @@ class Page(BaseModel):
     text: str
     word_count: int
     truncated: bool = False
+    # Provenance du texte : page d'origine, copie archivée, fetch Claude ou copie collectée par la veille
+    via: Literal["direct", "archive", "claude", "local"] = "direct"
+    fetch_notes: list[str] = Field(default_factory=list)  # pourquoi un repli a été nécessaire
 
 
 def extract_page(html: str, url: str, final_url: str | None = None, max_chars: int | None = None) -> Page:
@@ -210,7 +225,19 @@ def extract_page(html: str, url: str, final_url: str | None = None, max_chars: i
 # --- Téléchargement borné --------------------------------------------------------------
 
 ALLOWED_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
-USER_AGENT = "Mozilla/5.0 (compatible; LLMWatchHarness/0.5; review)"
+# En-têtes d'un navigateur courant : beaucoup de sites refusent un client qui s'annonce comme robot.
+USER_AGENT = ("Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/129.0.0.0 Safari/537.36")
+BROWSER_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5",
+    "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+}
+# Refus « anti-robot », quota ou page disparue : la copie archivée peut exister.
+BLOCKED_STATUS = {401, 403, 404, 410, 429, 451, 503}
+TRANSIENT_STATUS = {408, 425, 429, 500, 502, 503, 504}
+CHALLENGE = re.compile(r"just a moment|un instant|attention required|checking your browser|"
+                       r"verify you are human|enable javascript and cookies|cf-browser-verification", re.I)
 
 
 def system_resolve(host: str) -> list[str]:
@@ -246,7 +273,7 @@ def download(url: str, client: httpx.Client | None = None,
     accepte tout type (flux RSS/Atom servis en application/xml, etc.).
     """
     own_client = client is None
-    client = client or httpx.Client(timeout=settings.review_timeout, headers={"User-Agent": USER_AGENT})
+    client = client or httpx.Client(timeout=settings.review_timeout, headers=BROWSER_HEADERS)
     try:
         current = url
         for _ in range(6):
@@ -256,7 +283,13 @@ def download(url: str, client: httpx.Client | None = None,
                     current = urljoin(current, response.headers.get("location", ""))
                     continue
                 if response.status_code >= 400:
-                    raise FetchError(f"La page a répondu HTTP {response.status_code}.")
+                    status = response.status_code
+                    protected = response.headers.get("cf-mitigated") == "challenge" or (
+                        status in (403, 503) and "cloudflare" in response.headers.get("server", "").lower())
+                    reason = " (protection anti-robot Cloudflare)" if protected else ""
+                    raise FetchError(f"La page a répondu HTTP {status}{reason}.",
+                                     fallback=status in BLOCKED_STATUS or protected,
+                                     transient=status in TRANSIENT_STATUS and not protected)
                 content_type = response.headers.get("content-type", "text/html").split(";")[0].strip().lower()
                 if allowed_types is not None and content_type not in allowed_types:
                     raise FetchError(f"Type de contenu non pris en charge : {content_type} (HTML ou texte attendu).")
@@ -269,7 +302,8 @@ def download(url: str, client: httpx.Client | None = None,
                 return current, content_type, bytes(body[: settings.review_max_bytes]).decode(encoding, errors="replace")
         raise FetchError("Trop de redirections.")
     except httpx.HTTPError as error:
-        raise FetchError(f"Téléchargement impossible : {type(error).__name__} {error}") from error
+        raise FetchError(f"Téléchargement impossible : {type(error).__name__} {error}", fallback=True,
+                         transient=isinstance(error, (httpx.TimeoutException, httpx.TransportError))) from error
     finally:
         if own_client:
             client.close()
@@ -281,9 +315,128 @@ def fetch_page(url: str, client: httpx.Client | None = None,
     if content_type == "text/plain":
         raw = "".join(f"<p>{escape(p)}</p>" for p in raw.split("\n\n") if p.strip())
     page = extract_page(raw, url, final_url)
+    if CHALLENGE.search(page.title) or (page.word_count < 80 and CHALLENGE.search(page.text)):
+        raise FetchError("Page de vérification anti-robot au lieu de l'article.", fallback=True)
     if page.word_count < 30:
-        raise FetchError("Texte extrait trop court : page vide, protégée ou rendue en JavaScript.")
+        raise FetchError("Texte extrait trop court : page vide, protégée ou rendue en JavaScript.", fallback=True)
     return page
+
+
+# --- Replis quand la page d'origine est protégée ----------------------------------------------
+
+ARCHIVE_URL = "https://web.archive.org/web/{stamp}id_/{url}"  # id_ : page d'origine, sans bandeau
+
+
+def fetch_archive(url: str, client: httpx.Client | None = None,
+                  resolve: Callable[[str], list[str]] = system_resolve,
+                  sleep: Callable[[float], None] = time.sleep) -> Page:
+    """Copie la plus récente de la Wayback Machine (Internet Archive), 2 essais si elle sature (429)."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    for attempt in range(2):
+        try:
+            page = fetch_page(ARCHIVE_URL.format(stamp=stamp, url=url), client, resolve)
+            break
+        except FetchError as error:
+            if error.transient and not attempt:
+                sleep(3)
+                continue
+            raise FetchError(f"aucune copie archivée exploitable ({error})") from error
+    snapshot = re.search(r"/web/(\d{8})", str(page.final_url))
+    when = f"{snapshot.group(1)[:4]}-{snapshot.group(1)[4:6]}-{snapshot.group(1)[6:]}" if snapshot else "date inconnue"
+    return page.model_copy(update={"url": url, "via": "archive",
+                                   "fetch_notes": [f"copie archivée du {when} : {page.final_url}"]})
+
+
+def fetch_with_claude(url: str, client=None, model: str | None = None) -> Page:
+    """Outil serveur `web_fetch` de l'API Claude : la page est récupérée par les serveurs d'Anthropic.
+
+    Seul le texte renvoyé par l'outil fait foi (le LLM ne rédige rien ici)."""
+    from app.news import NewsError, claude_client, explain_api_error
+
+    try:
+        client = client or claude_client()
+    except NewsError as error:
+        raise FetchError(str(error)) from error
+    tool = {"type": settings.review_fetch_tool, "name": "web_fetch", "max_uses": 1,
+            "max_content_tokens": max(2000, settings.review_max_chars // 2)}
+    prompt = f"Récupère cette page avec l'outil web_fetch, puis réponds seulement « OK » : {url}"
+    try:
+        response = client.messages.create(model=model or settings.news_model, max_tokens=512, tools=[tool],
+                                          messages=[{"role": "user", "content": prompt}])
+    except Exception as error:  # noqa: BLE001 — clé, crédit, réseau : un repli qui échoue n'est pas fatal
+        raise FetchError(explain_api_error(error)) from error
+    for block in response.content:
+        if getattr(block, "type", "") != "web_fetch_tool_result":
+            continue
+        result = block.content
+        if getattr(result, "type", "") != "web_fetch_result":
+            raise FetchError(f"web_fetch a échoué ({getattr(result, 'error_code', 'erreur inconnue')}).")
+        source = result.content.source
+        if getattr(source, "type", "") != "text":
+            raise FetchError("web_fetch a renvoyé un document non textuel (PDF…).")
+        text = source.data[: settings.review_max_bytes]
+        html = text if "<html" in text[:2000].lower() else "".join(
+            f"<p>{escape(p)}</p>" for p in re.split(r"\n\s*\n", text) if p.strip())
+        page = extract_page(html, url, getattr(result, "url", None) or url)
+        if not page.title or page.title == urlsplit(url).hostname:
+            title = getattr(result.content, "title", None)
+            page = page.model_copy(update={"title": (title or page.title)[:500]})
+        if page.word_count < 30:
+            raise FetchError("web_fetch n'a renvoyé qu'un texte trop court.")
+        return page.model_copy(update={"via": "claude", "fetch_notes": ["texte récupéré par l'outil web_fetch de Claude"]})
+    raise FetchError("Claude n'a pas utilisé l'outil web_fetch.")
+
+
+def fetch_local(url: str, connection) -> Page:
+    """Copie collectée par la veille (flux RSS, crawl des actus) : souvent un simple résumé."""
+    row = connection.execute("SELECT title, summary, content, published_at FROM documents WHERE url = ?",
+                             (url,)).fetchone() if connection is not None else None
+    if row is None:
+        raise FetchError("aucune copie collectée par la veille")
+    title, summary, content, published = row
+    text = content if len(content or "") > len(summary or "") else summary
+    html = f"<title>{escape(title)}</title>" + "".join(f"<p>{escape(p)}</p>" for p in (text or "").split("\n\n"))
+    page = extract_page(html, url, url).model_copy(update={"published_at": (published or "")[:10] or None})
+    if page.word_count < 30:
+        raise FetchError(f"copie collectée trop courte ({page.word_count} mots, résumé du flux seulement)")
+    return page.model_copy(update={"via": "local", "fetch_notes": ["copie collectée par la veille (flux / crawl)"]})
+
+
+def fetch_resilient(url: str, connection=None, client: httpx.Client | None = None,
+                    resolve: Callable[[str], list[str]] = system_resolve,
+                    archive: Callable[[str], Page] | None = None,
+                    claude: Callable[[str], Page] | None = None,
+                    sleep: Callable[[float], None] = time.sleep) -> Page:
+    """Page d'origine (2 essais si l'erreur est transitoire), puis replis si elle est protégée.
+
+    L'erreur finale détaille chaque tentative : l'utilisateur sait pourquoi rien n'a marché."""
+    attempts: list[str] = []
+    for attempt in range(2):
+        try:
+            return fetch_page(url, client, resolve)
+        except FetchError as error:
+            if not error.fallback:
+                raise  # SSRF, type de contenu : aucun repli
+            direct_error = error
+            if not error.transient or attempt:
+                break
+            sleep(1.5)
+    attempts.append(f"page d'origine : {direct_error}")
+    fallbacks: list[tuple[str, Callable[[], Page]]] = []
+    if settings.review_archive_fallback:
+        fallbacks.append(("archive", lambda: (archive or (lambda u: fetch_archive(u, client, resolve, sleep)))(url)))
+    if settings.review_claude_fetch and (claude is not None or settings.claude_search_key):
+        fallbacks.append(("Claude web_fetch", lambda: (claude or fetch_with_claude)(url)))
+    fallbacks.append(("veille", lambda: fetch_local(url, connection)))
+    for name, fetch in fallbacks:
+        try:
+            page = fetch()
+        except FetchError as error:
+            attempts.append(f"{name} : {error}")
+            continue
+        return page.model_copy(update={"fetch_notes": [f"page d'origine inaccessible — {direct_error}",
+                                                       *page.fetch_notes]})
+    raise FetchError("Impossible de récupérer le texte de l'article.\n- " + "\n- ".join(attempts))
 
 
 # --- Sortie LLM et record validé -------------------------------------------------------
@@ -456,7 +609,7 @@ class ReviewState(TypedDict, total=False):
 class ReviewContext:
     llm: StructuredLLM
     connection: object
-    fetch: Callable[[str], Page] = fetch_page
+    fetch: Callable[[str], Page] | None = None  # défaut : fetch_resilient (replis compris)
     knowledge: Callable[[], KnowledgeBase] = load_knowledge
     memory: Callable[[], str] = lambda: "Aucun."
     skill_path: Path = field(default_factory=lambda: settings.review_skill_path)
@@ -474,7 +627,7 @@ def build_review_graph(context: ReviewContext):
     def fetch(state: ReviewState) -> dict:
         if state.get("previous"):  # révision : la page est déjà en base
             return {"page": state["previous"]["page"]}
-        page = context.fetch(state["url"])
+        page = context.fetch(state["url"]) if context.fetch else fetch_resilient(state["url"], context.connection)
         return {"page": page.model_dump(mode="json")}
 
     def analyze(state: ReviewState) -> dict:
@@ -544,7 +697,9 @@ def build_review_graph(context: ReviewContext):
 def step_detail(node: str, update: dict) -> str:
     if node == "fetch" and "page" in update:
         page = update["page"]
-        return f"{page['site']} · {page['word_count']} mots" + (" (tronqué)" if page.get("truncated") else "")
+        via = {"archive": " · via copie archivée", "claude": " · via Claude web_fetch",
+               "local": " · via copie collectée"}.get(page.get("via", "direct"), "")
+        return f"{page['site']} · {page['word_count']} mots" + (" (tronqué)" if page.get("truncated") else "") + via
     if node == "analyze" and "draft" in update:
         return (f"domaines : {', '.join(update['domains']) or 'aucun'} · {len(update['rules'])} règle(s) · "
                 f"{len(update['draft']['claims'])} affirmation(s)")

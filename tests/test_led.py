@@ -57,3 +57,28 @@ def test_run_statuses_map_to_known_animations():
     from app.led import ANIMATIONS
 
     assert set(RUN_LED.values()) <= ANIMATIONS
+
+
+def test_busy_returns_to_idle_unless_the_activity_settled():
+    sent = []
+    ring = LedRing(lambda topic, payload: sent.append(json.loads(payload)["anim"]))
+
+    def stream(finish: bool):
+        with ring.busy("keyword_search") as session:
+            yield "token"
+            if finish:
+                session.news_found(3)
+
+    generator = stream(finish=False)
+    next(generator)
+    generator.close()  # client déconnecté / génération annulée : GeneratorExit
+    assert sent == ["keyword_search", "idle"]
+
+    sent.clear()
+    list(stream(finish=True))
+    assert sent == ["keyword_search", "news_found"]  # animation de fin : pas de idle en plus
+
+    sent.clear()
+    with pytest.raises(RuntimeError), ring.busy("review"):
+        raise RuntimeError("boom")
+    assert sent == ["review", "idle"]

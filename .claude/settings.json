@@ -23,7 +23,10 @@
       "Skill(schedule:*)",
       "Bash(python -m compileall -q app)",
       "Bash(.venv/bin/python -m pytest -q)",
-      "Bash(./node_modules/.bin/bun test *)"
+      "Bash(./node_modules/.bin/bun test *)",
+      "Bash(.venv/bin/python -c \"import playwright; print\\('py-playwright'\\)\")",
+      "Bash(.venv/bin/python -c \"import websocket; print\\('ws'\\)\")",
+      "Bash(.venv/bin/python -c \"import websockets; print\\('websockets'\\)\")"
     ],
     "deny": [
       "Read(./.env)",

@@ -30,6 +30,7 @@ from app.harness.prompts import render_prompt
 from app.instructions import render_instructions
 from app.llm import BudgetExceeded, LLMOutputError, StructuredLLM
 from app.memory import WatchMemory
+from app.ollama_runner import call_with_recovery
 
 RouterTool = Literal[
     "search_watch", "latest_digests", "run_watch", "github_search",
@@ -91,7 +92,7 @@ def rule_route(message: str) -> ChatDecision | None:
 # Ce que chaque outil engage dans le harness (affiché sous chaque réponse).
 TOOL_ENGAGEMENT: dict[str, dict[str, list[str]]] = {
     "search_watch": {"data": ["SQLite FTS5 (documents)"]},
-    "latest_digests": {"data": ["digests publiés"]},
+    "latest_digests": {"data": ["digests publiés", "profil d'impact (Mon profil)", "Store LangGraph (centres d'intérêt)"]},
     "run_watch": {"agents": ["supervisor", "collector", "scout", "critic", "fact-checker", "editor"],
                   "skills": ["veille-tech"], "mcp": ["github-scout"]},
     "github_search": {"skills": ["github-scout"], "mcp": ["github-scout"]},
@@ -230,7 +231,12 @@ def build_chat_graph(context: ChatContext, checkpointer=None):
             tool=state["decision"]["tool"],
             context=result.get("context") or "Aucun (conversation générale).",
         )
-        response = context.chat_model.invoke([SystemMessage(system), *history(state)], config)
+        writer = get_stream_writer()
+        response = call_with_recovery(
+            lambda: context.chat_model.invoke([SystemMessage(system), *history(state)], config),
+            on_retry=lambda error, attempt: writer({"type": "llm_recovering", "attempt": attempt,
+                                                   "error": str(error)[:200]}),
+        )
         # Le message renvoyé garde l'id des tokens streamés : pas de doublon côté interface.
         return {"answer": response.text, "messages": [response]}
 

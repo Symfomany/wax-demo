@@ -26,6 +26,16 @@ DOCKER="$(command -v docker)" || die "docker introuvable (Jetson : sudo apt inst
 export VEILLE_UID="${SUDO_UID:-$(id -u)}" VEILLE_GID="${SUDO_GID:-$(id -g)}"
 mkdir -p "$ROOT/data" "$ROOT/output" "$ROOT/reports" "$ROOT/.claude/memory"
 
+# Les conteneurs remplacent l'installation native : pas de double cron ni de conflit sur le port web
+if systemctl --user is-enabled veille-cron.service >/dev/null 2>&1; then
+  echo "Désactivation du cron natif (systemd utilisateur) : le conteneur cron le remplace"
+  systemctl --user disable --now veille-cron.service
+fi
+if [[ -f "$ROOT/data/web.pid" ]] && kill -0 "$(cat "$ROOT/data/web.pid")" 2>/dev/null; then
+  echo "Arrêt du serveur web natif : le conteneur web reprend le port"
+  "$ROOT/bin/veille" stop
+fi
+
 echo "Construction de l'image (UID $VEILLE_UID)…"
 (cd "$ROOT" && sudo --preserve-env=VEILLE_UID,VEILLE_GID,VEILLE_WITH_BROWSER "$DOCKER" compose build)
 

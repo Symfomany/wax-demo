@@ -22,6 +22,7 @@ from app import storage
 from app.harness.guards import sanitize_untrusted
 from app.knowledge import KnowledgeBase, load_knowledge
 from app.memory import WatchMemory
+from app.profile import ImpactProfile, load_active_profile, personalize
 from app.reports import list_reports
 from app.review import best_passages, record_as_text
 
@@ -47,6 +48,7 @@ class ChatServices:
     notion_sync: Callable | None = None
     github_search: Callable[[str], list] | None = None
     knowledge: Callable[[], KnowledgeBase] = load_knowledge
+    profile: Callable[[], ImpactProfile | None] = load_active_profile  # oriente « Quoi de neuf ? »
 
 
 def _numbered(sources: list[dict]) -> list[dict]:
@@ -74,25 +76,44 @@ def build_tools(services: ChatServices) -> dict[str, StructuredTool]:
         ).as_dict()
 
     def latest_digests(limit: int = 3) -> dict:
-        """Dernières veilles publiées : synthèse et signaux retenus."""
+        """Dernières veilles publiées : signaux classés selon le profil du lecteur (Mon profil)."""
         records = storage.recent_digests(services.connection, limit=max(1, min(limit, 5)))
-        sources, blocks = [], []
+        profile = services.profile()
+        interests = WatchMemory(services.store).interests() or {}
+        items, seen, syntheses = [], set(), []
         for record in records:
             digest = record["digest"]
-            lines = [f"Veille du {digest['generated_at'][:10]} — synthèse : {digest['executive_summary']}"]
+            syntheses.append(f"Veille du {digest['generated_at'][:10]} — synthèse : {digest['executive_summary']}")
             for item in digest["items"]:
-                sources.append({"title": item["title"], "url": item["url"], "source": item["source"],
-                                "date": (item.get("date") or "")[:10], "summary": item["summary"][:400],
-                                "why": item["why_it_matters"][:300]})
-                lines.append(f"[{len(sources)}] {item['title']} — {item['summary']} "
-                             f"Pourquoi : {item['why_it_matters']}")
-            blocks.append("\n".join(lines))
+                if item["url"] not in seen:  # un signal repris d'une veille à l'autre ne compte qu'une fois
+                    seen.add(item["url"])
+                    items.append(item | {"digest_date": digest["generated_at"][:10]})
+        ranked = personalize(items, profile, interests.get("keywords") or [], interests.get("exclusions") or [])
+        sources, lines = [], []
+        for item in ranked:
+            fit = item["for_you"]
+            sources.append({"title": item["title"], "url": item["url"], "source": item["source"],
+                            "date": (item.get("date") or "")[:10], "summary": item["summary"][:400],
+                            "why": item["why_it_matters"][:300], "for_you": fit})
+            fit_text = ("à éviter selon ton profil" if fit["avoid"] else f"pertinence pour toi {fit['score']}/100") \
+                + (" — " + " ; ".join(fit["reasons"]) if fit["reasons"] else "")
+            lines.append(f"[{len(sources)}] {item['title']} (veille du {item['digest_date']}) — {item['summary']} "
+                         f"Pourquoi : {item['why_it_matters']} Pour toi : {fit_text}")
+        who = profile.label if profile else "aucun profil d'impact"
+        header = (f"Signaux classés du plus au moins pertinent pour le lecteur (profil {who}"
+                  f"{', mots-clés Grill-me' if interests.get('keywords') else ''}). Commence par les plus "
+                  "pertinents, explique en une phrase pourquoi ils comptent pour lui, et mentionne à peine "
+                  "ceux marqués « à éviter ».")
+        if profile:
+            header += "\nProfil du lecteur :\n" + profile.prompt_text()
         return ToolResult(
-            summary=f"{len(records)} veille(s) publiée(s) chargée(s)",
+            summary=f"{len(records)} veille(s) publiée(s) · {len(ranked)} signal(aux) classé(s) pour {who}",
             sources=_numbered(sources),
-            context="\n\n".join(blocks) or "Aucune veille publiée pour l'instant.",
+            context="\n\n".join([header, *syntheses, "\n".join(lines)]) if records
+            else "Aucune veille publiée pour l'instant.",
             direct=None if records else
             "Aucune veille n'a encore été publiée. Dites « lance une veille » pour en produire une.",
+            data={"profile": profile.label if profile else None},
         ).as_dict()
 
     def run_watch(collect: bool = True, keywords: str = "") -> dict:

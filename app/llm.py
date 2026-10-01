@@ -124,6 +124,8 @@ def ollama_invoke() -> InvokeFn:
     # propage automatiquement aux appels ChatOllama faits dans les nœuds.
     from langchain_ollama import ChatOllama
 
+    from app.metrics import STRUCTURED
+
     def invoke(messages: list[dict[str, str]], json_schema: dict[str, Any]) -> str:
         chat = ChatOllama(
             model=settings.llm_model,
@@ -132,8 +134,12 @@ def ollama_invoke() -> InvokeFn:
             num_ctx=settings.llm_num_ctx,
             format=json_schema,
             client_kwargs={"timeout": settings.llm_timeout},
+            callbacks=[STRUCTURED],  # métriques Prometheus (TTFT, latence, tokens) : app/metrics.py
         )
-        response = chat.invoke(messages, config={"run_name": json_schema.get("title", "llm")})
+        from app.ollama_runner import call_with_recovery
+
+        response = call_with_recovery(
+            lambda: chat.invoke(messages, config={"run_name": json_schema.get("title", "llm")}))
         return response.content
 
     return invoke
@@ -162,6 +168,8 @@ def openai_invoke() -> InvokeFn:
     """
     from langchain_openai import ChatOpenAI
 
+    from app.metrics import STRUCTURED
+
     def invoke(messages: list[dict[str, str]], json_schema: dict[str, Any]) -> str:
         chat = ChatOpenAI(
             model=settings.llm_model,
@@ -170,6 +178,7 @@ def openai_invoke() -> InvokeFn:
             temperature=openai_temperature(settings.llm_temperature),
             timeout=settings.llm_timeout,
             max_retries=2,
+            callbacks=[STRUCTURED],
         )
         prompt = [dict(m) for m in messages]
         prompt[0]["content"] += schema_instruction(json_schema)
@@ -240,6 +249,8 @@ def get_llm(connection=None) -> StructuredLLM:
 
 def get_chat_model():
     """Modèle conversationnel (streaming) du chat, selon le fournisseur configuré."""
+    from app.metrics import CHAT  # métriques Prometheus du chat (TTFT, latence, tokens)
+
     if settings.llm_provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
@@ -248,17 +259,18 @@ def get_chat_model():
             max_tokens=16000,
             anthropic_api_key=settings.anthropic_api_key,
             default_request_timeout=float(settings.llm_timeout),
+            callbacks=[CHAT],
         )
     if settings.llm_provider == "openai":
         from langchain_openai import ChatOpenAI
 
         return ChatOpenAI(
             model=settings.llm_model, base_url=settings.llm_base_url, api_key=settings.llm_api_key,
-            temperature=openai_temperature(0.3), timeout=settings.llm_timeout,
+            temperature=openai_temperature(0.3), timeout=settings.llm_timeout, callbacks=[CHAT],
         )
     from langchain_ollama import ChatOllama
 
     return ChatOllama(
         model=settings.llm_model, base_url=settings.ollama_url, temperature=0.3,
-        num_ctx=settings.llm_num_ctx, client_kwargs={"timeout": settings.llm_timeout},
+        num_ctx=settings.llm_num_ctx, client_kwargs={"timeout": settings.llm_timeout}, callbacks=[CHAT],
     )

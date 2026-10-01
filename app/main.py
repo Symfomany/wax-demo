@@ -26,6 +26,16 @@ from app.workflow.tasks import COLLECTORS, default_plan
 cli = typer.Typer(no_args_is_help=True)
 
 
+def _require_fresh_image() -> None:
+    """Conteneur : refuse de démarrer (message clair) si l'image n'a pas les dépendances de pyproject.toml."""
+    from app.config import PROJECT_ROOT
+    from app.image_check import stale_image_message
+
+    if message := stale_image_message(PROJECT_ROOT / "pyproject.toml"):
+        print(f"[red]✗ {message}[/red]")
+        raise typer.Exit(3)
+
+
 @functools.cache
 def _led():
     """Anneau LED (MQTT) de la commande en cours ; ``LED_ENABLED=false`` : aucune animation."""
@@ -882,9 +892,41 @@ cli.add_typer(cron_cli, name="cron")
 _CRON_STYLE = {"ok": "[green]✓ ok[/green]", "failed": "[red]✗ échec[/red]", "skipped": "[yellow]— sautée[/yellow]"}
 
 
+@cli.command("power-button")
+def power_button(
+    hold: float = typer.Option(None, help="Durée d'appui (s) avant extinction (défaut POWER_BUTTON_HOLD_SECONDS)."),
+    device: str = typer.Option(None, help="Périphérique d'entrée (défaut : détecté, gpio-keys)."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Affiche l'extinction au lieu de la lancer (essai)."),
+    detect: bool = typer.Option(False, "--detect", help="Affiche le périphérique détecté et quitte."),
+):
+    """Bouton d'alimentation de la Jetson : appui long → extinction (service root veille-power-button)."""
+    import logging
+
+    from app.power_button import find_power_device, listen
+
+    path = device or settings.power_button_device or find_power_device()
+    if detect:
+        print(path or "[red]Aucun périphérique KEY_POWER trouvé[/red]")
+        raise typer.Exit(0 if path else 1)
+    if not path:
+        print("[red]✗ Aucun bouton d'alimentation (KEY_POWER) dans /proc/bus/input/devices[/red]")
+        raise typer.Exit(1)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    try:
+        listen(path, hold or settings.power_button_hold_seconds, settings.power_button_command,
+               dry_run=dry_run, led=_led())
+    except PermissionError:
+        print(f"[red]✗ Lecture de {path} refusée : lancer en root (service veille-power-button) "
+              "ou avec sudo pour un essai --dry-run[/red]")
+        raise typer.Exit(1)
+    except KeyboardInterrupt:
+        print("Bouton d'alimentation : écoute arrêtée.")
+
+
 @cron_cli.command("start")
 def cron_start():
     """Démon au premier plan : un cycle chaque jour à CRON_HOUR:CRON_MINUTE, rattrapage si manqué."""
+    _require_fresh_image()
     from app.scheduler import Daemon, configure_logging
 
     configure_logging()
@@ -1036,6 +1078,7 @@ def web(
     port: int = typer.Option(settings.web_port, help="Port HTTP."),
 ):
     """Lance l'interface web de chat (http://127.0.0.1:8000)."""
+    _require_fresh_image()  # avant d'importer le serveur (sinon ImportError obscur dans le conteneur)
     import uvicorn
 
     from app.web.auth import AuthConfigError

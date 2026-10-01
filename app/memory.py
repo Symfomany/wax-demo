@@ -213,6 +213,23 @@ class WatchMemory:
         item = self.store.get(INTERESTS, "current")
         return item.value if item else None
 
+    def edit_interests(self, summary: str, keywords: list[str], exclusions: list[str]) -> dict:
+        """Retouche manuelle du profil Grill-me (espace « Mon profil ») ; l'historique est conservé."""
+        now = datetime.now(timezone.utc).isoformat()
+        profile = (self.interests() or {}) | {
+            "summary": summary, "keywords": keywords, "exclusions": exclusions,
+            "answered_at": now, "edited": True,
+        }
+        self.set_interests(profile)
+        return profile
+
+    def clear_interests(self) -> bool:
+        """Oublie le profil Grill-me courant (l'historique des entretiens reste dans le Store)."""
+        if self.store.get(INTERESTS, "current") is None:
+            return False
+        self.store.delete(INTERESTS, "current")
+        return True
+
     # --- Restitution -----------------------------------------------------------
 
     def prompt_context(self) -> str:

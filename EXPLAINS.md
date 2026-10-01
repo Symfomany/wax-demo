@@ -1,4 +1,33 @@
-# Projet : LLM Watch Harness
+# Projet Scouty : AI Veille  Harness
+
+## Carte des fichiers
+app/workflow/graph.py	Graphe principal : supervisor, workers, validation humaine, publication, mémoire
+
+app/workflow/tasks.py	Task Graph : DAG validé par Pydantic, ordre topologique, rendu Mermaid
+
+app/workflow/subagents.py	Sous-graphes research, review, editorial
+
+app/workflow/state.py	État partagé, réducteurs, contexte d'exécution, contrats d'état
+
+app/harness/guards.py	Guards MCP, neutralisation des injections, contrats de nœuds
+
+app/harness/hooks.py	Contrôles déterministes : risques documentaires, garde-fous de publication
+
+app/harness/skills.py	Chargement du SKILL.md partagé avec Claude Code
+
+app/llm.py	Appels structurés : schéma JSON imposé, validation, relance, cache, budget
+
+app/memory.py	Mémoire long terme sur le Store LangGraph, export Claude Code
+
+app/mcp_servers/github_server.py	Serveur MCP github-scout (FastMCP, stdio)
+
+app/collectors/	Collecteurs RSS, arXiv, releases GitHub et client MCP
+app/prompts/*.md	Prompts versionnés de Scout, Critic et Editor
+app/storage.py	SQLite : migrations versionnées, mémoire factuelle, cache
+sources.toml	Sources autorisées (vérifiées avant ajout)
+
+----
+
 
 Ton application est déjà bien au-delà d’un prototype de veille : elle a un double harness Claude Code + application, un DAG LangGraph piloté de façon déterministe, des sous-graphes spécialisés, une interruption humaine avant publication, des guards multicouches, trois mémoires, des MCP read-only, une UI SSE, de l’observabilité et environ 150 tests.
 
